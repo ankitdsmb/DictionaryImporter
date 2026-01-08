@@ -6,7 +6,7 @@ using DictionaryImporter.Infrastructure.Persistence;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 
-namespace DictionaryImporter.Infrastructure.PostProcessing
+namespace DictionaryImporter.Infrastructure.Parsing
 {
     public sealed class DictionaryParsedDefinitionProcessor
     {
