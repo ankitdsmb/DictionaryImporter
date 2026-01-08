@@ -199,13 +199,16 @@ internal sealed class Program
             ));
 
         services.AddSingleton<DictionaryParsedDefinitionProcessor>(sp =>
-            new DictionaryParsedDefinitionProcessor(
-                connectionString,
-                sp.GetRequiredService<IDictionaryDefinitionParser>(),
-                sp.GetRequiredService<SqlParsedDefinitionWriter>(),
-                sp.GetRequiredService<ILogger<DictionaryParsedDefinitionProcessor>>()
-            ));
-
+             new DictionaryParsedDefinitionProcessor(
+                 connectionString,
+                 sp.GetRequiredService<IDictionaryDefinitionParser>(),
+                 sp.GetRequiredService<SqlParsedDefinitionWriter>(),
+                 sp.GetRequiredService<SqlDictionaryEntryCrossReferenceWriter>(),
+                 sp.GetRequiredService<SqlDictionaryAliasWriter>(),
+                 sp.GetRequiredService<IEntryEtymologyWriter>(),
+                 sp.GetRequiredService<SqlDictionaryEntryVariantWriter>(),
+                 sp.GetRequiredService<ILogger<DictionaryParsedDefinitionProcessor>>()
+             ));
 
         // ------------------------------------------------------------
         // Orchestrator (FINAL)

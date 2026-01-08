@@ -20,13 +20,13 @@ namespace DictionaryImporter.Orchestration
         private readonly DictionaryConceptMerger _conceptMerger;
         private readonly DictionaryConceptConfidenceCalculator _conceptConfidenceCalculator;
         private readonly DictionaryGraphRankCalculator _graphRankCalculator;
+        private readonly IPostMergeVerifier _postMergeVerifier;
         private readonly ILogger<ImportOrchestrator> _logger;
 
         private readonly Func<IDictionaryEntryValidator> _validatorFactory;
         private readonly Func<IDataMergeExecutor> _mergeFactory;
-        private readonly ICanonicalWordResolver _canonicalResolver;
         private readonly Func<ImportEngineFactory<GutenbergRawEntry>> _engineFactory;
-        private readonly IPostMergeVerifier _postMergeVerifier;
+        private readonly ICanonicalWordResolver _canonicalResolver;
 
         public ImportOrchestrator(
             Func<IDictionaryEntryValidator> validatorFactory,
@@ -91,10 +91,10 @@ namespace DictionaryImporter.Orchestration
                     // 3. Canonical resolution
                     await _canonicalResolver.ResolveAsync(source.SourceCode, ct);
 
-                    // 4. Definition parsing (CRITICAL)
+                    // 4. Definition parsing (SENSES + CROSS-REFERENCES)
                     await _parsedDefinitionProcessor.ExecuteAsync(source.SourceCode, ct);
 
-                    // 5. Linguistic enrichment
+                    // 5. Linguistic enrichment (POS + SYNONYMS)
                     await _linguisticEnricher.ExecuteAsync(source.SourceCode, ct);
 
                     // 6. Graph materialization
