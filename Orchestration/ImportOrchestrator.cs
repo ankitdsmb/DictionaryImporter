@@ -2,7 +2,10 @@
 using DictionaryImporter.Core.Canonical;
 using DictionaryImporter.Core.Validation;
 using DictionaryImporter.Infrastructure.Graph;
+using DictionaryImporter.Infrastructure.Parsing;
 using DictionaryImporter.Infrastructure.PostProcessing;
+using DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
+using DictionaryImporter.Infrastructure.PostProcessing.Verification;
 using DictionaryImporter.Infrastructure.Verification;
 using DictionaryImporter.Sources.Gutenberg;
 using Microsoft.Extensions.Logging;
@@ -28,6 +31,8 @@ namespace DictionaryImporter.Orchestration
         private readonly Func<ImportEngineFactory<GutenbergRawEntry>> _engineFactory;
         private readonly ICanonicalWordResolver _canonicalResolver;
 
+        private readonly CanonicalWordIpaEnricher _ipaEnricher;
+        private readonly IpaVerificationReporter _ipaVerificationReporter;
         public ImportOrchestrator(
             Func<IDictionaryEntryValidator> validatorFactory,
             Func<IDataMergeExecutor> mergeFactory,
@@ -43,7 +48,9 @@ namespace DictionaryImporter.Orchestration
             DictionaryConceptConfidenceCalculator conceptConfidenceCalculator,
             DictionaryGraphRankCalculator graphRankCalculator,
             IPostMergeVerifier postMergeVerifier,
-            ILogger<ImportOrchestrator> logger)
+            ILogger<ImportOrchestrator> logger,
+            CanonicalWordIpaEnricher ipaEnricher,
+            IpaVerificationReporter ipaVerificationReporter)
         {
             _validatorFactory = validatorFactory;
             _mergeFactory = mergeFactory;
@@ -60,6 +67,8 @@ namespace DictionaryImporter.Orchestration
             _graphRankCalculator = graphRankCalculator;
             _postMergeVerifier = postMergeVerifier;
             _logger = logger;
+            _ipaEnricher = ipaEnricher;
+            _ipaVerificationReporter = ipaVerificationReporter;
         }
 
         public async Task RunAsync(
@@ -109,11 +118,25 @@ namespace DictionaryImporter.Orchestration
 
                     // 9. Global concept processing
                     await _conceptMerger.MergeAsync(ct);
+
                     await _conceptConfidenceCalculator.CalculateAsync(ct);
+
                     await _graphRankCalculator.CalculateAsync(ct);
+
+                    await _ipaEnricher.ExecuteAsync(
+                    "en-US",
+                    @"Data\IPA\en_US.txt",
+                    ct);
+
+                    await _ipaEnricher.ExecuteAsync(
+                        "en-UK",
+                        @"Data\IPA\en_UK.txt",
+                        ct);
 
                     // 10. Final verification
                     await _postMergeVerifier.VerifyAsync(source.SourceCode, ct);
+
+                    await _ipaVerificationReporter.ReportAsync(ct);
 
                     _logger.LogInformation(
                         "Source completed successfully {Source} ({Code})",

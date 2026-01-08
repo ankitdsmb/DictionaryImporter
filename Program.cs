@@ -11,8 +11,11 @@ using DictionaryImporter.Infrastructure.Canonical;
 using DictionaryImporter.Infrastructure.Graph;
 using DictionaryImporter.Infrastructure.Linguistics;
 using DictionaryImporter.Infrastructure.Merge;
+using DictionaryImporter.Infrastructure.Parsing;
 using DictionaryImporter.Infrastructure.Persistence;
 using DictionaryImporter.Infrastructure.PostProcessing;
+using DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
+using DictionaryImporter.Infrastructure.PostProcessing.Verification;
 using DictionaryImporter.Infrastructure.Verification;
 using DictionaryImporter.Orchestration;
 using DictionaryImporter.Sources.Gutenberg;
@@ -209,6 +212,22 @@ internal sealed class Program
                  sp.GetRequiredService<SqlDictionaryEntryVariantWriter>(),
                  sp.GetRequiredService<ILogger<DictionaryParsedDefinitionProcessor>>()
              ));
+
+        services.AddSingleton<SqlCanonicalWordPronunciationWriter>(sp =>
+    new SqlCanonicalWordPronunciationWriter(connectionString));
+
+        services.AddSingleton<CanonicalWordIpaEnricher>(sp =>
+    new CanonicalWordIpaEnricher(
+        connectionString,
+        sp.GetRequiredService<SqlCanonicalWordPronunciationWriter>()
+    ));
+
+        services.AddSingleton<IpaVerificationReporter>(sp =>
+            new IpaVerificationReporter(
+                connectionString,
+                sp.GetRequiredService<ILogger<IpaVerificationReporter>>()
+            ));
+
 
         // ------------------------------------------------------------
         // Orchestrator (FINAL)
