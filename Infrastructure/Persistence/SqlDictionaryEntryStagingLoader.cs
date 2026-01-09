@@ -12,6 +12,10 @@ namespace DictionaryImporter.Infrastructure.Persistence
         private readonly string _cs;
         private readonly ILogger<SqlDictionaryEntryStagingLoader> _logger;
 
+        // SQL Server datetime minimum
+        private static readonly DateTime SqlMinDate =
+            new DateTime(1753, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
         public SqlDictionaryEntryStagingLoader(
             string connectionString,
             ILogger<SqlDictionaryEntryStagingLoader> logger)
@@ -25,18 +29,54 @@ namespace DictionaryImporter.Infrastructure.Persistence
             CancellationToken ct)
         {
             var list = entries.ToList();
-
             if (list.Count == 0)
                 return;
 
+            var now = DateTime.UtcNow;
+
+            // ------------------------------------------------------------
+            // FIX: Project into NEW instances (init-only safe)
+            // ------------------------------------------------------------
+            var sanitized = list.Select(e =>
+                new DictionaryEntryStaging
+                {
+                    Word = e.Word,
+                    NormalizedWord = e.NormalizedWord,
+                    PartOfSpeech = e.PartOfSpeech,
+                    Definition = e.Definition,
+                    Etymology = e.Etymology,
+                    SenseNumber = e.SenseNumber,
+                    SourceCode = e.SourceCode,
+                    CreatedUtc = e.CreatedUtc < SqlMinDate
+                        ? now
+                        : e.CreatedUtc
+                })
+                .ToList();
+
             const string sql = """
-            INSERT INTO dbo.DictionaryEntry_Staging
-            (Word, NormalizedWord, PartOfSpeech, Definition,
-             Etymology, SenseNumber, SourceCode, CreatedUtc)
-            VALUES
-            (@Word, @NormalizedWord, @PartOfSpeech, @Definition,
-             @Etymology, @SenseNumber, @SourceCode, @CreatedUtc);
-            """;
+                INSERT INTO dbo.DictionaryEntry_Staging
+                (
+                    Word,
+                    NormalizedWord,
+                    PartOfSpeech,
+                    Definition,
+                    Etymology,
+                    SenseNumber,
+                    SourceCode,
+                    CreatedUtc
+                )
+                VALUES
+                (
+                    @Word,
+                    @NormalizedWord,
+                    @PartOfSpeech,
+                    @Definition,
+                    @Etymology,
+                    @SenseNumber,
+                    @SourceCode,
+                    @CreatedUtc
+                );
+                """;
 
             await using var conn = new SqlConnection(_cs);
             await conn.OpenAsync(ct);
@@ -47,21 +87,23 @@ namespace DictionaryImporter.Infrastructure.Persistence
             {
                 await conn.ExecuteAsync(
                     sql,
-                    list,
+                    sanitized,
                     transaction: tx);
 
                 await tx.CommitAsync(ct);
 
                 _logger.LogInformation(
                     "Committed batch of {Count} staging rows",
-                    list.Count);
+                    sanitized.Count);
             }
             catch
             {
                 await tx.RollbackAsync(ct);
+
                 _logger.LogError(
-                    "Rolled back batch of {Count} rows",
-                    list.Count);
+                    "Rolled back batch of {Count} staging rows",
+                    sanitized.Count);
+
                 throw;
             }
         }

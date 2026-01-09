@@ -43,6 +43,10 @@ namespace DictionaryImporter.Infrastructure.Parsing
             string sourceCode,
             CancellationToken ct)
         {
+            _logger.LogInformation(
+                "Stage=Parsing started | Source={SourceCode}",
+                sourceCode);
+
             await using var conn = new SqlConnection(_connectionString);
             await conn.OpenAsync(ct);
 
@@ -50,20 +54,44 @@ namespace DictionaryImporter.Infrastructure.Parsing
             // 1. Load DictionaryEntry rows
             // --------------------------------------------------
             var entries =
-                await conn.QueryAsync<DictionaryEntry>(
+                (await conn.QueryAsync<DictionaryEntry>(
                     """
                     SELECT *
                     FROM dbo.DictionaryEntry
                     WHERE SourceCode = @SourceCode
                       AND Definition IS NOT NULL
                     """,
-                    new { SourceCode = sourceCode });
+                    new { SourceCode = sourceCode }))
+                .ToList();
 
+            _logger.LogInformation(
+                "Stage=Parsing | EntriesLoaded={Count} | Source={SourceCode}",
+                entries.Count,
+                sourceCode);
+
+            int entryIndex = 0;
             int senseCount = 0;
+            int crossRefCount = 0;
+            int aliasCount = 0;
+            int variantCount = 0;
 
             foreach (var entry in entries)
             {
                 ct.ThrowIfCancellationRequested();
+                entryIndex++;
+
+                // --------------------------------------------------
+                // Progress heartbeat (every 1k entries)
+                // --------------------------------------------------
+                if (entryIndex % 1_000 == 0)
+                {
+                    _logger.LogInformation(
+                        "Stage=Parsing progress | Source={SourceCode} | Entries={Processed}/{Total} | Senses={Senses}",
+                        sourceCode,
+                        entryIndex,
+                        entries.Count,
+                        senseCount);
+                }
 
                 // --------------------------------------------------
                 // 2. Parse entry into ParsedDefinition objects
@@ -75,7 +103,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
                     continue;
 
                 // --------------------------------------------------
-                // 3. Persist parsed definitions (flat, no hierarchy)
+                // 3. Persist parsed definitions
                 // --------------------------------------------------
                 foreach (var parsed in parsedDefinitions)
                 {
@@ -87,13 +115,17 @@ namespace DictionaryImporter.Infrastructure.Parsing
                             parentParsedId: null,
                             ct);
 
-                    // 3.2 Cross-references (SEE / SEE ALSO / CF)
+                    senseCount++;
+
+                    // 3.2 Cross-references
                     foreach (var cr in parsed.CrossReferences)
                     {
                         await _crossRefWriter.WriteAsync(
                             parsedId,
                             cr,
                             ct);
+
+                        crossRefCount++;
                     }
 
                     // 3.3 Alias
@@ -103,9 +135,11 @@ namespace DictionaryImporter.Infrastructure.Parsing
                             parsedId,
                             parsed.Alias,
                             ct);
+
+                        aliasCount++;
                     }
 
-                    // 3.4 Etymology (entry-level, safe to repeat once)
+                    // 3.4 Etymology (entry-level)
                     if (!string.IsNullOrWhiteSpace(entry.Etymology))
                     {
                         await _etymologyWriter.WriteAsync(
@@ -117,8 +151,6 @@ namespace DictionaryImporter.Infrastructure.Parsing
                             },
                             ct);
                     }
-
-                    senseCount++;
                 }
 
                 // --------------------------------------------------
@@ -133,13 +165,19 @@ namespace DictionaryImporter.Infrastructure.Parsing
                         variant,
                         type,
                         ct);
+
+                    variantCount++;
                 }
             }
 
             _logger.LogInformation(
-                "Parsed definitions completed | Source={SourceCode} | Senses={Count}",
+                "Stage=Parsing completed | Source={SourceCode} | Entries={Entries} | Senses={Senses} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants}",
                 sourceCode,
-                senseCount);
+                entryIndex,
+                senseCount,
+                crossRefCount,
+                aliasCount,
+                variantCount);
         }
     }
 }
