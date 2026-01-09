@@ -1,32 +1,59 @@
 ﻿using Dapper;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Graph
 {
     public sealed class DictionaryConceptConfidenceCalculator
     {
         private readonly string _connectionString;
+        private readonly ILogger<DictionaryConceptConfidenceCalculator> _logger;
 
-        public DictionaryConceptConfidenceCalculator(string connectionString)
+        public DictionaryConceptConfidenceCalculator(
+            string connectionString,
+            ILogger<DictionaryConceptConfidenceCalculator> logger)
         {
             _connectionString = connectionString;
+            _logger = logger;
         }
 
         public async Task CalculateAsync(
             CancellationToken ct)
         {
+            _logger.LogInformation(
+                "ConceptConfidence calculation started");
+
             await using var conn =
                 new SqlConnection(_connectionString);
 
             await conn.OpenAsync(ct);
 
             var concepts =
-                await conn.QueryAsync<long>(
-                    "SELECT ConceptId FROM dbo.Concept");
+                (await conn.QueryAsync<long>(
+                    "SELECT ConceptId FROM dbo.Concept"))
+                .ToList();
+
+            _logger.LogInformation(
+                "ConceptConfidence | TotalConcepts={Count}",
+                concepts.Count);
+
+            int processed = 0;
 
             foreach (var conceptId in concepts)
             {
                 ct.ThrowIfCancellationRequested();
+                processed++;
+
+                // --------------------------------------------------
+                // PROGRESS HEARTBEAT (every 1k concepts)
+                // --------------------------------------------------
+                if (processed % 1_000 == 0)
+                {
+                    _logger.LogInformation(
+                        "ConceptConfidence progress | Processed={Processed}/{Total}",
+                        processed,
+                        concepts.Count);
+                }
 
                 // ---------------------------------------------
                 // A. Sense count
@@ -145,6 +172,10 @@ namespace DictionaryImporter.Infrastructure.Graph
                         Score = confidence
                     });
             }
+
+            _logger.LogInformation(
+                "ConceptConfidence calculation completed | TotalProcessed={Total}",
+                processed);
         }
     }
 }

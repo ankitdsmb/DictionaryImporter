@@ -1,28 +1,38 @@
 ﻿using Dapper;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Graph
 {
     public sealed class DictionaryConceptBuilder
     {
         private readonly string _connectionString;
+        private readonly ILogger<DictionaryConceptBuilder> _logger;
 
-        public DictionaryConceptBuilder(string connectionString)
+        public DictionaryConceptBuilder(
+            string connectionString,
+            ILogger<DictionaryConceptBuilder> logger)
         {
             _connectionString = connectionString;
+            _logger = logger;
         }
 
         public async Task BuildAsync(
             string sourceCode,
             CancellationToken ct)
         {
+            _logger.LogInformation(
+                "ConceptBuilder started | Source={Source}",
+                sourceCode);
+
             await using var conn = new SqlConnection(_connectionString);
             await conn.OpenAsync(ct);
 
             // --------------------------------------------------
             // 1. SELECT CANDIDATE SENSES
             // --------------------------------------------------
-            var senses = await conn.QueryAsync<ConceptSeed>(
+            var senses = (
+                await conn.QueryAsync<ConceptSeed>(
                     """
                     SELECT
                         p.DictionaryEntryParsedId,
@@ -34,11 +44,32 @@ namespace DictionaryImporter.Infrastructure.Graph
                         ON e.DictionaryEntryId = p.DictionaryEntryId
                     WHERE e.SourceCode = @SourceCode;
                     """,
-                    new { SourceCode = sourceCode });
+                    new { SourceCode = sourceCode })
+                ).ToList();
+
+            _logger.LogInformation(
+                "ConceptBuilder | Source={Source} | CandidateSenses={Count}",
+                sourceCode,
+                senses.Count);
+
+            int processed = 0;
 
             foreach (var s in senses)
             {
                 ct.ThrowIfCancellationRequested();
+                processed++;
+
+                // --------------------------------------------------
+                // PROGRESS HEARTBEAT (every 10k senses)
+                // --------------------------------------------------
+                if (processed % 10_000 == 0)
+                {
+                    _logger.LogInformation(
+                        "ConceptBuilder progress | Source={Source} | Processed={Processed}/{Total}",
+                        sourceCode,
+                        processed,
+                        senses.Count);
+                }
 
                 var conceptKey =
                     $"{s.Domain}:{s.PartOfSpeech}:{s.Head}";
@@ -129,6 +160,11 @@ namespace DictionaryImporter.Infrastructure.Graph
 
                 await tx.CommitAsync(ct);
             }
+
+            _logger.LogInformation(
+                "ConceptBuilder completed | Source={Source} | TotalProcessed={Total}",
+                sourceCode,
+                processed);
         }
 
         private sealed class ConceptSeed
