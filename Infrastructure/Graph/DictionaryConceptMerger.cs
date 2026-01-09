@@ -1,20 +1,28 @@
 ﻿using Dapper;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Graph
 {
     public sealed class DictionaryConceptMerger
     {
         private readonly string _connectionString;
+        private readonly ILogger<DictionaryConceptMerger> _logger;
 
-        public DictionaryConceptMerger(string connectionString)
+        public DictionaryConceptMerger(
+            string connectionString,
+            ILogger<DictionaryConceptMerger> logger)
         {
             _connectionString = connectionString;
+            _logger = logger;
         }
 
         public async Task MergeAsync(
             CancellationToken ct)
         {
+            _logger.LogInformation(
+                "ConceptMerger started");
+
             await using var conn =
                 new SqlConnection(_connectionString);
 
@@ -24,17 +32,37 @@ namespace DictionaryImporter.Infrastructure.Graph
             // 1. FIND DUPLICATE CONCEPT KEYS
             // --------------------------------------------------
             var duplicates =
-                await conn.QueryAsync<(string Key, int Count)>(
+                (await conn.QueryAsync<(string Key, int Count)>(
                     """
                     SELECT ConceptKey, COUNT(*) AS Cnt
                     FROM dbo.Concept
                     GROUP BY ConceptKey
                     HAVING COUNT(*) > 1
-                    """);
+                    """))
+                .ToList();
+
+            _logger.LogInformation(
+                "ConceptMerger | DuplicateKeys={Count}",
+                duplicates.Count);
+
+            int processedKeys = 0;
+            int mergedAliases = 0;
 
             foreach (var dup in duplicates)
             {
                 ct.ThrowIfCancellationRequested();
+                processedKeys++;
+
+                // --------------------------------------------------
+                // HEARTBEAT (every 100 duplicate keys)
+                // --------------------------------------------------
+                if (processedKeys % 100 == 0)
+                {
+                    _logger.LogInformation(
+                        "ConceptMerger progress | ProcessedKeys={Processed}/{Total}",
+                        processedKeys,
+                        duplicates.Count);
+                }
 
                 var concepts =
                     (await conn.QueryAsync<long>(
@@ -87,8 +115,15 @@ namespace DictionaryImporter.Infrastructure.Graph
                             Canonical = canonicalId,
                             Alias = aliasId
                         });
+
+                    mergedAliases++;
                 }
             }
+
+            _logger.LogInformation(
+                "ConceptMerger completed | DuplicateKeys={Keys} | AliasesMerged={Aliases}",
+                processedKeys,
+                mergedAliases);
         }
     }
 }
