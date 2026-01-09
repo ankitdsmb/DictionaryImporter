@@ -30,6 +30,11 @@ namespace DictionaryImporter.Orchestration
         public ImportEngine<TRaw> Create(
             IDictionaryEntryValidator validator)
         {
+            _logger.LogInformation(
+                "ImportEngine created | RawType={RawType} | Validator={Validator}",
+                typeof(TRaw).Name,
+                validator.GetType().Name);
+
             return new ImportEngine<TRaw>(
                 _extractor,
                 _transformer,

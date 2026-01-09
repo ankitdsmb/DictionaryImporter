@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Core.Pipeline
 {
-    public sealed class ImportEngine<TRaw>
+    public sealed class ImportEngine<TRaw> : IImportEngine
     {
         private const int BatchSize = 10000;
 
@@ -32,6 +32,9 @@ namespace DictionaryImporter.Core.Pipeline
             _logger = logger;
         }
 
+        // ============================================================
+        // EXISTING METHOD (UNCHANGED)
+        // ============================================================
         public async Task<ImportMetrics> ImportAsync(
             Stream source,
             CancellationToken ct)
@@ -49,9 +52,7 @@ namespace DictionaryImporter.Core.Pipeline
                 {
                     ct.ThrowIfCancellationRequested();
 
-                    // ----------------------------------------------------
-                    // VALIDATION
-                    // ----------------------------------------------------
+                    // ---------------- VALIDATION ----------------
                     var result = _validator.Validate(entry);
 
                     if (!result.IsValid)
@@ -83,11 +84,11 @@ namespace DictionaryImporter.Core.Pipeline
             metrics.Stop();
 
             _logger.LogInformation(
-                    "ETL completed | Raw={Raw} | Accepted={Accepted} | Rejected={Rejected} | Duration={Ms}ms",
-                    metrics.RawEntriesExtracted,
-                    metrics.EntriesStaged,
-                    metrics.EntriesRejected,
-                    metrics.Duration.TotalMilliseconds);
+                "ETL completed | Raw={Raw} | Accepted={Accepted} | Rejected={Rejected} | Duration={Ms}ms",
+                metrics.RawEntriesExtracted,
+                metrics.EntriesStaged,
+                metrics.EntriesRejected,
+                metrics.Duration.TotalMilliseconds);
 
             return metrics;
         }
@@ -97,6 +98,16 @@ namespace DictionaryImporter.Core.Pipeline
             CancellationToken ct)
         {
             await _loader.LoadAsync(batch, ct);
+        }
+
+        // ============================================================
+        // REQUIRED EXPLICIT INTERFACE IMPLEMENTATION (FIX)
+        // ============================================================
+        async Task IImportEngine.ImportAsync(
+            Stream source,
+            CancellationToken ct)
+        {
+            await ImportAsync(source, ct);
         }
     }
 }

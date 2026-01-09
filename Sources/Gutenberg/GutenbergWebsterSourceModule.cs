@@ -1,5 +1,6 @@
 ﻿using DictionaryImporter.Core.Abstractions;
 using DictionaryImporter.Core.Sources;
+using DictionaryImporter.Infrastructure.Graph;
 using DictionaryImporter.Orchestration;
 using DictionaryImporter.Sources.Gutenberg;
 using Microsoft.Extensions.Configuration;
@@ -37,7 +38,8 @@ namespace DictionaryImporter.Sources.GutenbergWebster
             {
                 SourceCode = SourceCode,
                 SourceName = "Project Gutenberg – Webster",
-                OpenStream = () => File.OpenRead(filePath)
+                OpenStream = () => File.OpenRead(filePath),
+                GraphRebuildMode = GraphRebuildMode.Append
             };
         }
     }
