@@ -6,9 +6,8 @@ using DictionaryImporter.Infrastructure.Parsing;
 using DictionaryImporter.Infrastructure.PostProcessing;
 using DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
 using DictionaryImporter.Infrastructure.PostProcessing.Verification;
+using DictionaryImporter.Infrastructure.Qa;
 using DictionaryImporter.Infrastructure.Verification;
-using DictionaryImporter.Sources.Gutenberg;
-using DictionaryImporter.Sources.StructuredJson;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Orchestration
@@ -22,29 +21,33 @@ namespace DictionaryImporter.Orchestration
 
         private readonly DictionaryParsedDefinitionProcessor _parsedDefinitionProcessor;
         private readonly DictionaryEntryLinguisticEnricher _linguisticEnricher;
+        private readonly CanonicalWordOrthographicSyllableEnricher _orthographicSyllableEnricher;
+
         private readonly DictionaryGraphNodeBuilder _graphNodeBuilder;
         private readonly DictionaryGraphBuilder _graphBuilder;
         private readonly DictionaryGraphValidator _graphValidator;
+
         private readonly DictionaryConceptBuilder _conceptBuilder;
         private readonly DictionaryConceptMerger _conceptMerger;
         private readonly DictionaryConceptConfidenceCalculator _conceptConfidenceCalculator;
         private readonly DictionaryGraphRankCalculator _graphRankCalculator;
+
         private readonly IPostMergeVerifier _postMergeVerifier;
 
         private readonly ICanonicalWordResolver _canonicalResolver;
         private readonly CanonicalWordIpaEnricher _ipaEnricher;
+        private readonly CanonicalWordSyllableEnricher _syllableEnricher;
         private readonly IpaVerificationReporter _ipaVerificationReporter;
         private readonly IReadOnlyList<IpaSourceConfig> _ipaSources;
-
+        private readonly QaRunner _qaRunner;
         public ImportOrchestrator(
             Func<IDictionaryEntryValidator> validatorFactory,
             Func<IDataMergeExecutor> mergeFactory,
-            Func<ImportEngineFactory<GutenbergRawEntry>> gutenbergEngineFactory,
-            Func<ImportEngineFactory<StructuredJsonRawEntry>> jsonEngineFactory,
             IImportEngineRegistry engineRegistry,
             ICanonicalWordResolver canonicalResolver,
             DictionaryParsedDefinitionProcessor parsedDefinitionProcessor,
             DictionaryEntryLinguisticEnricher linguisticEnricher,
+            CanonicalWordOrthographicSyllableEnricher orthographicSyllableEnricher,
             DictionaryGraphNodeBuilder graphNodeBuilder,
             DictionaryGraphBuilder graphBuilder,
             DictionaryGraphValidator graphValidator,
@@ -53,10 +56,12 @@ namespace DictionaryImporter.Orchestration
             DictionaryConceptConfidenceCalculator conceptConfidenceCalculator,
             DictionaryGraphRankCalculator graphRankCalculator,
             IPostMergeVerifier postMergeVerifier,
-            ILogger<ImportOrchestrator> logger,
             CanonicalWordIpaEnricher ipaEnricher,
+            CanonicalWordSyllableEnricher syllableEnricher,
             IpaVerificationReporter ipaVerificationReporter,
-            IReadOnlyList<IpaSourceConfig> ipaSources)
+            IReadOnlyList<IpaSourceConfig> ipaSources,
+            ILogger<ImportOrchestrator> logger,
+            QaRunner qaRunner)
         {
             _validatorFactory = validatorFactory;
             _mergeFactory = mergeFactory;
@@ -64,6 +69,7 @@ namespace DictionaryImporter.Orchestration
             _canonicalResolver = canonicalResolver;
             _parsedDefinitionProcessor = parsedDefinitionProcessor;
             _linguisticEnricher = linguisticEnricher;
+            _orthographicSyllableEnricher = orthographicSyllableEnricher;
             _graphNodeBuilder = graphNodeBuilder;
             _graphBuilder = graphBuilder;
             _graphValidator = graphValidator;
@@ -72,10 +78,12 @@ namespace DictionaryImporter.Orchestration
             _conceptConfidenceCalculator = conceptConfidenceCalculator;
             _graphRankCalculator = graphRankCalculator;
             _postMergeVerifier = postMergeVerifier;
-            _logger = logger;
             _ipaEnricher = ipaEnricher;
+            _syllableEnricher = syllableEnricher;
             _ipaVerificationReporter = ipaVerificationReporter;
             _ipaSources = ipaSources;
+            _logger = logger;
+            _qaRunner = qaRunner;
         }
 
         public async Task RunAsync(
@@ -99,121 +107,74 @@ namespace DictionaryImporter.Orchestration
                     var validator = _validatorFactory();
 
                     // 1. IMPORT
-                    _logger.LogInformation(
-                        "Stage=Import started | Code={Code}",
-                        source.SourceCode);
-
-                    var engine =
-                        _engineRegistry.CreateEngine(
-                            source.SourceCode,
-                            validator);
-
+                    _logger.LogInformation("Stage=Import started | Code={Code}", source.SourceCode);
+                    var engine = _engineRegistry.CreateEngine(source.SourceCode, validator);
                     await engine.ImportAsync(stream, ct);
-
-                    _logger.LogInformation(
-                        "Stage=Import completed | Code={Code}",
-                        source.SourceCode);
+                    _logger.LogInformation("Stage=Import completed | Code={Code}", source.SourceCode);
 
                     // 2. MERGE
-                    _logger.LogInformation(
-                        "Stage=Merge started | Code={Code}",
-                        source.SourceCode);
-
+                    _logger.LogInformation("Stage=Merge started | Code={Code}", source.SourceCode);
                     await _mergeFactory().ExecuteAsync(source.SourceCode, ct);
-
-                    _logger.LogInformation(
-                        "Stage=Merge completed | Code={Code}",
-                        source.SourceCode);
+                    _logger.LogInformation("Stage=Merge completed | Code={Code}", source.SourceCode);
 
                     if (mode == PipelineMode.ImportOnly)
-                    {
-                        _logger.LogInformation(
-                            "Pipeline completed (ImportOnly) | Source={Source} | Code={Code}",
-                            source.SourceName,
-                            source.SourceCode);
-
                         continue;
-                    }
 
                     // 3. CANONICALIZATION
-                    _logger.LogInformation(
-                        "Stage=Canonicalization started | Code={Code}",
-                        source.SourceCode);
-
+                    _logger.LogInformation("Stage=Canonicalization started | Code={Code}", source.SourceCode);
                     await _canonicalResolver.ResolveAsync(source.SourceCode, ct);
-
-                    _logger.LogInformation(
-                        "Stage=Canonicalization completed | Code={Code}",
-                        source.SourceCode);
+                    _logger.LogInformation("Stage=Canonicalization completed | Code={Code}", source.SourceCode);
 
                     // 4. PARSING
-                    _logger.LogInformation(
-                        "Stage=Parsing started | Code={Code}",
-                        source.SourceCode);
-
+                    _logger.LogInformation("Stage=Parsing started | Code={Code}", source.SourceCode);
                     await _parsedDefinitionProcessor.ExecuteAsync(source.SourceCode, ct);
-
-                    _logger.LogInformation(
-                        "Stage=Parsing completed | Code={Code}",
-                        source.SourceCode);
+                    _logger.LogInformation("Stage=Parsing completed | Code={Code}", source.SourceCode);
 
                     // 5. LINGUISTICS
-                    _logger.LogInformation(
-                        "Stage=Linguistics started | Code={Code}",
-                        source.SourceCode);
-
+                    _logger.LogInformation("Stage=Linguistics started | Code={Code}", source.SourceCode);
                     await _linguisticEnricher.ExecuteAsync(source.SourceCode, ct);
+                    _logger.LogInformation("Stage=Linguistics completed | Code={Code}", source.SourceCode);
 
-                    _logger.LogInformation(
-                        "Stage=Linguistics completed | Code={Code}",
-                        source.SourceCode);
+                    // 5.5 ORTHOGRAPHIC SYLLABLES (PER LOCALE)
+                    foreach (var ipa in _ipaSources)
+                    {
+                        _logger.LogInformation(
+                            "Stage=OrthographicSyllables started | Locale={Locale}",
+                            ipa.Locale);
+
+                        await _orthographicSyllableEnricher.ExecuteAsync(
+                            ipa.Locale,
+                            ct);
+
+                        _logger.LogInformation(
+                            "Stage=OrthographicSyllables completed | Locale={Locale}",
+                            ipa.Locale);
+                    }
 
                     // 6. GRAPH
-                    _logger.LogInformation(
-                        "Stage=GraphBuild started | Code={Code}",
-                        source.SourceCode);
-
+                    _logger.LogInformation("Stage=GraphBuild started | Code={Code}", source.SourceCode);
                     await _graphNodeBuilder.BuildAsync(source.SourceCode, ct);
                     await _graphBuilder.BuildAsync(source.SourceCode, ct);
-
-                    _logger.LogInformation(
-                        "Stage=GraphBuild completed | Code={Code}",
-                        source.SourceCode);
+                    _logger.LogInformation("Stage=GraphBuild completed | Code={Code}", source.SourceCode);
 
                     // 7. GRAPH VALIDATION
-                    _logger.LogInformation(
-                        "Stage=GraphValidation started | Code={Code}",
-                        source.SourceCode);
-
+                    _logger.LogInformation("Stage=GraphValidation started | Code={Code}", source.SourceCode);
                     await _graphValidator.ValidateAsync(source.SourceCode, ct);
-
-                    _logger.LogInformation(
-                        "Stage=GraphValidation completed | Code={Code}",
-                        source.SourceCode);
+                    _logger.LogInformation("Stage=GraphValidation completed | Code={Code}", source.SourceCode);
 
                     // 8. CONCEPTS
-                    _logger.LogInformation(
-                        "Stage=ConceptBuild started | Code={Code}",
-                        source.SourceCode);
-
+                    _logger.LogInformation("Stage=ConceptBuild started | Code={Code}", source.SourceCode);
                     await _conceptBuilder.BuildAsync(source.SourceCode, ct);
-
-                    _logger.LogInformation(
-                        "Stage=ConceptBuild completed | Code={Code}",
-                        source.SourceCode);
+                    _logger.LogInformation("Stage=ConceptBuild completed | Code={Code}", source.SourceCode);
 
                     // 9. GLOBAL POST-CONCEPT
-                    _logger.LogInformation(
-                        "Stage=ConceptMerge started");
-
+                    _logger.LogInformation("Stage=ConceptMerge started");
                     await _conceptMerger.MergeAsync(ct);
                     await _conceptConfidenceCalculator.CalculateAsync(ct);
                     await _graphRankCalculator.CalculateAsync(ct);
+                    _logger.LogInformation("Stage=ConceptMerge completed");
 
-                    _logger.LogInformation(
-                        "Stage=ConceptMerge completed");
-
-                    // 10. IPA (config-driven)
+                    // 10. IPA (FILE-BASED)
                     foreach (var ipa in _ipaSources)
                     {
                         _logger.LogInformation(
@@ -231,22 +192,22 @@ namespace DictionaryImporter.Orchestration
                             ipa.Locale);
                     }
 
-                    // 11. VERIFICATION
-                    _logger.LogInformation(
-                        "Stage=Verification started | Code={Code}",
-                        source.SourceCode);
+                    // 10.5 IPA SYLLABLES (GLOBAL)
+                    _logger.LogInformation("Stage=IpaSyllables started");
+                    await _syllableEnricher.ExecuteAsync(ct);
+                    _logger.LogInformation("Stage=IpaSyllables completed");
 
+                    // 11. VERIFICATION
+                    _logger.LogInformation("Stage=Verification started | Code={Code}", source.SourceCode);
                     await _postMergeVerifier.VerifyAsync(source.SourceCode, ct);
                     await _ipaVerificationReporter.ReportAsync(ct);
-
-                    _logger.LogInformation(
-                        "Stage=Verification completed | Code={Code}",
-                        source.SourceCode);
+                    _logger.LogInformation("Stage=Verification completed | Code={Code}", source.SourceCode);
 
                     _logger.LogInformation(
                         "Pipeline completed successfully | Source={Source} | Code={Code}",
                         source.SourceName,
                         source.SourceCode);
+
                 }
                 catch (Exception ex)
                 {
@@ -259,6 +220,23 @@ namespace DictionaryImporter.Orchestration
                     throw;
                 }
             }
+
+            //_logger.LogInformation("Stage=QA started");
+
+            //var qaResults =
+            //    await _qaRunner.RunAsync(ct);
+
+            //foreach (var r in qaResults)
+            //{
+            //    _logger.LogInformation(
+            //        "QA | Phase={Phase} | Check={Check} | Status={Status}",
+            //        r.Phase,
+            //        r.CheckName,
+            //        r.Status);
+            //}
+
+            //_logger.LogInformation("Stage=QA completed");
+
         }
     }
 }

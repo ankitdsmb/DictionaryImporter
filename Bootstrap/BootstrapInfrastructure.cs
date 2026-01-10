@@ -82,10 +82,10 @@ namespace DictionaryImporter.Bootstrap
             services.AddSingleton<IDictionaryDefinitionParser,
                 WebsterSubEntryParser>();
 
-            services.AddSingleton(_ => new SqlParsedDefinitionWriter(connectionString));
+            services.AddSingleton<SqlParsedDefinitionWriter>(sp => new SqlParsedDefinitionWriter(connectionString, sp.GetRequiredService<ILogger<SqlParsedDefinitionWriter>>()));
             services.AddSingleton(_ => new SqlDictionaryAliasWriter(connectionString));
             services.AddSingleton(_ => new SqlDictionaryEntrySynonymWriter(connectionString));
-            services.AddSingleton(_ => new SqlDictionaryEntryCrossReferenceWriter(connectionString));
+            services.AddSingleton<SqlDictionaryEntryCrossReferenceWriter>(sp => new SqlDictionaryEntryCrossReferenceWriter(connectionString, sp.GetRequiredService<ILogger<SqlDictionaryEntryCrossReferenceWriter>>()));
             services.AddSingleton(_ => new SqlDictionaryEntryVariantWriter(connectionString));
 
             services.AddSingleton<DictionaryParsedDefinitionProcessor>(sp =>
@@ -125,7 +125,8 @@ namespace DictionaryImporter.Bootstrap
             services.AddSingleton<CanonicalWordIpaEnricher>(sp =>
                 new CanonicalWordIpaEnricher(
                     connectionString,
-                    sp.GetRequiredService<SqlCanonicalWordPronunciationWriter>()));
+                    sp.GetRequiredService<SqlCanonicalWordPronunciationWriter>(),
+                    sp.GetRequiredService<ILogger<CanonicalWordIpaEnricher>>()));
 
             services.AddSingleton<IpaVerificationReporter>(sp =>
                 new IpaVerificationReporter(

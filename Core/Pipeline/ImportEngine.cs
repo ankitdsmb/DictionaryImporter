@@ -13,7 +13,6 @@ namespace DictionaryImporter.Core.Pipeline
         private readonly IDataTransformer<TRaw> _transformer;
         private readonly IDataLoader _loader;
         private readonly IDictionaryEntryValidator _validator;
-        private readonly IEntryEtymologyWriter _etymologyWriter;
         private readonly ILogger<ImportEngine<TRaw>> _logger;
 
         public ImportEngine(
@@ -21,19 +20,17 @@ namespace DictionaryImporter.Core.Pipeline
             IDataTransformer<TRaw> transformer,
             IDataLoader loader,
             IDictionaryEntryValidator validator,
-            IEntryEtymologyWriter etymologyWriter,
             ILogger<ImportEngine<TRaw>> logger)
         {
             _extractor = extractor;
             _transformer = transformer;
             _loader = loader;
             _validator = validator;
-            _etymologyWriter = etymologyWriter;
             _logger = logger;
         }
 
         // ============================================================
-        // EXISTING METHOD (UNCHANGED)
+        // MAIN IMPORT (RETURNS METRICS)
         // ============================================================
         public async Task<ImportMetrics> ImportAsync(
             Stream source,
@@ -48,22 +45,35 @@ namespace DictionaryImporter.Core.Pipeline
             {
                 metrics.IncrementRaw();
 
-                foreach (var entry in _transformer.Transform(raw))
+                foreach (var rawEntry in _transformer.Transform(raw))
                 {
                     ct.ThrowIfCancellationRequested();
+
+                    // =====================================================
+                    // PRE-CANONICAL SANITIZATION
+                    // =====================================================
+                    var entry = Preprocess(rawEntry);
 
                     // ---------------- VALIDATION ----------------
                     var result = _validator.Validate(entry);
 
                     if (!result.IsValid)
                     {
+                        if (string.IsNullOrWhiteSpace(entry.NormalizedWord))
+                        {
+                            metrics.IncrementCanonicalEligibilityRejected();
+                        }
+                        else
+                        {
+                            metrics.IncrementValidatorRejected();
+                        }
+
                         _logger.LogWarning(
                             "Entry rejected | Word={Word} | Source={Source} | Reason={Reason}",
                             entry.Word,
                             entry.SourceCode,
                             result.Reason);
 
-                        metrics.IncrementRejected();
                         continue;
                     }
 
@@ -90,6 +100,11 @@ namespace DictionaryImporter.Core.Pipeline
                 metrics.EntriesRejected,
                 metrics.Duration.TotalMilliseconds);
 
+            _logger.LogInformation(
+                "Rejection breakdown | CanonicalEligibility={Canonical} | Validator={Validator}",
+                metrics.RejectedByCanonicalEligibility,
+                metrics.RejectedByValidator);
+
             return metrics;
         }
 
@@ -101,13 +116,49 @@ namespace DictionaryImporter.Core.Pipeline
         }
 
         // ============================================================
-        // REQUIRED EXPLICIT INTERFACE IMPLEMENTATION (FIX)
+        // EXPLICIT INTERFACE IMPLEMENTATION
         // ============================================================
         async Task IImportEngine.ImportAsync(
             Stream source,
             CancellationToken ct)
         {
             await ImportAsync(source, ct);
+        }
+
+        // ============================================================
+        // PREPROCESSING PIPELINE
+        // ============================================================
+        private static DictionaryEntry Preprocess(DictionaryEntry entry)
+        {
+            // 1. Strip domain markers
+            var cleanedWord =
+                DomainMarkerStripper.Strip(entry.Word);
+
+            // 2. Detect language
+            var language =
+                LanguageDetector.Detect(cleanedWord);
+
+            // 3. Normalize safely
+            var normalized =
+                NormalizedWordSanitizer.Sanitize(cleanedWord, language);
+
+            // 4. Canonical eligibility gate (CRITICAL)
+            if (!CanonicalEligibility.IsEligible(normalized))
+            {
+                normalized = string.Empty; // forces validator rejection
+            }
+
+            return new DictionaryEntry
+            {
+                Word = cleanedWord,
+                NormalizedWord = normalized,
+                PartOfSpeech = entry.PartOfSpeech,
+                Definition = entry.Definition,
+                Etymology = entry.Etymology,
+                SenseNumber = entry.SenseNumber,
+                SourceCode = entry.SourceCode,
+                CreatedUtc = entry.CreatedUtc
+            };
         }
     }
 }
