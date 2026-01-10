@@ -1,6 +1,6 @@
 ﻿using System.Text.RegularExpressions;
 
-namespace DictionaryImporter.Sources.Gutenberg.Parshing
+namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
     public static class WebsterSynonymExtractor
     {

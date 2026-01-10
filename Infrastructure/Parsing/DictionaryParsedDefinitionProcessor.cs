@@ -51,7 +51,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
             await conn.OpenAsync(ct);
 
             // --------------------------------------------------
-            // 1. Load DictionaryEntry rows
+            // 1. Load ALL DictionaryEntry rows for source
             // --------------------------------------------------
             var entries =
                 (await conn.QueryAsync<DictionaryEntry>(
@@ -59,7 +59,6 @@ namespace DictionaryImporter.Infrastructure.Parsing
                     SELECT *
                     FROM dbo.DictionaryEntry
                     WHERE SourceCode = @SourceCode
-                      AND Definition IS NOT NULL
                     """,
                     new { SourceCode = sourceCode }))
                 .ToList();
@@ -70,44 +69,57 @@ namespace DictionaryImporter.Infrastructure.Parsing
                 sourceCode);
 
             int entryIndex = 0;
-            int senseCount = 0;
-            int crossRefCount = 0;
-            int aliasCount = 0;
-            int variantCount = 0;
+            int parsedInserted = 0;
+            int crossRefInserted = 0;
+            int aliasInserted = 0;
+            int variantInserted = 0;
 
             foreach (var entry in entries)
             {
                 ct.ThrowIfCancellationRequested();
                 entryIndex++;
 
-                // --------------------------------------------------
-                // Progress heartbeat (every 1k entries)
-                // --------------------------------------------------
                 if (entryIndex % 1_000 == 0)
                 {
                     _logger.LogInformation(
-                        "Stage=Parsing progress | Source={SourceCode} | Entries={Processed}/{Total} | Senses={Senses}",
+                        "Stage=Parsing progress | Source={SourceCode} | Entries={Processed}/{Total} | ParsedInserted={Parsed}",
                         sourceCode,
                         entryIndex,
                         entries.Count,
-                        senseCount);
+                        parsedInserted);
                 }
 
                 // --------------------------------------------------
-                // 2. Parse entry into ParsedDefinition objects
+                // 2. Parse entry (MUST return exactly one result)
                 // --------------------------------------------------
                 var parsedDefinitions =
-                    _parser.Parse(entry);
+                    _parser.Parse(entry)?.ToList();
 
-                if (parsedDefinitions == null)
-                    continue;
+                if (parsedDefinitions == null || parsedDefinitions.Count == 0)
+                {
+                    // ENFORCE 1:1 CONTRACT
+                    parsedDefinitions = new List<ParsedDefinition>
+                    {
+                        new ParsedDefinition
+                        {
+                            Definition = null,
+                            RawFragment = entry.Definition,
+                            SenseNumber = entry.SenseNumber
+                        }
+                    };
+                }
 
-                // --------------------------------------------------
-                // 3. Persist parsed definitions
-                // --------------------------------------------------
+                if (parsedDefinitions.Count != 1)
+                {
+                    throw new InvalidOperationException(
+                        $"Parser returned {parsedDefinitions.Count} ParsedDefinitions for DictionaryEntryId={entry.DictionaryEntryId}. Exactly 1 is required.");
+                }
+
                 foreach (var parsed in parsedDefinitions)
                 {
-                    // 3.1 Write parsed sense
+                    // --------------------------------------------------
+                    // 3. Persist parsed definition (IDEMPOTENT)
+                    // --------------------------------------------------
                     var parsedId =
                         await _parsedWriter.WriteAsync(
                             entry.DictionaryEntryId,
@@ -115,9 +127,17 @@ namespace DictionaryImporter.Infrastructure.Parsing
                             parentParsedId: null,
                             ct);
 
-                    senseCount++;
+                    if (parsedId <= 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"ParsedDefinition insert failed for DictionaryEntryId={entry.DictionaryEntryId}");
+                    }
 
-                    // 3.2 Cross-references
+                    parsedInserted++;
+
+                    // --------------------------------------------------
+                    // 4. Cross-references
+                    // --------------------------------------------------
                     foreach (var cr in parsed.CrossReferences)
                     {
                         await _crossRefWriter.WriteAsync(
@@ -125,10 +145,12 @@ namespace DictionaryImporter.Infrastructure.Parsing
                             cr,
                             ct);
 
-                        crossRefCount++;
+                        crossRefInserted++;
                     }
 
-                    // 3.3 Alias
+                    // --------------------------------------------------
+                    // 5. Alias
+                    // --------------------------------------------------
                     if (!string.IsNullOrWhiteSpace(parsed.Alias))
                     {
                         await _aliasWriter.WriteAsync(
@@ -136,25 +158,27 @@ namespace DictionaryImporter.Infrastructure.Parsing
                             parsed.Alias,
                             ct);
 
-                        aliasCount++;
-                    }
-
-                    // 3.4 Etymology (entry-level)
-                    if (!string.IsNullOrWhiteSpace(entry.Etymology))
-                    {
-                        await _etymologyWriter.WriteAsync(
-                            new DictionaryEntryEtymology
-                            {
-                                DictionaryEntryId = entry.DictionaryEntryId,
-                                EtymologyText = entry.Etymology,
-                                CreatedUtc = DateTime.UtcNow
-                            },
-                            ct);
+                        aliasInserted++;
                     }
                 }
 
                 // --------------------------------------------------
-                // 4. Headword variants (entry-level)
+                // 6. Entry-level etymology (WRITE-ONCE)
+                // --------------------------------------------------
+                if (!string.IsNullOrWhiteSpace(entry.Etymology))
+                {
+                    await _etymologyWriter.WriteAsync(
+                        new DictionaryEntryEtymology
+                        {
+                            DictionaryEntryId = entry.DictionaryEntryId,
+                            EtymologyText = entry.Etymology,
+                            CreatedUtc = DateTime.UtcNow
+                        },
+                        ct);
+                }
+
+                // --------------------------------------------------
+                // 7. Headword variants (ENTRY-LEVEL, IDEMPOTENT)
                 // --------------------------------------------------
                 foreach (var (variant, type)
                     in Sources.Gutenberg.Parsing.WebsterHeadwordVariantGenerator
@@ -166,18 +190,18 @@ namespace DictionaryImporter.Infrastructure.Parsing
                         type,
                         ct);
 
-                    variantCount++;
+                    variantInserted++;
                 }
             }
 
             _logger.LogInformation(
-                "Stage=Parsing completed | Source={SourceCode} | Entries={Entries} | Senses={Senses} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants}",
+                "Stage=Parsing completed | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants}",
                 sourceCode,
                 entryIndex,
-                senseCount,
-                crossRefCount,
-                aliasCount,
-                variantCount);
+                parsedInserted,
+                crossRefInserted,
+                aliasInserted,
+                variantInserted);
         }
     }
 }
