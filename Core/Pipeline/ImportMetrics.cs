@@ -1,33 +1,38 @@
 ﻿using System.Diagnostics;
 
-namespace DictionaryImporter.Core.Pipeline
+namespace DictionaryImporter.Domain.Models
 {
     public sealed class ImportMetrics
     {
-        public long RawEntriesExtracted { get; private set; }
-        public long EntriesTransformed { get; private set; }
-        public long EntriesStaged { get; private set; }
-        public TimeSpan Duration { get; private set; }
+        public int RawEntriesExtracted { get; private set; }
+        public int EntriesStaged { get; private set; }
+        public int EntriesRejected { get; private set; }
 
+        // ================= NEW =================
+        public int RejectedByCanonicalEligibility { get; private set; }
+        public int RejectedByValidator { get; private set; }
+        // ======================================
+
+        public TimeSpan Duration => _stopwatch.Elapsed;
         private readonly Stopwatch _stopwatch = new();
 
         public void Start() => _stopwatch.Start();
-
-        public void Stop()
-        {
-            _stopwatch.Stop();
-            Duration = _stopwatch.Elapsed;
-        }
+        public void Stop() => _stopwatch.Stop();
 
         public void IncrementRaw() => RawEntriesExtracted++;
 
-        public void AddTransformed(int count)
-        {
-            EntriesTransformed += count;
-            EntriesStaged += count;
-        }
-        public long EntriesRejected { get; private set; }
+        public void AddTransformed(int count) => EntriesStaged += count;
 
-        public void IncrementRejected() => EntriesRejected++;
+        public void IncrementCanonicalEligibilityRejected()
+        {
+            EntriesRejected++;
+            RejectedByCanonicalEligibility++;
+        }
+
+        public void IncrementValidatorRejected()
+        {
+            EntriesRejected++;
+            RejectedByValidator++;
+        }
     }
 }

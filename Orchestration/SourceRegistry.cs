@@ -1,18 +1,16 @@
 ﻿using DictionaryImporter.Core.Sources;
+using DictionaryImporter.Sources.EnglishChinese;
 using DictionaryImporter.Sources.GutenbergWebster;
 using DictionaryImporter.Sources.StructuredJson;
-
 namespace DictionaryImporter.Orchestration
 {
     public static class SourceRegistry
     {
-        public static IReadOnlyList<IDictionarySourceModule> CreateSources()
+        public static IEnumerable<IDictionarySourceModule> CreateSources()
         {
-            return new IDictionarySourceModule[]
-            {
-                new GutenbergWebsterSourceModule(),
-                new StructuredJsonSourceModule()
-            };
+            yield return new GutenbergWebsterSourceModule();
+            //yield return new StructuredJsonSourceModule();
+            //yield return new EnglishChineseSourceModule();
         }
     }
 }
