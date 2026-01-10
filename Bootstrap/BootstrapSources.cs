@@ -7,9 +7,7 @@ namespace DictionaryImporter.Bootstrap
 {
     public static class BootstrapSources
     {
-        public static void Register(
-            IServiceCollection services,
-            IConfiguration configuration)
+        public static void Register(IServiceCollection services, IConfiguration configuration)
         {
             var sources = SourceRegistry.CreateSources();
 

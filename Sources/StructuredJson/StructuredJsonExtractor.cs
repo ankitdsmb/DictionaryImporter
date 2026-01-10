@@ -1,5 +1,5 @@
-﻿using System.Text.Json;
-using DictionaryImporter.Core.Abstractions;
+﻿using DictionaryImporter.Core.Abstractions;
+using System.Text.Json;
 
 namespace DictionaryImporter.Sources.StructuredJson
 {

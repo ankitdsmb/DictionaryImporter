@@ -1,12 +1,20 @@
 ﻿using DictionaryImporter.Core.Parsing;
 using DictionaryImporter.Domain.Models;
-using DictionaryImporter.Sources.Gutenberg.Parsing;
+using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
 
 namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
     public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
     {
+        private readonly ILogger<WebsterSubEntryParser> _logger;
+
+        public WebsterSubEntryParser(
+            ILogger<WebsterSubEntryParser> logger)
+        {
+            _logger = logger;
+        }
+
         // ============================================================
         // REGEX
         // ============================================================
@@ -50,19 +58,28 @@ namespace DictionaryImporter.Sources.Gutenberg.Parsing
             if (string.IsNullOrWhiteSpace(entry.Definition))
                 yield break;
 
+            _logger.LogDebug(
+                "Parsing Webster entry | Word={Word} | EntryId={Id}",
+                entry.Word,
+                entry.DictionaryEntryId);
+
             var definition = entry.Definition.Trim();
 
             // --------------------------------------------------------
-            // ROOT NODE (HEADWORD)
+            // ROOT NODE (STRUCTURAL ONLY)
             // --------------------------------------------------------
             yield return new ParsedDefinition
             {
                 MeaningTitle = entry.Word,
                 SenseNumber = null,
-                Definition = entry.Definition.Trim(),
-                RawFragment = entry.Definition.Trim(),
+                Definition = string.Empty,            // IMPORTANT
+                RawFragment = definition,
                 ParentKey = "headword"
             };
+
+            _logger.LogDebug(
+                "Root parsed | Word={Word}",
+                entry.Word);
 
             var numbered = NumberedSenseRegex.Matches(definition);
 
@@ -71,6 +88,11 @@ namespace DictionaryImporter.Sources.Gutenberg.Parsing
             // --------------------------------------------------------
             if (numbered.Count > 0)
             {
+                _logger.LogDebug(
+                    "Numbered senses detected | Word={Word} | Count={Count}",
+                    entry.Word,
+                    numbered.Count);
+
                 foreach (Match sense in numbered)
                 {
                     var senseNumber =
@@ -91,7 +113,7 @@ namespace DictionaryImporter.Sources.Gutenberg.Parsing
                         parentKey: "headword",
                         selfKey: senseKey);
 
-                    // SUB-SENSES
+                    // LETTERED SUB-SENSES (ONLY IF PRESENT)
                     foreach (var sub in ParseLetteredSubSenses(
                         entry.Word,
                         body,
@@ -102,7 +124,25 @@ namespace DictionaryImporter.Sources.Gutenberg.Parsing
                     }
                 }
 
-                yield break;
+                yield break; // IMPORTANT: do NOT fall through
+            }
+
+            // --------------------------------------------------------
+            // SINGLE (UNNUMBERED) SENSE
+            // --------------------------------------------------------
+            if (IsValidMeaningTitle(entry.Word))
+            {
+                _logger.LogDebug(
+                    "Single unnumbered sense | Word={Word}",
+                    entry.Word);
+
+                yield return BuildParsed(
+                    entry.Word,
+                    null,
+                    definition,
+                    definition,
+                    parentKey: "headword",
+                    selfKey: null);
             }
 
             // --------------------------------------------------------
@@ -126,20 +166,13 @@ namespace DictionaryImporter.Sources.Gutenberg.Parsing
                 LetteredSubSenseRegex.Matches(body);
 
             if (subs.Count == 0)
-            {
-                if (!IsValidMeaningTitle(word))
-                    yield break;
-
-                yield return BuildParsed(
-                    word,
-                    senseNumber,
-                    body,
-                    body,
-                    parentKey,
-                    selfKey: null);
-
                 yield break;
-            }
+
+            _logger.LogDebug(
+                "Lettered sub-senses detected | Word={Word} | Sense={Sense} | Count={Count}",
+                word,
+                senseNumber,
+                subs.Count);
 
             foreach (Match sub in subs)
             {
@@ -185,6 +218,11 @@ namespace DictionaryImporter.Sources.Gutenberg.Parsing
 
                 var def =
                     parsed.Groups["def"].Value.Trim();
+
+                _logger.LogDebug(
+                    "Idiom parsed | Word={Word} | Idiom={Idiom}",
+                    entry.Word,
+                    title);
 
                 yield return BuildParsed(
                     title,

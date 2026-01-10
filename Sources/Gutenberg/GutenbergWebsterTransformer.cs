@@ -1,5 +1,6 @@
 ﻿using DictionaryImporter.Core.Abstractions;
 using DictionaryImporter.Domain.Models;
+using DictionaryImporter.Sources.Gutenberg.Parsing;
 using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
 
@@ -22,6 +23,21 @@ namespace DictionaryImporter.Sources.Gutenberg
             _logger.LogDebug(
                 "Transforming headword {Word}", raw.Headword);
 
+            // -------------------------------------------------
+            // HEADER POS (EXTRACT ONCE, APPLY TO ALL SENSES)
+            // -------------------------------------------------
+            var (headerPos, _) =
+                WebsterHeaderPosExtractor.Extract(
+                    string.Join(" ", raw.Lines));
+
+            if (headerPos != null)
+            {
+                _logger.LogDebug(
+                    "Header POS resolved | Word={Word} | POS={POS}",
+                    raw.Headword,
+                    headerPos);
+            }
+
             var seen =
                 new HashSet<string>(StringComparer.Ordinal);
 
@@ -33,7 +49,7 @@ namespace DictionaryImporter.Sources.Gutenberg
                     NormalizeDefinition(def);
 
                 // ---------------------------------------------
-                // TRANSFORM-LEVEL DEDUPLICATION (SAFE)
+                // TRANSFORM-LEVEL DEDUPLICATION
                 // ---------------------------------------------
                 var dedupKey =
                     $"{raw.Headword.ToLowerInvariant()}|{sense}|{normalizedDef}";
@@ -55,6 +71,7 @@ namespace DictionaryImporter.Sources.Gutenberg
                     Definition = def,
                     SenseNumber = sense,
                     SourceCode = "GUT_WEBSTER",
+                    PartOfSpeech = headerPos, // APPLY TO ALL SENSES
                     CreatedUtc = DateTime.UtcNow
                 };
 
@@ -62,6 +79,9 @@ namespace DictionaryImporter.Sources.Gutenberg
             }
         }
 
+        // =====================================================
+        // DEFINITION EXTRACTION
+        // =====================================================
         private static IEnumerable<string> ExtractDefinitions(
             List<string> lines)
         {
@@ -87,17 +107,25 @@ namespace DictionaryImporter.Sources.Gutenberg
                 yield return string.Join(" ", buffer);
         }
 
-        private static string NormalizeDefinition(string text)
+        // =====================================================
+        // NORMALIZATION (DEDUP ONLY)
+        // =====================================================
+        private static string NormalizeDefinition(
+            string text)
         {
             text = text.ToLowerInvariant();
 
-            // collapse whitespace
-            text = Regex.Replace(text, @"\s+", " ");
+            text =
+                Regex.Replace(
+                    text,
+                    @"\s+",
+                    " ");
 
-            // remove trailing punctuation noise
-            text = text.Trim(' ', '.', ';', ':');
-
-            return text;
+            return text.Trim(
+                ' ',
+                '.',
+                ';',
+                ':');
         }
     }
 }
