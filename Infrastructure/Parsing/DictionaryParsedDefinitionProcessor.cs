@@ -1,8 +1,11 @@
-﻿using Dapper;
+﻿// Update the existing DictionaryParsedDefinitionProcessor class
+using Dapper;
 using DictionaryImporter.Core.Abstractions;
 using DictionaryImporter.Core.Parsing;
+using DictionaryImporter.Core.Persistence;
 using DictionaryImporter.Domain.Models;
 using DictionaryImporter.Infrastructure.Persistence;
+using DictionaryImporter.Sources.Collins.Parsing;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 
@@ -17,6 +20,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
         private readonly SqlDictionaryAliasWriter _aliasWriter;
         private readonly IEntryEtymologyWriter _etymologyWriter;
         private readonly SqlDictionaryEntryVariantWriter _variantWriter;
+        private readonly IDictionaryEntryExampleWriter _exampleWriter; // NEW
         private readonly ILogger<DictionaryParsedDefinitionProcessor> _logger;
 
         public DictionaryParsedDefinitionProcessor(
@@ -27,6 +31,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
             SqlDictionaryAliasWriter aliasWriter,
             IEntryEtymologyWriter etymologyWriter,
             SqlDictionaryEntryVariantWriter variantWriter,
+            IDictionaryEntryExampleWriter exampleWriter, // NEW
             ILogger<DictionaryParsedDefinitionProcessor> logger)
         {
             _connectionString = connectionString;
@@ -36,6 +41,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
             _aliasWriter = aliasWriter;
             _etymologyWriter = etymologyWriter;
             _variantWriter = variantWriter;
+            _exampleWriter = exampleWriter; // NEW
             _logger = logger;
         }
 
@@ -58,7 +64,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
                     """
                     SELECT *
                     FROM dbo.DictionaryEntry
-                    WHERE SourceCode = @SourceCode AND Definition IS NOT NULL
+                    WHERE SourceCode = @SourceCode
                     """,
                     new { SourceCode = sourceCode }))
                 .ToList();
@@ -73,6 +79,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
             int crossRefInserted = 0;
             int aliasInserted = 0;
             int variantInserted = 0;
+            int exampleInserted = 0; // NEW
 
             foreach (var entry in entries)
             {
@@ -82,22 +89,22 @@ namespace DictionaryImporter.Infrastructure.Parsing
                 if (entryIndex % 1_000 == 0)
                 {
                     _logger.LogInformation(
-                        "Stage=Parsing progress | Source={SourceCode} | Entries={Processed}/{Total} | ParsedInserted={Parsed}",
+                        "Stage=Parsing progress | Source={SourceCode} | Entries={Processed}/{Total} | ParsedInserted={Parsed} | ExamplesInserted={Examples}", // UPDATED
                         sourceCode,
                         entryIndex,
                         entries.Count,
-                        parsedInserted);
+                        parsedInserted,
+                        exampleInserted); // NEW
                 }
 
                 // --------------------------------------------------
-                // 2. Parse entry (MUST return exactly one result)
+                // 2. Parse entry
                 // --------------------------------------------------
                 var parsedDefinitions =
                     _parser.Parse(entry)?.ToList();
 
                 if (parsedDefinitions == null || parsedDefinitions.Count == 0)
                 {
-                    // ENFORCE 1:1 CONTRACT
                     parsedDefinitions = new List<ParsedDefinition>
                     {
                         new ParsedDefinition
@@ -109,16 +116,16 @@ namespace DictionaryImporter.Infrastructure.Parsing
                     };
                 }
 
-                //if (parsedDefinitions.Count != 1)
-                //{
-                //    throw new InvalidOperationException(
-                //        $"Parser returned {parsedDefinitions.Count} ParsedDefinitions for DictionaryEntryId={entry.DictionaryEntryId}. Exactly 1 is required.");
-                //}
+                if (parsedDefinitions.Count != 1)
+                {
+                    throw new InvalidOperationException(
+                        $"Parser returned {parsedDefinitions.Count} ParsedDefinitions for DictionaryEntryId={entry.DictionaryEntryId}. Exactly 1 is required.");
+                }
 
                 foreach (var parsed in parsedDefinitions)
                 {
                     // --------------------------------------------------
-                    // 3. Persist parsed definition (IDEMPOTENT)
+                    // 3. Persist parsed definition
                     // --------------------------------------------------
                     var parsedId =
                         await _parsedWriter.WriteAsync(
@@ -136,7 +143,22 @@ namespace DictionaryImporter.Infrastructure.Parsing
                     parsedInserted++;
 
                     // --------------------------------------------------
-                    // 4. Cross-references
+                    // 4. Extract and save examples (NEW)
+                    // --------------------------------------------------
+                    var examples = ExtractExamplesFromDefinition(parsed.Definition, sourceCode);
+                    foreach (var example in examples)
+                    {
+                        await _exampleWriter.WriteAsync(
+                            parsedId,
+                            example,
+                            sourceCode,
+                            ct);
+
+                        exampleInserted++;
+                    }
+
+                    // --------------------------------------------------
+                    // 5. Cross-references
                     // --------------------------------------------------
                     foreach (var cr in parsed.CrossReferences)
                     {
@@ -149,7 +171,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
                     }
 
                     // --------------------------------------------------
-                    // 5. Alias
+                    // 6. Alias
                     // --------------------------------------------------
                     if (!string.IsNullOrWhiteSpace(parsed.Alias))
                     {
@@ -163,7 +185,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
                 }
 
                 // --------------------------------------------------
-                // 6. Entry-level etymology (WRITE-ONCE)
+                // 7. Entry-level etymology
                 // --------------------------------------------------
                 if (!string.IsNullOrWhiteSpace(entry.Etymology))
                 {
@@ -178,7 +200,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
                 }
 
                 // --------------------------------------------------
-                // 7. Headword variants (ENTRY-LEVEL, IDEMPOTENT)
+                // 8. Headword variants
                 // --------------------------------------------------
                 foreach (var (variant, type)
                     in Sources.Gutenberg.Parsing.WebsterHeadwordVariantGenerator
@@ -195,13 +217,151 @@ namespace DictionaryImporter.Infrastructure.Parsing
             }
 
             _logger.LogInformation(
-                "Stage=Parsing completed | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants}",
+                "Stage=Parsing completed | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants} | Examples={Examples}", // UPDATED
                 sourceCode,
                 entryIndex,
                 parsedInserted,
                 crossRefInserted,
                 aliasInserted,
-                variantInserted);
+                variantInserted,
+                exampleInserted); // NEW
+        }
+        private static IReadOnlyList<string> ExtractExamplesFromDefinition(string? definition, string sourceCode)
+        {
+            var examples = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(definition))
+                return examples;
+
+            switch (sourceCode)
+            {
+                case "GUT_WEBSTER":
+                    examples.AddRange(ExtractWebsterExamples(definition));
+                    break;
+                case "ENG_CHN":
+                    examples.AddRange(ExtractEnglishChineseExamples(definition));
+                    break;
+                case "STRUCT_JSON":
+                    examples.AddRange(ExtractStructuredJsonExamples(definition));
+                    break;
+                case "ENG_COLLINS":
+                    examples.AddRange(CollinsParserHelper.ExtractExamples(definition).ToList());
+                    break;
+                default:
+                    examples.AddRange(ExtractGenericExamples(definition));
+                    break;
+            }
+            return examples.Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim()).Distinct().ToList();
+        }
+        private static IEnumerable<string> ExtractWebsterExamples(string definition)
+        {
+            // Webster examples are often in quotes or after "e.g."
+            var examples = new List<string>();
+
+            // Extract quoted examples
+            var quotedMatches = System.Text.RegularExpressions.Regex.Matches(
+                definition,
+                @"[""']([^""']+)[""']");
+
+            foreach (System.Text.RegularExpressions.Match match in quotedMatches)
+            {
+                examples.Add(match.Groups[1].Value);
+            }
+
+            // Extract examples after "e.g." or "for example"
+            var egMatches = System.Text.RegularExpressions.Regex.Matches(
+                definition,
+                @"(?:e\.g\.|for example|ex\.|example:)\s*([^.;]+)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            foreach (System.Text.RegularExpressions.Match match in egMatches)
+            {
+                examples.Add(match.Groups[1].Value.Trim());
+            }
+
+            return examples;
+        }
+        private static IEnumerable<string> ExtractEnglishChineseExamples(string definition)
+        {
+            // English-Chinese examples might have Chinese text
+            // Could look for patterns like "e.g." or example sentences
+            var examples = new List<string>();
+
+            // Look for Chinese example markers
+            var chineseMarkers = new[] { "例如", "比如", "例句", "例子" };
+
+            foreach (var marker in chineseMarkers)
+            {
+                if (definition.Contains(marker))
+                {
+                    // Simple extraction - get text after marker
+                    var index = definition.IndexOf(marker);
+                    if (index >= 0)
+                    {
+                        var example = definition.Substring(index + marker.Length).Trim();
+                        // Take until next punctuation or reasonable length
+                        var endChars = new[] { '。', '.', ';', '，', ',' };
+                        var endIndex = example.IndexOfAny(endChars);
+                        if (endIndex > 0)
+                        {
+                            example = example.Substring(0, endIndex);
+                        }
+                        examples.Add(example.Trim());
+                    }
+                }
+            }
+
+            return examples;
+        }
+        private static IEnumerable<string> ExtractStructuredJsonExamples(string definition)
+        {
+            // Structured JSON might have examples in specific formats
+            var examples = new List<string>();
+
+            // Look for example markers
+            var exampleMarkers = new[] { "example:", "eg:", "e.g.:", "for instance:" };
+
+            foreach (var marker in exampleMarkers)
+            {
+                if (definition.ToLower().Contains(marker))
+                {
+                    var index = definition.ToLower().IndexOf(marker);
+                    if (index >= 0)
+                    {
+                        var example = definition.Substring(index + marker.Length).Trim();
+                        // Take first sentence
+                        var endIndex = example.IndexOfAny(new[] { '.', ';', '!' });
+                        if (endIndex > 0)
+                        {
+                            example = example.Substring(0, endIndex + 1);
+                        }
+                        examples.Add(example.Trim());
+                    }
+                }
+            }
+
+            return examples;
+        }
+        private static IEnumerable<string> ExtractGenericExamples(string definition)
+        {
+            // Generic example extraction for any source
+            var examples = new List<string>();
+
+            // Look for quoted text
+            var quotedMatches = System.Text.RegularExpressions.Regex.Matches(
+                definition,
+                @"[""']([^""']+)[""']");
+
+            foreach (System.Text.RegularExpressions.Match match in quotedMatches)
+            {
+                // Only consider quotes that look like examples (not too short)
+                if (match.Groups[1].Value.Length > 10)
+                {
+                    examples.Add(match.Groups[1].Value);
+                }
+            }
+
+            return examples;
         }
     }
 }

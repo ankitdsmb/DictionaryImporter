@@ -2,6 +2,7 @@
 using DictionaryImporter.Core.Sources;
 using DictionaryImporter.Infrastructure.Graph;
 using DictionaryImporter.Orchestration;
+using DictionaryImporter.Sources.StructuredJson.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 

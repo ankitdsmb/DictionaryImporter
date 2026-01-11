@@ -1,5 +1,6 @@
 ﻿using DictionaryImporter.Core.Abstractions;
 using DictionaryImporter.Domain.Models;
+using DictionaryImporter.Sources.EnglishChinese.Models;
 using System.Text.RegularExpressions;
 
 namespace DictionaryImporter.Sources.EnglishChinese
