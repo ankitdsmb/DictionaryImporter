@@ -3,6 +3,7 @@ using DictionaryImporter.Core.Sources;
 using DictionaryImporter.Infrastructure.Graph;
 using DictionaryImporter.Orchestration;
 using DictionaryImporter.Sources.Gutenberg;
+using DictionaryImporter.Sources.Gutenberg.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 

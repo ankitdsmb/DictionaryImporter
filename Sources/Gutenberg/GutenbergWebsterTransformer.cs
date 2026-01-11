@@ -1,5 +1,6 @@
 ﻿using DictionaryImporter.Core.Abstractions;
 using DictionaryImporter.Domain.Models;
+using DictionaryImporter.Sources.Gutenberg.Models;
 using DictionaryImporter.Sources.Gutenberg.Parsing;
 using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;

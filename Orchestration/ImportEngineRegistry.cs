@@ -1,9 +1,9 @@
 ﻿using DictionaryImporter.Core.Pipeline;
 using DictionaryImporter.Core.Validation;
 using DictionaryImporter.Sources.Collins.Models;
-using DictionaryImporter.Sources.EnglishChinese;
-using DictionaryImporter.Sources.Gutenberg;
-using DictionaryImporter.Sources.StructuredJson;
+using DictionaryImporter.Sources.EnglishChinese.Models;
+using DictionaryImporter.Sources.Gutenberg.Models;
+using DictionaryImporter.Sources.StructuredJson.Models;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Orchestration

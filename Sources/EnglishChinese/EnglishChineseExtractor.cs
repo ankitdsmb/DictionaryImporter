@@ -1,4 +1,5 @@
 ﻿using DictionaryImporter.Core.Abstractions;
+using DictionaryImporter.Sources.EnglishChinese.Models;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 

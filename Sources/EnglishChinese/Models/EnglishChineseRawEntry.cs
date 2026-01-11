@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Sources.EnglishChinese
+﻿namespace DictionaryImporter.Sources.EnglishChinese.Models
 {
     public sealed class EnglishChineseRawEntry
     {
