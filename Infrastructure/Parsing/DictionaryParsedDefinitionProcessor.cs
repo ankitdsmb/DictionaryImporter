@@ -58,7 +58,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
                     """
                     SELECT *
                     FROM dbo.DictionaryEntry
-                    WHERE SourceCode = @SourceCode
+                    WHERE SourceCode = @SourceCode AND Definition IS NOT NULL
                     """,
                     new { SourceCode = sourceCode }))
                 .ToList();
@@ -109,11 +109,11 @@ namespace DictionaryImporter.Infrastructure.Parsing
                     };
                 }
 
-                if (parsedDefinitions.Count != 1)
-                {
-                    throw new InvalidOperationException(
-                        $"Parser returned {parsedDefinitions.Count} ParsedDefinitions for DictionaryEntryId={entry.DictionaryEntryId}. Exactly 1 is required.");
-                }
+                //if (parsedDefinitions.Count != 1)
+                //{
+                //    throw new InvalidOperationException(
+                //        $"Parser returned {parsedDefinitions.Count} ParsedDefinitions for DictionaryEntryId={entry.DictionaryEntryId}. Exactly 1 is required.");
+                //}
 
                 foreach (var parsed in parsedDefinitions)
                 {

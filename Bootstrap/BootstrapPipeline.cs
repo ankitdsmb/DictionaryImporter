@@ -9,6 +9,7 @@ using DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
 using DictionaryImporter.Infrastructure.PostProcessing.Verification;
 using DictionaryImporter.Infrastructure.Qa;
 using DictionaryImporter.Orchestration;
+using DictionaryImporter.Sources.Collins.Models;
 using DictionaryImporter.Sources.EnglishChinese;
 using DictionaryImporter.Sources.Gutenberg;
 using DictionaryImporter.Sources.StructuredJson;
@@ -35,6 +36,7 @@ namespace DictionaryImporter.Bootstrap
             services.AddSingleton<ImportEngineFactory<GutenbergRawEntry>>();
             services.AddSingleton<ImportEngineFactory<StructuredJsonRawEntry>>();
             services.AddSingleton<ImportEngineFactory<EnglishChineseRawEntry>>();
+            services.AddSingleton<ImportEngineFactory<CollinsRawEntry>>();
 
             services.AddSingleton<Func<IDictionaryEntryValidator>>(sp =>
                 () => sp.GetRequiredService<IDictionaryEntryValidator>());
@@ -50,6 +52,9 @@ namespace DictionaryImporter.Bootstrap
 
             services.AddSingleton<Func<ImportEngineFactory<EnglishChineseRawEntry>>>(sp =>
                 () => sp.GetRequiredService<ImportEngineFactory<EnglishChineseRawEntry>>());
+
+            services.AddSingleton<Func<ImportEngineFactory<CollinsRawEntry>>>(sp =>
+                () => sp.GetRequiredService<ImportEngineFactory<CollinsRawEntry>>());
 
             services.AddSingleton<IImportEngineRegistry, ImportEngineRegistry>();
 
