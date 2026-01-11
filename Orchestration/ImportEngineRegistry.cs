@@ -1,5 +1,6 @@
 ﻿using DictionaryImporter.Core.Pipeline;
 using DictionaryImporter.Core.Validation;
+using DictionaryImporter.Sources.Collins.Models;
 using DictionaryImporter.Sources.EnglishChinese;
 using DictionaryImporter.Sources.Gutenberg;
 using DictionaryImporter.Sources.StructuredJson;
@@ -12,17 +13,20 @@ namespace DictionaryImporter.Orchestration
         private readonly Func<ImportEngineFactory<GutenbergRawEntry>> _gutFactory;
         private readonly Func<ImportEngineFactory<StructuredJsonRawEntry>> _jsonFactory;
         private readonly Func<ImportEngineFactory<EnglishChineseRawEntry>> _engChnFactory;
+        private readonly Func<ImportEngineFactory<CollinsRawEntry>> _collinsFactory;
         private readonly ILogger<ImportEngineRegistry> _logger;
 
         public ImportEngineRegistry(
             Func<ImportEngineFactory<GutenbergRawEntry>> gutFactory,
             Func<ImportEngineFactory<StructuredJsonRawEntry>> jsonFactory,
             Func<ImportEngineFactory<EnglishChineseRawEntry>> engChnFactory,
+            Func<ImportEngineFactory<CollinsRawEntry>> collinsFactory,
             ILogger<ImportEngineRegistry> logger)
         {
             _gutFactory = gutFactory;
             _jsonFactory = jsonFactory;
             _engChnFactory = engChnFactory;
+            _collinsFactory = collinsFactory;
             _logger = logger;
         }
 
@@ -36,6 +40,9 @@ namespace DictionaryImporter.Orchestration
 
             return sourceCode switch
             {
+                // =====================================================
+                // GUT_WEBSTER — Gutenberg Webster Dictionary
+                // =====================================================
                 "GUT_WEBSTER" =>
                     CreateAndLog(
                         sourceCode,
@@ -43,6 +50,9 @@ namespace DictionaryImporter.Orchestration
                         _gutFactory,
                         validator),
 
+                // =====================================================
+                // STRUCT_JSON — Structured JSON Dictionary
+                // =====================================================
                 "STRUCT_JSON" =>
                     CreateAndLog(
                         sourceCode,
@@ -58,6 +68,16 @@ namespace DictionaryImporter.Orchestration
                         sourceCode,
                         "EnglishChinese",
                         _engChnFactory,
+                        validator),
+
+                // =====================================================
+                // ENG_COLLINS — Collins English Dictionary
+                // =====================================================
+                "ENG_COLLINS" =>
+                    CreateAndLog(
+                        sourceCode,
+                        "Collins",
+                        _collinsFactory,
                         validator),
 
                 _ => ThrowUnknownSource(sourceCode)

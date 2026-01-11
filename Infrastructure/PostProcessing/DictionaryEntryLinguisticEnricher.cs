@@ -44,6 +44,7 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
 
             await ExtractSynonymsFromCrossReferences(conn, sourceCode, ct);
 
+            // ✅ SINGLE SOURCE OF TRUTH FOR IPA
             await EnrichCanonicalWordIpaFromDefinition(conn, sourceCode, ct);
 
             _logger.LogInformation(
@@ -52,7 +53,7 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
         }
 
         // =====================================================
-        // 1. PART OF SPEECH INFERENCE (WRITE-ONCE)
+        // 1. PART OF SPEECH INFERENCE
         // =====================================================
         private async Task InferAndPersistPartOfSpeech(
             SqlConnection conn,
@@ -212,7 +213,7 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
         }
 
         // =====================================================
-        // 3. SYNONYM EXTRACTION (FROM CROSS-REFERENCES)
+        // 3. SYNONYM EXTRACTION
         // =====================================================
         private async Task ExtractSynonymsFromCrossReferences(
             SqlConnection conn,
@@ -258,12 +259,12 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
         }
 
         // =====================================================
-        // 4. IPA ENRICHMENT (FROM DEFINITION TEXT)
+        // 4. IPA ENRICHMENT (SINGLE SOURCE OF TRUTH)
         // =====================================================
         private async Task EnrichCanonicalWordIpaFromDefinition(
-    SqlConnection conn,
-    string sourceCode,
-    CancellationToken ct)
+            SqlConnection conn,
+            string sourceCode,
+            CancellationToken ct)
         {
             _logger.LogInformation(
                 "IPA enrichment started | Source={SourceCode}",
@@ -295,7 +296,6 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
             {
                 ct.ThrowIfCancellationRequested();
 
-                // 1. Extract DISTINCT raw IPA → locale pairs
                 var ipaMap =
                     GenericIpaExtractor.ExtractIpaWithLocale(row.RawFragment);
 
@@ -319,17 +319,11 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
                         continue;
                     }
 
-                    // 2. Normalize IPA (CRITICAL STEP)
                     var normalizedIpa =
                         IpaNormalizer.Normalize(rawIpa);
 
                     if (string.IsNullOrWhiteSpace(normalizedIpa))
                     {
-                        _logger.LogDebug(
-                            "IPA normalization resulted in empty value | CanonicalWordId={CanonicalWordId} | RawIpa={RawIpa}",
-                            row.CanonicalWordId,
-                            rawIpa);
-
                         skipped++;
                         continue;
                     }
@@ -379,6 +373,54 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
                 candidates,
                 inserted,
                 skipped);
+        }
+
+        // =====================================================
+        // EXAMPLE PERSISTENCE (USED EARLIER IN PIPELINE)
+        // =====================================================
+        private async Task PersistExamplesAsync(
+            SqlConnection conn,
+            long dictionaryEntryParsedId,
+            IEnumerable<string> examples,
+            CancellationToken ct)
+        {
+            const string sql = """
+            INSERT INTO dbo.DictionaryEntryExample
+            (
+                DictionaryEntryParsedId,
+                ExampleText,
+                Source,
+                CreatedUtc
+            )
+            SELECT
+                @DictionaryEntryParsedId,
+                @ExampleText,
+                'collins',
+                SYSUTCDATETIME()
+            WHERE NOT EXISTS
+            (
+                SELECT 1
+                FROM dbo.DictionaryEntryExample
+                WHERE DictionaryEntryParsedId = @DictionaryEntryParsedId
+                  AND ExampleText = @ExampleText
+            );
+            """;
+
+            foreach (var example in examples)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                if (string.IsNullOrWhiteSpace(example))
+                    continue;
+
+                await conn.ExecuteAsync(
+                    sql,
+                    new
+                    {
+                        DictionaryEntryParsedId = dictionaryEntryParsedId,
+                        ExampleText = example
+                    });
+            }
         }
     }
 }
