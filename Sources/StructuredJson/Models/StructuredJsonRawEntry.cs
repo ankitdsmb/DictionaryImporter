@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Sources.StructuredJson
+﻿namespace DictionaryImporter.Sources.StructuredJson.Models
 {
     public sealed class StructuredJsonRawEntry
     {

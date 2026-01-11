@@ -1,5 +1,6 @@
 ﻿using DictionaryImporter.Core.Abstractions;
 using DictionaryImporter.Domain.Models;
+using DictionaryImporter.Sources.StructuredJson.Models;
 
 namespace DictionaryImporter.Sources.StructuredJson
 {

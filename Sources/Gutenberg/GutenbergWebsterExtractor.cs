@@ -1,4 +1,5 @@
 ﻿using DictionaryImporter.Core.Abstractions;
+using DictionaryImporter.Sources.Gutenberg.Models;
 using Microsoft.Extensions.Logging;
 using System.Text;
 

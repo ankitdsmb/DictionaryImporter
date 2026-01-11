@@ -3,6 +3,7 @@ using DictionaryImporter.Core.Parsing;
 using DictionaryImporter.Core.Sources;
 using DictionaryImporter.Infrastructure.Graph;
 using DictionaryImporter.Orchestration;
+using DictionaryImporter.Sources.EnglishChinese.Models;
 using DictionaryImporter.Sources.EnglishChinese.Parsing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

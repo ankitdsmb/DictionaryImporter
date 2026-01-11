@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg
+﻿namespace DictionaryImporter.Sources.Gutenberg.Models
 {
     public sealed class GutenbergRawEntry
     {
