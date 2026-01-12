@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Parsing;
-
-namespace DictionaryImporter.Sources.Gutenberg.Parsing;
+﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing;
 
 public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
 {

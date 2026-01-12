@@ -1,7 +1,5 @@
 ﻿// Add this file as SqlDictionaryEntryExampleWriter.cs
 
-using DictionaryImporter.Core.Persistence;
-
 namespace DictionaryImporter.Infrastructure.Persistence;
 
 public sealed class SqlDictionaryEntryExampleWriter : IDictionaryEntryExampleWriter

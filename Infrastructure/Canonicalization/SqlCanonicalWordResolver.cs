@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Canonical;
-
-namespace DictionaryImporter.Infrastructure.Canonicalization;
+﻿namespace DictionaryImporter.Infrastructure.Canonicalization;
 
 public sealed class SqlCanonicalWordResolver
     : ICanonicalWordResolver

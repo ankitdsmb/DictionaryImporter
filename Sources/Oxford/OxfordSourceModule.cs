@@ -1,12 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Core.Parsing;
-using DictionaryImporter.Core.Validation;
-using DictionaryImporter.Infrastructure.Graph;
-using DictionaryImporter.Orchestration;
-using DictionaryImporter.Sources.Gutenberg.Parsing;
-using DictionaryImporter.Sources.Oxford.Models;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+﻿using DictionaryImporter.Sources.Gutenberg.Parsing;
 
 namespace DictionaryImporter.Sources.Oxford;
 

@@ -1,5 +1,4 @@
-﻿using DictionaryImporter.Core.Linguistics;
-using DictionaryImporter.Core.PreProcessing;
+﻿using IpaNormalizer = DictionaryImporter.Core.PreProcessing.IpaNormalizer;
 
 namespace DictionaryImporter.Infrastructure.PostProcessing;
 

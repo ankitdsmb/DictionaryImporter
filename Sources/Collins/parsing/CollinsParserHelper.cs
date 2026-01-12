@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Sources.Collins.Models;
-
-namespace DictionaryImporter.Sources.Collins.parsing;
+﻿namespace DictionaryImporter.Sources.Collins.parsing;
 
 /// <summary>
 ///     Static helper class for Collins dictionary parsing operations.

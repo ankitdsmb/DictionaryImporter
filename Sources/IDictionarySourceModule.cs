@@ -1,8 +1,4 @@
-﻿using DictionaryImporter.Orchestration;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-
-namespace DictionaryImporter.Sources;
+﻿namespace DictionaryImporter.Sources;
 
 public interface IDictionarySourceModule
 {

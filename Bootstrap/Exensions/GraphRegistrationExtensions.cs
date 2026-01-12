@@ -1,6 +1,3 @@
-using DictionaryImporter.Infrastructure.Graph;
-using Microsoft.Extensions.DependencyInjection;
-
 namespace DictionaryImporter.Bootstrap.Exensions;
 
 internal static class GraphRegistrationExtensions

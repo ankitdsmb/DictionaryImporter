@@ -1,6 +1,4 @@
-﻿using System.Text;
-
-namespace DictionaryImporter.Core.PreProcessing;
+﻿namespace DictionaryImporter.Core.PreProcessing;
 
 /// <summary>
 ///     Normalizes IPA strings for stable storage and comparison.

@@ -1,11 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Core.Parsing;
-using DictionaryImporter.Infrastructure.Graph;
-using DictionaryImporter.Orchestration;
-using DictionaryImporter.Sources.EnglishChinese.Models;
-using DictionaryImporter.Sources.EnglishChinese.Parsing;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+﻿using DictionaryImporter.Sources.EnglishChinese.Parsing;
 
 namespace DictionaryImporter.Sources.EnglishChinese;
 

@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.PreProcessing;
-
-namespace DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
+﻿namespace DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
 
 public sealed class CanonicalWordSyllableEnricher
 {

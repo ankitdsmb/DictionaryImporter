@@ -1,9 +1,6 @@
-using DictionaryImporter.Core.Abstractions;
 using DictionaryImporter.Infrastructure;
 using DictionaryImporter.Infrastructure.Merge;
-using DictionaryImporter.Infrastructure.Persistence;
 using DictionaryImporter.Infrastructure.Verification;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace DictionaryImporter.Bootstrap.Exensions;
 

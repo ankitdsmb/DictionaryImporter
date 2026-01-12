@@ -1,16 +1,11 @@
 // Update ParsingRegistrationExtensions.cs
 
-using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Core.Parsing;
-using DictionaryImporter.Core.Persistence;
 using DictionaryImporter.Infrastructure.Parsing;
 using DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
 using DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
 using DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
 using DictionaryImporter.Infrastructure.Parsing.SynonymExtractor;
-using DictionaryImporter.Infrastructure.Persistence;
 using DictionaryImporter.Sources.Gutenberg.Parsing;
-using Microsoft.Extensions.DependencyInjection;
 using WebsterEtymologyExtractor =
     DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor.WebsterEtymologyExtractor;
 using WebsterSynonymExtractor = DictionaryImporter.Infrastructure.Parsing.SynonymExtractor.WebsterSynonymExtractor;

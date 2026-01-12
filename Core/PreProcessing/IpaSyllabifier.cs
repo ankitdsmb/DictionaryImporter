@@ -1,6 +1,4 @@
-﻿using System.Text;
-
-namespace DictionaryImporter.Core.PreProcessing;
+﻿namespace DictionaryImporter.Core.PreProcessing;
 
 internal static class IpaSyllabifier
 {

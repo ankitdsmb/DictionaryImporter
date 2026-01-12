@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Parsing;
-
-namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor;
+﻿namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor;
 
 public sealed class GenericSynonymExtractor : ISynonymExtractor
 {

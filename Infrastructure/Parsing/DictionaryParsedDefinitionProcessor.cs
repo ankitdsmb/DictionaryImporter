@@ -1,10 +1,5 @@
 ﻿// Update DictionaryParsedDefinitionProcessor.cs
 
-using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Core.Parsing;
-using DictionaryImporter.Core.Persistence;
-using DictionaryImporter.Infrastructure.Persistence;
-
 namespace DictionaryImporter.Infrastructure.Parsing;
 
 public sealed class DictionaryParsedDefinitionProcessor

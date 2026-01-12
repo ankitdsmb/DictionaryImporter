@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Parsing;
-
-namespace DictionaryImporter.Sources.EnglishChinese.Parsing;
+﻿namespace DictionaryImporter.Sources.EnglishChinese.Parsing;
 
 public sealed class EnglishChineseDefinitionParser
     : IDictionaryDefinitionParser

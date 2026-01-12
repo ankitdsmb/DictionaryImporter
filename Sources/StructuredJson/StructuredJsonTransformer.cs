@@ -1,7 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Sources.StructuredJson.Models;
-
-namespace DictionaryImporter.Sources.StructuredJson;
+﻿namespace DictionaryImporter.Sources.StructuredJson;
 
 public sealed class StructuredJsonTransformer
     : IDataTransformer<StructuredJsonRawEntry>

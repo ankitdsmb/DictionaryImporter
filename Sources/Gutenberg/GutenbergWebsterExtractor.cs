@@ -1,9 +1,4 @@
-﻿using System.Runtime.CompilerServices;
-using System.Text;
-using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Sources.Gutenberg.Models;
-
-namespace DictionaryImporter.Sources.Gutenberg;
+﻿namespace DictionaryImporter.Sources.Gutenberg;
 
 public sealed class GutenbergWebsterExtractor
     : IDataExtractor<GutenbergRawEntry>

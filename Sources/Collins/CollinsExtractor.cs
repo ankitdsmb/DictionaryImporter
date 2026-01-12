@@ -1,7 +1,4 @@
-﻿using System.Runtime.CompilerServices;
-using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Sources.Collins.Models;
-using DictionaryImporter.Sources.Collins.parsing;
+﻿using DictionaryImporter.Sources.Collins.parsing;
 
 namespace DictionaryImporter.Sources.Collins;
 

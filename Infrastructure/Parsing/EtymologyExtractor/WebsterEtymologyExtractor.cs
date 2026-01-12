@@ -1,7 +1,5 @@
 ﻿// WebsterEtymologyExtractor.cs
 
-using DictionaryImporter.Core.Parsing;
-
 namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
 
 public sealed class WebsterEtymologyExtractor : IEtymologyExtractor

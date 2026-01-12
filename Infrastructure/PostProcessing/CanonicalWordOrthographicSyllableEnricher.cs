@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Linguistics;
-
-namespace DictionaryImporter.Infrastructure.PostProcessing;
+﻿namespace DictionaryImporter.Infrastructure.PostProcessing;
 
 public sealed class CanonicalWordOrthographicSyllableEnricher
 {

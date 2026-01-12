@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Parsing;
-
-namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor;
+﻿namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor;
 
 internal class WebsterSynonymExtractor : ISynonymExtractor
 {

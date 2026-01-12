@@ -1,7 +1,5 @@
 ﻿// EnglishChineseSynonymExtractor.cs
 
-using DictionaryImporter.Core.Parsing;
-
 namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor;
 
 public sealed class EnglishChineseSynonymExtractor : ISynonymExtractor

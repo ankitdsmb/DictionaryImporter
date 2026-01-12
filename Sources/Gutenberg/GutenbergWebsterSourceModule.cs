@@ -1,11 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Infrastructure.Graph;
-using DictionaryImporter.Orchestration;
-using DictionaryImporter.Sources.Gutenberg.Models;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-
-namespace DictionaryImporter.Sources.Gutenberg;
+﻿namespace DictionaryImporter.Sources.Gutenberg;
 
 public sealed class GutenbergWebsterSourceModule
     : IDictionarySourceModule
