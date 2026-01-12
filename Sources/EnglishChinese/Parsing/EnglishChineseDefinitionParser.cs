@@ -1,89 +1,86 @@
 ﻿using DictionaryImporter.Core.Parsing;
-using DictionaryImporter.Domain.Models;
-using System.Text.RegularExpressions;
 
-namespace DictionaryImporter.Sources.EnglishChinese.Parsing
+namespace DictionaryImporter.Sources.EnglishChinese.Parsing;
+
+public sealed class EnglishChineseDefinitionParser
+    : IDictionaryDefinitionParser
 {
-    public sealed class EnglishChineseDefinitionParser
-        : IDictionaryDefinitionParser
+    // IPA: /ɪˈlɪzɪən/
+    private static readonly Regex IpaRegex =
+        new(@"/[^/]+/",
+            RegexOptions.Compiled);
+
+    // English syllabification ONLY (no accents)
+    // Matches: E·ly·si·an, de·gree
+    // Does NOT match: dé·jà
+    private static readonly Regex EnglishSyllableRegex =
+        new(
+            @"^\s*[A-Za-z]+(?:·[A-Za-z]+)+\s*",
+            RegexOptions.Compiled);
+
+    // POS at start
+    private static readonly Regex PosRegex =
+        new(
+            @"^\s*(n\.|v\.|a\.|adj\.|ad\.|adv\.|vt\.|vi\.|abbr\.)\s+",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // POS-only garbage
+    private static readonly Regex PosOnlyRegex =
+        new(
+            @"^\s*(n\.|v\.|a\.|adj\.|ad\.|adv\.|vt\.|vi\.|abbr\.)\s*$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    public IEnumerable<ParsedDefinition> Parse(
+        DictionaryEntry entry)
     {
-        // IPA: /ɪˈlɪzɪən/
-        private static readonly Regex IpaRegex =
-            new Regex(@"/[^/]+/",
-                RegexOptions.Compiled);
+        var working = entry.Definition;
 
-        // English syllabification ONLY (no accents)
-        // Matches: E·ly·si·an, de·gree
-        // Does NOT match: dé·jà
-        private static readonly Regex EnglishSyllableRegex =
-            new Regex(
-                @"^\s*[A-Za-z]+(?:·[A-Za-z]+)+\s*",
-                RegexOptions.Compiled);
+        if (string.IsNullOrWhiteSpace(working))
+            yield break;
 
-        // POS at start
-        private static readonly Regex PosRegex =
-            new Regex(
-                @"^\s*(n\.|v\.|a\.|adj\.|ad\.|adv\.|vt\.|vi\.|abbr\.)\s+",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        // 1. Remove IPA
+        working = IpaRegex.Replace(working, string.Empty);
 
-        // POS-only garbage
-        private static readonly Regex PosOnlyRegex =
-            new Regex(
-                @"^\s*(n\.|v\.|a\.|adj\.|ad\.|adv\.|vt\.|vi\.|abbr\.)\s*$",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        // 2. Remove English syllabified headword
+        working = EnglishSyllableRegex.Replace(working, string.Empty);
 
-        public IEnumerable<ParsedDefinition> Parse(
-            DictionaryEntry entry)
+        // 3. Remove leading POS
+        working = PosRegex.Replace(working, string.Empty);
+
+        // 4. Remove headword repetition (abbreviations, symbols)
+        if (!string.IsNullOrWhiteSpace(entry.Word))
         {
-            var working = entry.Definition;
+            var hw = Regex.Escape(entry.Word);
+            working = Regex.Replace(
+                working,
+                @"^\s*" + hw + @"\s+",
+                string.Empty,
+                RegexOptions.IgnoreCase);
+        }
 
-            if (string.IsNullOrWhiteSpace(working))
-                yield break;
+        // 5. Defensive: remove any stray arrows
+        working = working.Replace("⬄", "");
 
-            // 1. Remove IPA
-            working = IpaRegex.Replace(working, string.Empty);
+        // 6. Final cleanup
+        working = Regex.Replace(working, @"\s+", " ").Trim();
 
-            // 2. Remove English syllabified headword
-            working = EnglishSyllableRegex.Replace(working, string.Empty);
-
-            // 3. Remove leading POS
-            working = PosRegex.Replace(working, string.Empty);
-
-            // 4. Remove headword repetition (abbreviations, symbols)
-            if (!string.IsNullOrWhiteSpace(entry.Word))
-            {
-                var hw = Regex.Escape(entry.Word);
-                working = Regex.Replace(
-                    working,
-                    @"^\s*" + hw + @"\s+",
-                    string.Empty,
-                    RegexOptions.IgnoreCase);
-            }
-
-            // 5. Defensive: remove any stray arrows
-            working = working.Replace("⬄", "");
-
-            // 6. Final cleanup
-            working = Regex.Replace(working, @"\s+", " ").Trim();
-
-            // 7. Drop POS-only junk
-            if (string.IsNullOrWhiteSpace(working) || PosOnlyRegex.IsMatch(working))
-            {
-                yield return new ParsedDefinition
-                {
-                    Definition = null,              // explicitly empty
-                    RawFragment = entry.Definition,
-                    SenseNumber = entry.SenseNumber
-                };
-                yield break;
-            }
-
+        // 7. Drop POS-only junk
+        if (string.IsNullOrWhiteSpace(working) || PosOnlyRegex.IsMatch(working))
+        {
             yield return new ParsedDefinition
             {
-                Definition = working,
+                Definition = null, // explicitly empty
                 RawFragment = entry.Definition,
                 SenseNumber = entry.SenseNumber
             };
+            yield break;
         }
+
+        yield return new ParsedDefinition
+        {
+            Definition = working,
+            RawFragment = entry.Definition,
+            SenseNumber = entry.SenseNumber
+        };
     }
 }

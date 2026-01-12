@@ -1,9 +1,6 @@
-﻿using DictionaryImporter.Domain.Models;
+﻿namespace DictionaryImporter.Core.Parsing;
 
-namespace DictionaryImporter.Core.Parsing
+public interface IDictionaryDefinitionParser
 {
-    public interface IDictionaryDefinitionParser
-    {
-        IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry);
-    }
+    IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry);
 }

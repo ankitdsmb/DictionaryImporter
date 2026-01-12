@@ -1,9 +1,8 @@
-﻿namespace DictionaryImporter.Core.Canonical
+﻿namespace DictionaryImporter.Core.Canonical;
+
+public interface ICanonicalWordResolver
 {
-    public interface ICanonicalWordResolver
-    {
-        Task ResolveAsync(
-            string sourceCode,
-            CancellationToken ct);
-    }
+    Task ResolveAsync(
+        string sourceCode,
+        CancellationToken ct);
 }

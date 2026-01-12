@@ -1,17 +1,10 @@
 ﻿// Add in DictionaryImporter.Core.Parsing namespace
-using DictionaryImporter.Domain.Models;
 
-namespace DictionaryImporter.Core.Parsing
+namespace DictionaryImporter.Core.Parsing;
+
+public interface IExampleExtractor
 {
-    public interface IExampleExtractor
-    {
-        string SourceCode { get; }
-        IReadOnlyList<string> Extract(ParsedDefinition parsed);
-    }
+    string SourceCode { get; }
 
-    public interface IExampleExtractorRegistry
-    {
-        IExampleExtractor GetExtractor(string sourceCode);
-        void Register(IExampleExtractor extractor);
-    }
+    IReadOnlyList<string> Extract(ParsedDefinition parsed);
 }

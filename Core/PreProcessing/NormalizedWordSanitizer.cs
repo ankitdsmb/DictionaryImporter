@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+﻿namespace DictionaryImporter.Core.PreProcessing;
 
 internal static class NormalizedWordSanitizer
 {
@@ -11,7 +11,7 @@ internal static class NormalizedWordSanitizer
             return string.Empty;
 
         if (language == "zh")
-            return input.Trim();   // Chinese preserved verbatim
+            return input.Trim(); // Chinese preserved verbatim
 
         var text = input.ToLowerInvariant();
         text = Noise.Replace(text, " ");

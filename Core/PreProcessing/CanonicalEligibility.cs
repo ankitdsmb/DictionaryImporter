@@ -1,4 +1,6 @@
-﻿internal static class CanonicalEligibility
+﻿namespace DictionaryImporter.Core.PreProcessing;
+
+internal static class CanonicalEligibility
 {
     public static bool IsEligible(string normalized)
     {

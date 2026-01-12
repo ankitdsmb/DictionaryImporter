@@ -1,8 +1,7 @@
-﻿namespace DictionaryImporter.Core.Linguistics
+﻿namespace DictionaryImporter.Core.Linguistics;
+
+public enum IpaStressRenderProfile
 {
-    public enum IpaStressRenderProfile
-    {
-        EnUs,
-        EnUk
-    }
+    EnUs,
+    EnUk
 }

@@ -1,24 +1,18 @@
 ﻿using DictionaryImporter.Core.Parsing;
-using Microsoft.Extensions.Logging;
-using System.Text.RegularExpressions;
 
-namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor
+namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
+
+internal class CollinsEtymologyExtractor : IEtymologyExtractor
 {
-    internal class CollinsEtymologyExtractor : IEtymologyExtractor
-    {
-        public string SourceCode => "ENG_COLLINS";
+    // English-Chinese data doesn't have explicit etymology markers
+    // but might have language origin hints
+    private static readonly Regex LanguageOriginRegex =
+        new(@"(?:源自|来自|源于|从…演变而来)\s*(?<language>[^\s，。]+)",
+            RegexOptions.Compiled);
 
-        private readonly ILogger<EnglishChineseEtymologyExtractor> _logger;
-
-        // English-Chinese data doesn't have explicit etymology markers
-        // but might have language origin hints
-        private static readonly Regex LanguageOriginRegex =
-            new(@"(?:源自|来自|源于|从…演变而来)\s*(?<language>[^\s，。]+)",
-                RegexOptions.Compiled);
-
-        // Language mappings for Chinese
-        private static readonly Dictionary<string, string> ChineseLanguageMappings =
-            new(StringComparer.OrdinalIgnoreCase)
+    // Language mappings for Chinese
+    private static readonly Dictionary<string, string> ChineseLanguageMappings =
+        new(StringComparer.OrdinalIgnoreCase)
         {
             { "拉丁语", "la" },
             { "希腊语", "el" },
@@ -37,48 +31,49 @@ namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor
             { "梵语", "sa" }
         };
 
-        public CollinsEtymologyExtractor(ILogger<EnglishChineseEtymologyExtractor> logger)
+    private readonly ILogger<EnglishChineseEtymologyExtractor> _logger;
+
+    public CollinsEtymologyExtractor(ILogger<EnglishChineseEtymologyExtractor> logger)
+    {
+        _logger = logger;
+    }
+
+    public string SourceCode => "ENG_COLLINS";
+
+    public EtymologyExtractionResult Extract(
+        string headword,
+        string definition,
+        string? rawDefinition = null)
+    {
+        // English-Chinese data typically doesn't have etymology in definitions
+        // Most etymology would come from the separate Etymology field
+        return new EtymologyExtractionResult
         {
-            _logger = logger;
-        }
+            EtymologyText = null,
+            LanguageCode = null,
+            CleanedDefinition = definition,
+            DetectionMethod = "NotApplicable",
+            SourceText = string.Empty
+        };
+    }
 
-        public EtymologyExtractionResult Extract(
-            string headword,
-            string definition,
-            string? rawDefinition = null)
-        {
-            // English-Chinese data typically doesn't have etymology in definitions
-            // Most etymology would come from the separate Etymology field
-            return new EtymologyExtractionResult
-            {
-                EtymologyText = null,
-                LanguageCode = null,
-                CleanedDefinition = definition,
-                DetectionMethod = "NotApplicable",
-                SourceText = string.Empty
-            };
-        }
-
-        public (string? Etymology, string? LanguageCode) ExtractFromText(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return (null, null);
-
-            // Check for Chinese language origin patterns
-            var match = LanguageOriginRegex.Match(text);
-            if (match.Success)
-            {
-                var language = match.Groups["language"].Value.Trim();
-
-                if (ChineseLanguageMappings.TryGetValue(language, out var languageCode))
-                {
-                    return ($"源自{language}", languageCode);
-                }
-
-                return ($"源自{language}", null);
-            }
-
+    public (string? Etymology, string? LanguageCode) ExtractFromText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
             return (null, null);
+
+        // Check for Chinese language origin patterns
+        var match = LanguageOriginRegex.Match(text);
+        if (match.Success)
+        {
+            var language = match.Groups["language"].Value.Trim();
+
+            if (ChineseLanguageMappings.TryGetValue(language, out var languageCode))
+                return ($"源自{language}", languageCode);
+
+            return ($"源自{language}", null);
         }
+
+        return (null, null);
     }
 }
