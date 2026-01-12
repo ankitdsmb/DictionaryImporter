@@ -1,7 +1,6 @@
 using DictionaryImporter.Infrastructure.Persistence;
 using DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
 using DictionaryImporter.Infrastructure.PostProcessing.Verification;
-using DictionaryImporter.Infrastructure.Verification;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 

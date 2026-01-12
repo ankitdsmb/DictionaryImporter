@@ -17,6 +17,9 @@ namespace DictionaryImporter.Bootstrap
 
             services.AddIpaConfiguration(configuration);
 
+
+
+
             services
                 .AddPersistence(connectionString)
                 .AddCanonical(connectionString)
