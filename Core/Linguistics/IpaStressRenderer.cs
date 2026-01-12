@@ -1,7 +1,4 @@
-﻿using System.Text;
-using DictionaryImporter.Core.PreProcessing;
-
-namespace DictionaryImporter.Core.Linguistics;
+﻿namespace DictionaryImporter.Core.Linguistics;
 
 /// <summary>
 ///     INTERNAL renderer for IPA syllables with stress.

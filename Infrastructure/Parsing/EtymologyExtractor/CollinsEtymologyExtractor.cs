@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Parsing;
-
-namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
+﻿namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
 
 internal class CollinsEtymologyExtractor : IEtymologyExtractor
 {

@@ -1,5 +1,4 @@
 ﻿using System.Collections.Concurrent;
-using DictionaryImporter.Core.Parsing;
 using DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
 
 namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;

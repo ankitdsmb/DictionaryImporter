@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Sources.Gutenberg.Models;
-using DictionaryImporter.Sources.Gutenberg.Parsing;
+﻿using DictionaryImporter.Sources.Gutenberg.Parsing;
 
 namespace DictionaryImporter.Sources.Gutenberg;
 

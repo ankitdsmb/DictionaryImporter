@@ -1,11 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Core.Parsing;
-using DictionaryImporter.Infrastructure.Graph;
-using DictionaryImporter.Orchestration;
-using DictionaryImporter.Sources.Collins.Models;
-using DictionaryImporter.Sources.Collins.parsing;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+﻿using DictionaryImporter.Sources.Collins.parsing;
 
 namespace DictionaryImporter.Sources.Collins;
 

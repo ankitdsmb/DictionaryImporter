@@ -1,10 +1,5 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Core.Canonical;
-using DictionaryImporter.Core.Validation;
-using DictionaryImporter.Infrastructure.Graph;
-using DictionaryImporter.Infrastructure.Parsing;
+﻿using DictionaryImporter.Infrastructure.Parsing;
 using DictionaryImporter.Infrastructure.PostProcessing;
-using DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
 using DictionaryImporter.Infrastructure.PostProcessing.Verification;
 using DictionaryImporter.Infrastructure.Qa;
 using DictionaryImporter.Infrastructure.Verification;

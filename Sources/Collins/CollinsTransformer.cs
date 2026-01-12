@@ -1,7 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Sources.Collins.Models;
-
-namespace DictionaryImporter.Sources.Collins;
+﻿namespace DictionaryImporter.Sources.Collins;
 
 public sealed class CollinsTransformer : IDataTransformer<CollinsRawEntry>
 {

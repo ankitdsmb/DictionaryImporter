@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions;
-
-namespace DictionaryImporter.Infrastructure.Merge;
+﻿namespace DictionaryImporter.Infrastructure.Merge;
 
 public sealed class SqlDictionaryEntryMergeExecutor
     : IDataMergeExecutor

@@ -1,11 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Infrastructure.Graph;
-using DictionaryImporter.Orchestration;
-using DictionaryImporter.Sources.StructuredJson.Models;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-
-namespace DictionaryImporter.Sources.StructuredJson;
+﻿namespace DictionaryImporter.Sources.StructuredJson;
 
 public sealed class StructuredJsonSourceModule
     : IDictionarySourceModule

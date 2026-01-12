@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Validation;
-
-namespace DictionaryImporter.Sources.Collins;
+﻿namespace DictionaryImporter.Sources.Collins;
 
 public sealed class CollinsEntryValidator
     : IDictionaryEntryValidator

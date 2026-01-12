@@ -1,7 +1,6 @@
 ﻿// EtymologyExtractorRegistry.cs
 
 using System.Collections.Concurrent;
-using DictionaryImporter.Core.Parsing;
 using DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
 
 namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;

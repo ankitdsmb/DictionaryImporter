@@ -1,5 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Infrastructure.Persistence.Mapping;
+﻿using DictionaryImporter.Infrastructure.Persistence.Mapping;
 
 namespace DictionaryImporter.Infrastructure;
 

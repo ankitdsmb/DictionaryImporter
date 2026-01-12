@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Parsing;
-
-namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
+﻿namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
 
 public sealed class OxfordExampleExtractor : IExampleExtractor
 {

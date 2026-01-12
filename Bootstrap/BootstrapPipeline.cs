@@ -1,25 +1,11 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Core.Linguistics;
-using DictionaryImporter.Core.Parsing;
-using DictionaryImporter.Core.Validation;
-using DictionaryImporter.Infrastructure.Merge;
+﻿using DictionaryImporter.Infrastructure.Merge;
 using DictionaryImporter.Infrastructure.OneTimeTasks;
 using DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
 using DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
 using DictionaryImporter.Infrastructure.Parsing.SynonymExtractor;
-using DictionaryImporter.Infrastructure.Persistence;
 using DictionaryImporter.Infrastructure.PostProcessing;
-using DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
 using DictionaryImporter.Infrastructure.PostProcessing.Verification;
 using DictionaryImporter.Infrastructure.Qa;
-using DictionaryImporter.Orchestration;
-using DictionaryImporter.Sources.Collins.Models;
-using DictionaryImporter.Sources.EnglishChinese.Models;
-using DictionaryImporter.Sources.Gutenberg.Models;
-using DictionaryImporter.Sources.Oxford.Models;
-using DictionaryImporter.Sources.StructuredJson.Models;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace DictionaryImporter.Bootstrap;
 

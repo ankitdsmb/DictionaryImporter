@@ -1,6 +1,4 @@
-﻿using Microsoft.Extensions.Configuration;
-
-namespace DictionaryImporter.Bootstrap;
+﻿namespace DictionaryImporter.Bootstrap;
 
 public static class BootstrapConfiguration
 {

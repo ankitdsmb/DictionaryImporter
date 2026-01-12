@@ -1,8 +1,5 @@
 ﻿// DictionaryImporter/Sources/Oxford/OxfordExtractor.cs
 
-using System.Runtime.CompilerServices;
-using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Sources.Oxford.Models;
 using DictionaryImporter.Sources.Oxford.Parsing;
 
 namespace DictionaryImporter.Sources.Oxford;

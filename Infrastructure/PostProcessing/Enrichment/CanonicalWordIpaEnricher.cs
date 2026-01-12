@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Infrastructure.Persistence;
-
-namespace DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
+﻿namespace DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
 
 public sealed class CanonicalWordIpaEnricher
 {

@@ -1,7 +1,5 @@
 ﻿// EnglishChineseExampleExtractor.cs
 
-using DictionaryImporter.Core.Parsing;
-
 namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
 
 public sealed class EnglishChineseExampleExtractor : IExampleExtractor

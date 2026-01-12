@@ -1,5 +1,4 @@
-﻿using DictionaryImporter.Core.Parsing;
-using DictionaryImporter.Sources.Collins.parsing;
+﻿using DictionaryImporter.Sources.Collins.parsing;
 
 namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
 

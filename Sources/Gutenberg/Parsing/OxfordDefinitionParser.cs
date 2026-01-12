@@ -1,7 +1,5 @@
 ﻿// DictionaryImporter/Sources/Oxford/Parsing/OxfordDefinitionParser.cs
 
-using DictionaryImporter.Core.Parsing;
-
 namespace DictionaryImporter.Sources.Gutenberg.Parsing;
 
 public sealed class OxfordDefinitionParser : IDictionaryDefinitionParser
