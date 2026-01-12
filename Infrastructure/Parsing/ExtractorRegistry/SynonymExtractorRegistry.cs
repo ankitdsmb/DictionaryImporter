@@ -1,7 +1,6 @@
 ﻿// SynonymExtractorRegistry.cs
 
 using System.Collections.Concurrent;
-using DictionaryImporter.Core.Parsing;
 using DictionaryImporter.Infrastructure.Parsing.SynonymExtractor;
 
 namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;

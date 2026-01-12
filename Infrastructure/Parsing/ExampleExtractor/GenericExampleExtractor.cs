@@ -1,7 +1,5 @@
 ﻿// GenericExampleExtractor.cs (fallback for any source)
 
-using DictionaryImporter.Core.Parsing;
-
 namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
 
 public sealed class GenericExampleExtractor : IExampleExtractor

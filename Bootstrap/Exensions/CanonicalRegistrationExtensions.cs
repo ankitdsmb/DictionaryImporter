@@ -1,6 +1,4 @@
-using DictionaryImporter.Core.Canonical;
 using DictionaryImporter.Infrastructure.Canonicalization;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace DictionaryImporter.Bootstrap.Exensions;
 

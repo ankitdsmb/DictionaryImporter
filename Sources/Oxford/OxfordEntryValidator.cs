@@ -1,7 +1,5 @@
 ﻿// DictionaryImporter/Sources/Oxford/OxfordEntryValidator.cs
 
-using DictionaryImporter.Core.Validation;
-
 namespace DictionaryImporter.Sources.Oxford;
 
 public sealed class OxfordEntryValidator : IDictionaryEntryValidator

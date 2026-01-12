@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Parsing;
-
-namespace DictionaryImporter.Sources.Collins.parsing;
+﻿namespace DictionaryImporter.Sources.Collins.parsing;
 
 public sealed class CollinsDefinitionParser : IDictionaryDefinitionParser
 {

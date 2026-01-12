@@ -1,7 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Sources.EnglishChinese.Models;
-
-namespace DictionaryImporter.Sources.EnglishChinese;
+﻿namespace DictionaryImporter.Sources.EnglishChinese;
 
 public sealed class EnglishChineseTransformer
     : IDataTransformer<EnglishChineseRawEntry>

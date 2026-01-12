@@ -1,6 +1,4 @@
 ﻿using DictionaryImporter.Bootstrap;
-using DictionaryImporter.Orchestration;
-using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 
 // Configuration

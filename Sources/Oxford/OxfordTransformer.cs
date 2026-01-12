@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Sources.Oxford.Models;
-using DictionaryImporter.Sources.Oxford.Parsing;
+﻿using DictionaryImporter.Sources.Oxford.Parsing;
 
 namespace DictionaryImporter.Sources.Oxford;
 

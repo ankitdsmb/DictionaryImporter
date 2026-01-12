@@ -1,7 +1,6 @@
 ﻿// SqlDictionaryEntrySynonymWriter.cs
 
 using System.Data;
-using DictionaryImporter.Core.Persistence;
 
 namespace DictionaryImporter.Infrastructure.Persistence;
 

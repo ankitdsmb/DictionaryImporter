@@ -1,7 +1,4 @@
-﻿using DictionaryImporter.Orchestration;
-using DictionaryImporter.Sources;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+﻿using DictionaryImporter.Sources;
 
 namespace DictionaryImporter.Bootstrap;
 

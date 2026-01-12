@@ -1,6 +1,4 @@
-using DictionaryImporter.Core.Linguistics;
 using DictionaryImporter.Infrastructure.Linguistics;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace DictionaryImporter.Bootstrap.Exensions;
 

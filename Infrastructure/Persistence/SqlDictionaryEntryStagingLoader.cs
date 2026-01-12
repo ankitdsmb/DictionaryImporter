@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions;
-
-namespace DictionaryImporter.Infrastructure.Persistence;
+﻿namespace DictionaryImporter.Infrastructure.Persistence;
 
 public sealed class SqlDictionaryEntryStagingLoader
     : IStagingLoader

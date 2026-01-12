@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Infrastructure.Graph;
-
-namespace DictionaryImporter.Orchestration;
+﻿namespace DictionaryImporter.Orchestration;
 
 public sealed class ImportSourceDefinition
 {

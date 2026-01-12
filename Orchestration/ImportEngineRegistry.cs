@@ -1,11 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Core.Pipeline;
-using DictionaryImporter.Core.Validation;
-using DictionaryImporter.Sources.Collins.Models;
-using DictionaryImporter.Sources.EnglishChinese.Models;
-using DictionaryImporter.Sources.Gutenberg.Models;
-using DictionaryImporter.Sources.Oxford.Models;
-using DictionaryImporter.Sources.StructuredJson.Models;
+﻿using DictionaryImporter.Core.Pipeline;
 
 namespace DictionaryImporter.Orchestration;
 
