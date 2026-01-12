@@ -2,27 +2,25 @@ using DictionaryImporter.Core.Linguistics;
 using DictionaryImporter.Core.Validation;
 using DictionaryImporter.Infrastructure.PostProcessing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
-namespace DictionaryImporter.Bootstrap.Exensions
+namespace DictionaryImporter.Bootstrap.Exensions;
+
+internal static class ValidationRegistrationExtensions
 {
-    internal static class ValidationRegistrationExtensions
+    public static IServiceCollection AddValidation(
+        this IServiceCollection services,
+        string connectionString)
     {
-        public static IServiceCollection AddValidation(
-            this IServiceCollection services,
-            string connectionString)
-        {
-            services.AddTransient<
-                IDictionaryEntryValidator,
-                DefaultDictionaryEntryValidator>();
+        services.AddTransient<
+            IDictionaryEntryValidator,
+            DefaultDictionaryEntryValidator>();
 
-            services.AddSingleton(sp =>
-                new DictionaryEntryLinguisticEnricher(
-                    connectionString,
-                    sp.GetRequiredService<IPartOfSpeechInfererV2>(),
-                    sp.GetRequiredService<ILogger<DictionaryEntryLinguisticEnricher>>()));
+        services.AddSingleton(sp =>
+            new DictionaryEntryLinguisticEnricher(
+                connectionString,
+                sp.GetRequiredService<IPartOfSpeechInfererV2>(),
+                sp.GetRequiredService<ILogger<DictionaryEntryLinguisticEnricher>>()));
 
-            return services;
-        }
+        return services;
     }
 }

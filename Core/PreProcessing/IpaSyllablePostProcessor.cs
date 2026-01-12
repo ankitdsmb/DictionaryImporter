@@ -1,78 +1,72 @@
-﻿using System.Text.RegularExpressions;
+﻿namespace DictionaryImporter.Core.PreProcessing;
 
-namespace DictionaryImporter.Core.PreProcessing
+/// <summary>
+///     Post-processor for IPA syllables.
+///     Enforces linguistic invariants:
+///     1. No vowel-only syllables
+///     2. No consonant-only syllables
+///     3. Stress preserved on merge
+/// </summary>
+internal static class IpaSyllablePostProcessor
 {
+    // IPA vowels (English-safe)
+    private static readonly Regex VowelRegex =
+        new(@"[aeiouæɪʊəɐɑɔɛɜʌoøɒyɯɨɶ]", RegexOptions.Compiled);
+
+    // IPA consonants (English-safe)
+    private static readonly Regex ConsonantRegex =
+        new(@"[bcdfghjklmnpqrstvwxyzθðʃʒŋ]", RegexOptions.Compiled);
+
     /// <summary>
-    /// Post-processor for IPA syllables.
-    ///
-    /// Enforces linguistic invariants:
-    /// 1. No vowel-only syllables
-    /// 2. No consonant-only syllables
-    /// 3. Stress preserved on merge
+    ///     Normalizes syllables by merging invalid syllables
+    ///     into their previous neighbor.
     /// </summary>
-    internal static class IpaSyllablePostProcessor
+    public static IReadOnlyList<IpaSyllable> Normalize(
+        IReadOnlyList<IpaSyllable> syllables)
     {
-        // IPA vowels (English-safe)
-        private static readonly Regex VowelRegex =
-            new(@"[aeiouæɪʊəɐɑɔɛɜʌoøɒyɯɨɶ]", RegexOptions.Compiled);
+        if (syllables == null || syllables.Count == 0)
+            return syllables;
 
-        // IPA consonants (English-safe)
-        private static readonly Regex ConsonantRegex =
-            new(@"[bcdfghjklmnpqrstvwxyzθðʃʒŋ]", RegexOptions.Compiled);
+        var buffer = new List<IpaSyllable>();
 
-        /// <summary>
-        /// Normalizes syllables by merging invalid syllables
-        /// into their previous neighbor.
-        /// </summary>
-        public static IReadOnlyList<IpaSyllable> Normalize(
-            IReadOnlyList<IpaSyllable> syllables)
+        foreach (var current in syllables)
         {
-            if (syllables == null || syllables.Count == 0)
-                return syllables;
-
-            var buffer = new List<IpaSyllable>();
-
-            foreach (var current in syllables)
+            if (buffer.Count == 0)
             {
-                if (buffer.Count == 0)
-                {
-                    buffer.Add(current);
-                    continue;
-                }
-
-                bool hasVowel = VowelRegex.IsMatch(current.Text);
-                bool hasConsonant = ConsonantRegex.IsMatch(current.Text);
-
-                // ❌ Invalid syllable → merge into previous
-                if (!hasVowel || !hasConsonant)
-                {
-                    var prev = buffer[^1];
-
-                    buffer[^1] = new IpaSyllable(
-                        prev.Index,
-                        prev.Text + current.Text,
-                        (byte)System.Math.Max(prev.StressLevel, current.StressLevel));
-                }
-                else
-                {
-                    buffer.Add(current);
-                }
+                buffer.Add(current);
+                continue;
             }
 
-            // Re-index sequentially
-            var result = new List<IpaSyllable>(buffer.Count);
-            int index = 1;
+            var hasVowel = VowelRegex.IsMatch(current.Text);
+            var hasConsonant = ConsonantRegex.IsMatch(current.Text);
 
-            foreach (var s in buffer)
+            // ❌ Invalid syllable → merge into previous
+            if (!hasVowel || !hasConsonant)
             {
-                result.Add(
-                    new IpaSyllable(
-                        index++,
-                        s.Text,
-                        s.StressLevel));
-            }
+                var prev = buffer[^1];
 
-            return result;
+                buffer[^1] = new IpaSyllable(
+                    prev.Index,
+                    prev.Text + current.Text,
+                    Math.Max(prev.StressLevel, current.StressLevel));
+            }
+            else
+            {
+                buffer.Add(current);
+            }
         }
+
+        // Re-index sequentially
+        var result = new List<IpaSyllable>(buffer.Count);
+        var index = 1;
+
+        foreach (var s in buffer)
+            result.Add(
+                new IpaSyllable(
+                    index++,
+                    s.Text,
+                    s.StressLevel));
+
+        return result;
     }
 }

@@ -1,11 +1,8 @@
-﻿using DictionaryImporter.Domain.Models;
+﻿namespace DictionaryImporter.Core.Abstractions;
 
-namespace DictionaryImporter.Core.Abstractions
+public interface IDataLoader
 {
-    public interface IDataLoader
-    {
-        Task LoadAsync(
-            IEnumerable<DictionaryEntry> entries,
-            CancellationToken cancellationToken);
-    }
+    Task LoadAsync(
+        IEnumerable<DictionaryEntry> entries,
+        CancellationToken cancellationToken);
 }

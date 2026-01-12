@@ -1,11 +1,10 @@
-﻿namespace DictionaryImporter.Core.Linguistics
-{
-    public interface IOrthographicSyllableRule
-    {
-        string LocaleCode { get; }
+﻿namespace DictionaryImporter.Core.Linguistics;
 
-        IReadOnlyList<string> Apply(
-            IReadOnlyList<string> syllables,
-            string word);
-    }
+public interface IOrthographicSyllableRule
+{
+    string LocaleCode { get; }
+
+    IReadOnlyList<string> Apply(
+        IReadOnlyList<string> syllables,
+        string word);
 }

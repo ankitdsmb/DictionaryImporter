@@ -1,4 +1,6 @@
-﻿internal static class LanguageDetector
+﻿namespace DictionaryImporter.Core.PreProcessing;
+
+internal static class LanguageDetector
 {
     public static string Detect(string? text)
     {
@@ -6,10 +8,8 @@
             return "en";
 
         foreach (var c in text)
-        {
             if (c >= '\u4E00' && c <= '\u9FFF')
                 return "zh";
-        }
 
         return "en";
     }

@@ -1,46 +1,40 @@
 ﻿using DictionaryImporter.Core.Parsing;
-using DictionaryImporter.Domain.Models;
-using DictionaryImporter.Sources.Collins.Parsing;
+using DictionaryImporter.Sources.Collins.parsing;
 
-namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor
+namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
+
+public sealed class CollinsExampleExtractor : IExampleExtractor
 {
-    public sealed class CollinsExampleExtractor : IExampleExtractor
+    public string SourceCode => "ENG_COLLINS";
+
+    public IReadOnlyList<string> Extract(ParsedDefinition parsed)
     {
-        public string SourceCode => "ENG_COLLINS";
+        var examples = new List<string>();
 
-        public IReadOnlyList<string> Extract(ParsedDefinition parsed)
-        {
-            var examples = new List<string>();
+        if (string.IsNullOrWhiteSpace(parsed.Definition))
+            return examples;
 
-            if (string.IsNullOrWhiteSpace(parsed.Definition))
-                return examples;
+        // Chinese example markers
+        var chineseMarkers = new[] { "例如", "比如", "例句", "例子" };
 
-            // Chinese example markers
-            var chineseMarkers = new[] { "例如", "比如", "例句", "例子" };
-
-            foreach (var marker in chineseMarkers)
+        foreach (var marker in chineseMarkers)
+            if (parsed.Definition.Contains(marker))
             {
-                if (parsed.Definition.Contains(marker))
+                var index = parsed.Definition.IndexOf(marker);
+                if (index >= 0)
                 {
-                    var index = parsed.Definition.IndexOf(marker);
-                    if (index >= 0)
-                    {
-                        var example = parsed.Definition.Substring(index + marker.Length).Trim();
-                        var endIndex = example.IndexOfAny(new[] { '。', '.', ';', '，', ',' });
-                        if (endIndex > 0)
-                        {
-                            example = example.Substring(0, endIndex);
-                        }
-                        examples.Add(example.Trim());
-                    }
+                    var example = parsed.Definition.Substring(index + marker.Length).Trim();
+                    var endIndex = example.IndexOfAny(new[] { '。', '.', ';', '，', ',' });
+                    if (endIndex > 0) example = example.Substring(0, endIndex);
+                    examples.Add(example.Trim());
                 }
             }
-            examples.AddRange(CollinsParserHelper.ExtractExamples(parsed.RawFragment).ToList());
-            return examples
-                .Where(e => !string.IsNullOrWhiteSpace(e))
-                .Select(e => e.Trim())
-                .Distinct()
-                .ToList();
-        }
+
+        examples.AddRange(CollinsParserHelper.ExtractExamples(parsed.RawFragment).ToList());
+        return examples
+            .Where(e => !string.IsNullOrWhiteSpace(e))
+            .Select(e => e.Trim())
+            .Distinct()
+            .ToList();
     }
 }

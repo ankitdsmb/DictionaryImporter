@@ -1,28 +1,28 @@
 ﻿using DictionaryImporter.Core.Parsing;
 
-namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor
+namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor;
+
+internal class WebsterSynonymExtractor : ISynonymExtractor
 {
-    internal class WebsterSynonymExtractor : ISynonymExtractor
+    string ISynonymExtractor.SourceCode => "GUT_WEBSTER";
+
+    IReadOnlyList<SynonymDetectionResult> ISynonymExtractor.Extract(string headword, string definition,
+        string? rawDefinition)
     {
-        string ISynonymExtractor.SourceCode => "GUT_WEBSTER";
+        return Sources.Gutenberg.Parsing.WebsterSynonymExtractor.Extract(definition)
+            .Where(s => !s.Equals(headword, StringComparison.OrdinalIgnoreCase))
+            .Select(s => new SynonymDetectionResult
+            {
+                TargetHeadword = s,
+                ConfidenceLevel = "High",
+                DetectionMethod = "WebsterSynonymPattern",
+                SourceText = definition ?? string.Empty
+            })
+            .ToList();
+    }
 
-        IReadOnlyList<SynonymDetectionResult> ISynonymExtractor.Extract(string headword, string definition, string? rawDefinition)
-        {
-            return DictionaryImporter.Sources.Gutenberg.Parsing.WebsterSynonymExtractor.Extract(definition)
-                .Where(s => !s.Equals(headword, StringComparison.OrdinalIgnoreCase))
-                .Select(s => new SynonymDetectionResult
-                {
-                    TargetHeadword = s,
-                    ConfidenceLevel = "High",
-                    DetectionMethod = "WebsterSynonymPattern",
-                    SourceText = definition ?? string.Empty
-                })
-                .ToList();
-        }
-
-        bool ISynonymExtractor.ValidateSynonymPair(string headwordA, string headwordB)
-        {
-            return false;
-        }
+    bool ISynonymExtractor.ValidateSynonymPair(string headwordA, string headwordB)
+    {
+        return false;
     }
 }

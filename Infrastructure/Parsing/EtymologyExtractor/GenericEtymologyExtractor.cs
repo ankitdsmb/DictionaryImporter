@@ -1,22 +1,17 @@
 ﻿// GenericEtymologyExtractor.cs
+
 using DictionaryImporter.Core.Parsing;
-using Microsoft.Extensions.Logging;
-using System.Text.RegularExpressions;
 
-namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor
+namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
+
+public sealed class GenericEtymologyExtractor : IEtymologyExtractor
 {
-    public sealed class GenericEtymologyExtractor : IEtymologyExtractor
-    {
-        public string SourceCode => "*";
+    private static readonly Regex GenericEtymRegex =
+        new(@"(?:Etymology|Origin):?\s*(?<etym>[^\n]+)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        private readonly ILogger<GenericEtymologyExtractor> _logger;
-
-        private static readonly Regex GenericEtymRegex =
-            new(@"(?:Etymology|Origin):?\s*(?<etym>[^\n]+)",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        private static readonly Dictionary<string, string> GenericLanguageMappings =
-            new(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, string> GenericLanguageMappings =
+        new(StringComparer.OrdinalIgnoreCase)
         {
             { "latin", "la" },
             { "greek", "el" },
@@ -26,93 +21,90 @@ namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor
             { "middle english", "enm" }
         };
 
-        public GenericEtymologyExtractor(ILogger<GenericEtymologyExtractor> logger)
-        {
-            _logger = logger;
-        }
+    private readonly ILogger<GenericEtymologyExtractor> _logger;
 
-        public EtymologyExtractionResult Extract(
-            string headword,
-            string definition,
-            string? rawDefinition = null)
-        {
-            if (string.IsNullOrWhiteSpace(definition))
-            {
-                return new EtymologyExtractionResult
-                {
-                    EtymologyText = null,
-                    LanguageCode = null,
-                    CleanedDefinition = definition,
-                    DetectionMethod = "NoDefinition",
-                    SourceText = string.Empty
-                };
-            }
+    public GenericEtymologyExtractor(ILogger<GenericEtymologyExtractor> logger)
+    {
+        _logger = logger;
+    }
 
-            var etymMatch = GenericEtymRegex.Match(definition);
-            if (etymMatch.Success)
-            {
-                var etymologyText = etymMatch.Groups["etym"].Value.Trim();
+    public string SourceCode => "*";
 
-                // Extract language code
-                string? languageCode = null;
-                foreach (var mapping in GenericLanguageMappings)
-                {
-                    if (etymologyText.Contains(mapping.Key, StringComparison.OrdinalIgnoreCase))
-                    {
-                        languageCode = mapping.Value;
-                        break;
-                    }
-                }
-
-                // Remove etymology from definition
-                var cleanedDefinition = definition
-                    .Remove(etymMatch.Index, etymMatch.Length)
-                    .Trim();
-
-                return new EtymologyExtractionResult
-                {
-                    EtymologyText = etymologyText,
-                    LanguageCode = languageCode,
-                    CleanedDefinition = cleanedDefinition,
-                    DetectionMethod = "GenericEtymologyMarker",
-                    SourceText = etymMatch.Value
-                };
-            }
-
+    public EtymologyExtractionResult Extract(
+        string headword,
+        string definition,
+        string? rawDefinition = null)
+    {
+        if (string.IsNullOrWhiteSpace(definition))
             return new EtymologyExtractionResult
             {
                 EtymologyText = null,
                 LanguageCode = null,
                 CleanedDefinition = definition,
-                DetectionMethod = "None",
+                DetectionMethod = "NoDefinition",
                 SourceText = string.Empty
+            };
+
+        var etymMatch = GenericEtymRegex.Match(definition);
+        if (etymMatch.Success)
+        {
+            var etymologyText = etymMatch.Groups["etym"].Value.Trim();
+
+            // Extract language code
+            string? languageCode = null;
+            foreach (var mapping in GenericLanguageMappings)
+                if (etymologyText.Contains(mapping.Key, StringComparison.OrdinalIgnoreCase))
+                {
+                    languageCode = mapping.Value;
+                    break;
+                }
+
+            // Remove etymology from definition
+            var cleanedDefinition = definition
+                .Remove(etymMatch.Index, etymMatch.Length)
+                .Trim();
+
+            return new EtymologyExtractionResult
+            {
+                EtymologyText = etymologyText,
+                LanguageCode = languageCode,
+                CleanedDefinition = cleanedDefinition,
+                DetectionMethod = "GenericEtymologyMarker",
+                SourceText = etymMatch.Value
             };
         }
 
-        public (string? Etymology, string? LanguageCode) ExtractFromText(string text)
+        return new EtymologyExtractionResult
         {
-            if (string.IsNullOrWhiteSpace(text))
-                return (null, null);
+            EtymologyText = null,
+            LanguageCode = null,
+            CleanedDefinition = definition,
+            DetectionMethod = "None",
+            SourceText = string.Empty
+        };
+    }
 
-            var match = GenericEtymRegex.Match(text);
-            if (match.Success)
-            {
-                var etymology = match.Groups["etym"].Value.Trim();
-                string? languageCode = null;
+    public (string? Etymology, string? LanguageCode) ExtractFromText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return (null, null);
 
-                foreach (var mapping in GenericLanguageMappings)
+        var match = GenericEtymRegex.Match(text);
+        if (match.Success)
+        {
+            var etymology = match.Groups["etym"].Value.Trim();
+            string? languageCode = null;
+
+            foreach (var mapping in GenericLanguageMappings)
+                if (etymology.Contains(mapping.Key, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (etymology.Contains(mapping.Key, StringComparison.OrdinalIgnoreCase))
-                    {
-                        languageCode = mapping.Value;
-                        break;
-                    }
+                    languageCode = mapping.Value;
+                    break;
                 }
 
-                return (etymology, languageCode);
-            }
-
-            return (null, null);
+            return (etymology, languageCode);
         }
+
+        return (null, null);
     }
 }

@@ -1,9 +1,8 @@
-﻿namespace DictionaryImporter.Infrastructure.Verification
+﻿namespace DictionaryImporter.Infrastructure.Verification;
+
+public interface IPostMergeVerifier
 {
-    public interface IPostMergeVerifier
-    {
-        Task VerifyAsync(
-            string sourceCode,
-            CancellationToken ct);
-    }
+    Task VerifyAsync(
+        string sourceCode,
+        CancellationToken ct);
 }

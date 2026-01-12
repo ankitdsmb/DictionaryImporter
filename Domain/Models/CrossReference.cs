@@ -1,8 +1,7 @@
-﻿namespace DictionaryImporter.Domain.Models
+﻿namespace DictionaryImporter.Domain.Models;
+
+public sealed class CrossReference
 {
-    public sealed class CrossReference
-    {
-        public string TargetWord { get; set; } = null!;
-        public string ReferenceType { get; set; } = null!; // See | SeeAlso | Cf
-    }
+    public string TargetWord { get; set; } = null!;
+    public string ReferenceType { get; set; } = null!; // See | SeeAlso | Cf
 }
