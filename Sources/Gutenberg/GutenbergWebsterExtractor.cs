@@ -1,106 +1,106 @@
-﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Sources.Gutenberg.Models;
-using Microsoft.Extensions.Logging;
+﻿using System.Runtime.CompilerServices;
 using System.Text;
+using DictionaryImporter.Core.Abstractions;
+using DictionaryImporter.Sources.Gutenberg.Models;
 
-namespace DictionaryImporter.Sources.Gutenberg
+namespace DictionaryImporter.Sources.Gutenberg;
+
+public sealed class GutenbergWebsterExtractor
+    : IDataExtractor<GutenbergRawEntry>
 {
-    public sealed class GutenbergWebsterExtractor
-        : IDataExtractor<GutenbergRawEntry>
+    private readonly ILogger<GutenbergWebsterExtractor> _logger;
+
+    public GutenbergWebsterExtractor(
+        ILogger<GutenbergWebsterExtractor> logger)
     {
-        private readonly ILogger<GutenbergWebsterExtractor> _logger;
+        _logger = logger;
+    }
 
-        public GutenbergWebsterExtractor(
-            ILogger<GutenbergWebsterExtractor> logger)
+    public async IAsyncEnumerable<GutenbergRawEntry> ExtractAsync(
+        Stream source,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Gutenberg extraction started");
+
+        using var reader = new StreamReader(
+            source,
+            Encoding.UTF8,
+            false,
+            16 * 1024,
+            true);
+
+        string? line;
+        var bodyStarted = false;
+        GutenbergRawEntry? current = null;
+        long count = 0;
+
+        while ((line = await reader.ReadLineAsync()) != null)
         {
-            _logger = logger;
-        }
+            cancellationToken.ThrowIfCancellationRequested();
 
-        public async IAsyncEnumerable<GutenbergRawEntry> ExtractAsync(
-            Stream source,
-            [System.Runtime.CompilerServices.EnumeratorCancellation]
-            CancellationToken cancellationToken)
-        {
-            _logger.LogInformation("Gutenberg extraction started");
-
-            using var reader = new StreamReader(
-                source,
-                Encoding.UTF8,
-                false,
-                16 * 1024,
-                leaveOpen: true);
-
-            string? line;
-            bool bodyStarted = false;
-            GutenbergRawEntry? current = null;
-            long count = 0;
-
-            while ((line = await reader.ReadLineAsync()) != null)
+            if (!bodyStarted)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (!bodyStarted)
+                if (line.StartsWith("*** START"))
                 {
-                    if (line.StartsWith("*** START"))
-                    {
-                        bodyStarted = true;
-                        _logger.LogInformation("Gutenberg body detected");
-                    }
-                    continue;
+                    bodyStarted = true;
+                    _logger.LogInformation("Gutenberg body detected");
                 }
 
-                if (line.StartsWith("*** END"))
-                    break;
+                continue;
+            }
 
-                if (IsHeadword(line))
+            if (line.StartsWith("*** END"))
+                break;
+
+            if (IsHeadword(line))
+            {
+                if (current != null)
                 {
-                    if (current != null)
-                    {
-                        yield return current;
-                        count++;
-                    }
-
-                    current = new GutenbergRawEntry
-                    {
-                        Headword = line.Trim()
-                    };
-                    continue;
+                    yield return current;
+                    count++;
                 }
 
-                current?.Lines.Add(line);
+                current = new GutenbergRawEntry
+                {
+                    Headword = line.Trim()
+                };
+                continue;
             }
 
-            if (current != null)
-            {
-                yield return current;
-                count++;
-            }
-
-            _logger.LogInformation(
-                "Gutenberg extraction completed. Entries: {Count}",
-                count);
+            current?.Lines.Add(line);
         }
-        private static bool IsHeadword(string line)
+
+        if (current != null)
         {
-            if (string.IsNullOrWhiteSpace(line))
-                return false;
-
-            var text = line.Trim();
-
-            // Length constraint
-            if (text.Length > 40)
-                return false;
-
-            // Must be uppercase
-            if (!text.Equals(text.ToUpperInvariant(), StringComparison.Ordinal))
-                return false;
-
-            // MUST contain at least one letter
-            bool hasLetter = text.Any(char.IsLetter);
-            if (!hasLetter)
-                return false;
-
-            return true;
+            yield return current;
+            count++;
         }
+
+        _logger.LogInformation(
+            "Gutenberg extraction completed. Entries: {Count}",
+            count);
+    }
+
+    private static bool IsHeadword(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return false;
+
+        var text = line.Trim();
+
+        // Length constraint
+        if (text.Length > 40)
+            return false;
+
+        // Must be uppercase
+        if (!text.Equals(text.ToUpperInvariant(), StringComparison.Ordinal))
+            return false;
+
+        // MUST contain at least one letter
+        var hasLetter = text.Any(char.IsLetter);
+        if (!hasLetter)
+            return false;
+
+        return true;
     }
 }

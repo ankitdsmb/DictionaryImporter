@@ -1,20 +1,23 @@
-﻿namespace DictionaryImporter.Core.Validation
+﻿namespace DictionaryImporter.Core.Validation;
+
+public sealed class ValidationResult
 {
-    public sealed class ValidationResult
+    private ValidationResult(bool isValid, string? reason)
     {
-        public bool IsValid { get; }
-        public string? Reason { get; }
+        IsValid = isValid;
+        Reason = reason;
+    }
 
-        private ValidationResult(bool isValid, string? reason)
-        {
-            IsValid = isValid;
-            Reason = reason;
-        }
+    public bool IsValid { get; }
+    public string? Reason { get; }
 
-        public static ValidationResult Valid()
-            => new(true, null);
+    public static ValidationResult Valid()
+    {
+        return new ValidationResult(true, null);
+    }
 
-        public static ValidationResult Invalid(string reason)
-            => new(false, reason);
+    public static ValidationResult Invalid(string reason)
+    {
+        return new ValidationResult(false, reason);
     }
 }

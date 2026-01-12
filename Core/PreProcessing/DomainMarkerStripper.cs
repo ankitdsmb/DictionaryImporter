@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+﻿namespace DictionaryImporter.Core.PreProcessing;
 
 internal static class DomainMarkerStripper
 {

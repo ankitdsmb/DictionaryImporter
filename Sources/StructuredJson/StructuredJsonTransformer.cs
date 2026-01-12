@@ -1,24 +1,22 @@
 ﻿using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Domain.Models;
 using DictionaryImporter.Sources.StructuredJson.Models;
 
-namespace DictionaryImporter.Sources.StructuredJson
+namespace DictionaryImporter.Sources.StructuredJson;
+
+public sealed class StructuredJsonTransformer
+    : IDataTransformer<StructuredJsonRawEntry>
 {
-    public sealed class StructuredJsonTransformer
-        : IDataTransformer<StructuredJsonRawEntry>
+    public IEnumerable<DictionaryEntry> Transform(
+        StructuredJsonRawEntry raw)
     {
-        public IEnumerable<DictionaryEntry> Transform(
-            StructuredJsonRawEntry raw)
+        yield return new DictionaryEntry
         {
-            yield return new DictionaryEntry
-            {
-                SourceCode = "STRUCT_JSON",
-                Word = raw.Word,
-                NormalizedWord = raw.NormalizedWord,
-                Definition = raw.Definition,
-                PartOfSpeech = raw.PartOfSpeech,
-                SenseNumber = raw.SenseNumber
-            };
-        }
+            SourceCode = "STRUCT_JSON",
+            Word = raw.Word,
+            NormalizedWord = raw.NormalizedWord,
+            Definition = raw.Definition,
+            PartOfSpeech = raw.PartOfSpeech,
+            SenseNumber = raw.SenseNumber
+        };
     }
 }

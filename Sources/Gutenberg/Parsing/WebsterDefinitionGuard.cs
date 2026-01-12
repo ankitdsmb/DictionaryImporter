@@ -1,35 +1,32 @@
-﻿using System.Text.RegularExpressions;
+﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing;
 
-namespace DictionaryImporter.Sources.Gutenberg.Parsing
+internal static class WebsterDefinitionGuard
 {
-    internal static class WebsterDefinitionGuard
+    private static readonly Regex EtymologyRegex =
+        new(@"^\s*Etym:", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex NoteRegex =
+        new(@"^\s*Note:", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex DomainOnlyRegex =
+        new(@"^\s*\([A-Za-z\.]+\)\s*$", RegexOptions.Compiled);
+
+    public static bool IsValid(string definition)
     {
-        private static readonly Regex EtymologyRegex =
-            new(@"^\s*Etym:", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        if (string.IsNullOrWhiteSpace(definition))
+            return false;
 
-        private static readonly Regex NoteRegex =
-            new(@"^\s*Note:", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        definition = definition.Trim();
 
-        private static readonly Regex DomainOnlyRegex =
-            new(@"^\s*\([A-Za-z\.]+\)\s*$", RegexOptions.Compiled);
+        if (EtymologyRegex.IsMatch(definition))
+            return false;
 
-        public static bool IsValid(string definition)
-        {
-            if (string.IsNullOrWhiteSpace(definition))
-                return false;
+        if (NoteRegex.IsMatch(definition))
+            return false;
 
-            definition = definition.Trim();
+        if (DomainOnlyRegex.IsMatch(definition))
+            return false;
 
-            if (EtymologyRegex.IsMatch(definition))
-                return false;
-
-            if (NoteRegex.IsMatch(definition))
-                return false;
-
-            if (DomainOnlyRegex.IsMatch(definition))
-                return false;
-
-            return true;
-        }
+        return true;
     }
 }

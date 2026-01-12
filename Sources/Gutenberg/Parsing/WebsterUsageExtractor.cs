@@ -1,47 +1,44 @@
-﻿using System.Text.RegularExpressions;
+﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing;
 
-namespace DictionaryImporter.Sources.Gutenberg.Parsing
+internal static class WebsterUsageExtractor
 {
-    internal static class WebsterUsageExtractor
+    private static readonly Regex UsageRegex =
+        new(
+            @"^\s*(?:\[(?<tag>Obs\.?|R\.?|Archaic\.?)\]|(?<tag>Obs\.?|R\.?|Archaic\.?))\s*",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    public static string? Extract(ref string definition)
     {
-        private static readonly Regex UsageRegex =
-            new(
-                @"^\s*(?:\[(?<tag>Obs\.?|R\.?|Archaic\.?)\]|(?<tag>Obs\.?|R\.?|Archaic\.?))\s*",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        if (string.IsNullOrWhiteSpace(definition))
+            return null;
 
-        public static string? Extract(ref string definition)
-        {
-            if (string.IsNullOrWhiteSpace(definition))
-                return null;
+        var match = UsageRegex.Match(definition);
+        if (!match.Success)
+            return null;
 
-            var match = UsageRegex.Match(definition);
-            if (!match.Success)
-                return null;
+        var raw =
+            match.Groups["tag"].Value
+                .Trim()
+                .TrimEnd('.')
+                .ToLowerInvariant();
 
-            var raw =
-                match.Groups["tag"].Value
-                    .Trim()
-                    .TrimEnd('.')
-                    .ToLowerInvariant();
+        var usage =
+            raw switch
+            {
+                "obs" => "obsolete",
+                "r" => "rare",
+                "archaic" => "archaic",
+                _ => null
+            };
 
-            string usage =
-                raw switch
-                {
-                    "obs" => "obsolete",
-                    "r" => "rare",
-                    "archaic" => "archaic",
-                    _ => null
-                };
+        if (usage == null)
+            return null;
 
-            if (usage == null)
-                return null;
+        // Strip usage marker from definition
+        definition =
+            definition.Substring(match.Length)
+                .TrimStart();
 
-            // Strip usage marker from definition
-            definition =
-                definition.Substring(match.Length)
-                          .TrimStart();
-
-            return usage;
-        }
+        return usage;
     }
 }
