@@ -1,4 +1,3 @@
-using DictionaryImporter.Infrastructure;
 using DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

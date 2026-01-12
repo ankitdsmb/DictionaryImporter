@@ -1,5 +1,4 @@
 using DictionaryImporter.Core.Abstractions;
-using DictionaryImporter.Core.Persistence;
 using DictionaryImporter.Infrastructure;
 using DictionaryImporter.Infrastructure.Merge;
 using DictionaryImporter.Infrastructure.Persistence;

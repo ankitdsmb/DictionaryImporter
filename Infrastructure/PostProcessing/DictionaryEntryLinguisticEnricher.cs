@@ -261,10 +261,7 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
         // =====================================================
         // 4. IPA ENRICHMENT (SINGLE SOURCE OF TRUTH)
         // =====================================================
-        private async Task EnrichCanonicalWordIpaFromDefinition(
-            SqlConnection conn,
-            string sourceCode,
-            CancellationToken ct)
+        private async Task EnrichCanonicalWordIpaFromDefinition(SqlConnection conn, string sourceCode, CancellationToken ct)
         {
             _logger.LogInformation(
                 "IPA enrichment started | Source={SourceCode}",
@@ -373,54 +370,6 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
                 candidates,
                 inserted,
                 skipped);
-        }
-
-        // =====================================================
-        // EXAMPLE PERSISTENCE (USED EARLIER IN PIPELINE)
-        // =====================================================
-        private async Task PersistExamplesAsync(
-            SqlConnection conn,
-            long dictionaryEntryParsedId,
-            IEnumerable<string> examples,
-            CancellationToken ct)
-        {
-            const string sql = """
-            INSERT INTO dbo.DictionaryEntryExample
-            (
-                DictionaryEntryParsedId,
-                ExampleText,
-                Source,
-                CreatedUtc
-            )
-            SELECT
-                @DictionaryEntryParsedId,
-                @ExampleText,
-                'collins',
-                SYSUTCDATETIME()
-            WHERE NOT EXISTS
-            (
-                SELECT 1
-                FROM dbo.DictionaryEntryExample
-                WHERE DictionaryEntryParsedId = @DictionaryEntryParsedId
-                  AND ExampleText = @ExampleText
-            );
-            """;
-
-            foreach (var example in examples)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                if (string.IsNullOrWhiteSpace(example))
-                    continue;
-
-                await conn.ExecuteAsync(
-                    sql,
-                    new
-                    {
-                        DictionaryEntryParsedId = dictionaryEntryParsedId,
-                        ExampleText = example
-                    });
-            }
         }
     }
 }

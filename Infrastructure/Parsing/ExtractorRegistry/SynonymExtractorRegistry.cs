@@ -1,0 +1,73 @@
+﻿// SynonymExtractorRegistry.cs
+using DictionaryImporter.Core.Parsing;
+using DictionaryImporter.Infrastructure.Parsing.SynonymExtractor;
+using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
+
+namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry
+{
+    public sealed class SynonymExtractorRegistry : ISynonymExtractorRegistry
+    {
+        private readonly ConcurrentDictionary<string, ISynonymExtractor> _extractors;
+        private readonly ILogger<SynonymExtractorRegistry> _logger;
+        private readonly GenericSynonymExtractor _genericExtractor;
+
+        public SynonymExtractorRegistry(
+            IEnumerable<ISynonymExtractor> extractors,
+            GenericSynonymExtractor genericExtractor,
+            ILogger<SynonymExtractorRegistry> logger)
+        {
+            _extractors = new ConcurrentDictionary<string, ISynonymExtractor>();
+            _genericExtractor = genericExtractor;
+            _logger = logger;
+
+            // Auto-register all extractors from DI
+            foreach (var extractor in extractors)
+            {
+                if (extractor.SourceCode != "*")
+                {
+                    Register(extractor);
+                }
+            }
+        }
+
+        public ISynonymExtractor GetExtractor(string sourceCode)
+        {
+            if (_extractors.TryGetValue(sourceCode, out var extractor))
+            {
+                _logger.LogDebug("Using synonym extractor for source {Source}: {ExtractorType}",
+                    sourceCode, extractor.GetType().Name);
+                return extractor;
+            }
+
+            _logger.LogDebug("No specific synonym extractor for source {Source}, using generic",
+                sourceCode);
+            return _genericExtractor;
+        }
+
+        public void Register(ISynonymExtractor extractor)
+        {
+            if (extractor.SourceCode == "*")
+            {
+                _logger.LogWarning("Generic extractor (*) should be registered via constructor");
+                return;
+            }
+
+            if (_extractors.TryAdd(extractor.SourceCode, extractor))
+            {
+                _logger.LogInformation("Registered synonym extractor for source {Source} ({Type})",
+                    extractor.SourceCode, extractor.GetType().Name);
+            }
+            else
+            {
+                _logger.LogWarning("Synonym extractor for source {Source} already registered",
+                    extractor.SourceCode);
+            }
+        }
+
+        public IReadOnlyDictionary<string, ISynonymExtractor> GetAllExtractors()
+        {
+            return new Dictionary<string, ISynonymExtractor>(_extractors);
+        }
+    }
+}

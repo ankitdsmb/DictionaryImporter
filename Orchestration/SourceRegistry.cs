@@ -1,8 +1,6 @@
 ﻿using DictionaryImporter.Core.Sources;
 using DictionaryImporter.Sources.Collins;
-using DictionaryImporter.Sources.EnglishChinese;
-using DictionaryImporter.Sources.GutenbergWebster;
-using DictionaryImporter.Sources.StructuredJson;
+using DictionaryImporter.Sources.Oxford;
 namespace DictionaryImporter.Orchestration
 {
     public static class SourceRegistry
@@ -10,7 +8,9 @@ namespace DictionaryImporter.Orchestration
         public static IEnumerable<IDictionarySourceModule> CreateSources()
         {
             //yield return new GutenbergWebsterSourceModule();
-            yield return new CollinsSourceModule();
+            //yield return new CollinsSourceModule();
+            yield return new OxfordSourceModule();
+            yield return new OxfordSourceModule();
             //yield return new StructuredJsonSourceModule();
             //yield return new EnglishChineseSourceModule();
         }
