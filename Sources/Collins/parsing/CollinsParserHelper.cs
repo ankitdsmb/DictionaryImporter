@@ -1,6 +1,5 @@
 ﻿using DictionaryImporter.Domain.Models;
 using DictionaryImporter.Sources.Collins.Models;
-using System;
 using System.Text.RegularExpressions;
 
 namespace DictionaryImporter.Sources.Collins.Parsing

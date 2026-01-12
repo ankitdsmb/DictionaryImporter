@@ -1,6 +1,5 @@
 using DictionaryImporter.Core.Linguistics;
 using DictionaryImporter.Core.Validation;
-using DictionaryImporter.Infrastructure.Linguistics;
 using DictionaryImporter.Infrastructure.PostProcessing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;

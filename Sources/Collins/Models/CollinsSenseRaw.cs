@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Domain.Models;
-
-namespace DictionaryImporter.Sources.Collins.Models
+﻿namespace DictionaryImporter.Sources.Collins.Models
 {
     public sealed class CollinsSenseRaw
     {

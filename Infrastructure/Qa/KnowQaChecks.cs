@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-
-namespace DictionaryImporter.Infrastructure.Qa
+﻿namespace DictionaryImporter.Infrastructure.Qa
 {
     public static class KnownQaChecks
     {

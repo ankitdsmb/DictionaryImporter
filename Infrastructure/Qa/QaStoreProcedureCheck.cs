@@ -1,8 +1,5 @@
 ﻿using Dapper;
 using Microsoft.Data.SqlClient;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace DictionaryImporter.Infrastructure.Qa
 {

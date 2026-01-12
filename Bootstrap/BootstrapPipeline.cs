@@ -1,8 +1,13 @@
 ﻿using DictionaryImporter.Core.Abstractions;
 using DictionaryImporter.Core.Linguistics;
+using DictionaryImporter.Core.Parsing;
 using DictionaryImporter.Core.Validation;
 using DictionaryImporter.Infrastructure.Merge;
 using DictionaryImporter.Infrastructure.OneTimeTasks;
+using DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
+using DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
+using DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
+using DictionaryImporter.Infrastructure.Parsing.SynonymExtractor;
 using DictionaryImporter.Infrastructure.Persistence;
 using DictionaryImporter.Infrastructure.PostProcessing;
 using DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
@@ -12,6 +17,7 @@ using DictionaryImporter.Orchestration;
 using DictionaryImporter.Sources.Collins.Models;
 using DictionaryImporter.Sources.EnglishChinese.Models;
 using DictionaryImporter.Sources.Gutenberg.Models;
+using DictionaryImporter.Sources.Oxford.Models;
 using DictionaryImporter.Sources.StructuredJson.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -37,6 +43,7 @@ namespace DictionaryImporter.Bootstrap
             services.AddSingleton<ImportEngineFactory<StructuredJsonRawEntry>>();
             services.AddSingleton<ImportEngineFactory<EnglishChineseRawEntry>>();
             services.AddSingleton<ImportEngineFactory<CollinsRawEntry>>();
+            services.AddSingleton<ImportEngineFactory<OxfordRawEntry>>();
 
             services.AddSingleton<Func<IDictionaryEntryValidator>>(sp =>
                 () => sp.GetRequiredService<IDictionaryEntryValidator>());
@@ -46,17 +53,23 @@ namespace DictionaryImporter.Bootstrap
 
             services.AddSingleton<Func<ImportEngineFactory<GutenbergRawEntry>>>(sp =>
                 () => sp.GetRequiredService<ImportEngineFactory<GutenbergRawEntry>>());
-
             services.AddSingleton<Func<ImportEngineFactory<StructuredJsonRawEntry>>>(sp =>
                 () => sp.GetRequiredService<ImportEngineFactory<StructuredJsonRawEntry>>());
-
             services.AddSingleton<Func<ImportEngineFactory<EnglishChineseRawEntry>>>(sp =>
                 () => sp.GetRequiredService<ImportEngineFactory<EnglishChineseRawEntry>>());
-
             services.AddSingleton<Func<ImportEngineFactory<CollinsRawEntry>>>(sp =>
                 () => sp.GetRequiredService<ImportEngineFactory<CollinsRawEntry>>());
+            services.AddSingleton<Func<ImportEngineFactory<OxfordRawEntry>>>(sp =>
+                () => sp.GetRequiredService<ImportEngineFactory<OxfordRawEntry>>());
+
 
             services.AddSingleton<IImportEngineRegistry, ImportEngineRegistry>();
+
+
+            // Oxford-specific extractors
+            services.AddSingleton<IEtymologyExtractor, OxfordEtymologyExtractor>();
+            services.AddSingleton<IExampleExtractor, OxfordExampleExtractor>();
+            services.AddSingleton<ISynonymExtractor, OxfordSynonymExtractor>();
 
             // =====================================================
             // POST-PROCESSING / ENRICHMENT
@@ -115,6 +128,11 @@ namespace DictionaryImporter.Bootstrap
                 new PromoteIpaFromNotesTask(connectionString));
 
             services.AddSingleton<OneTimeTaskRunner>();
+
+            // Add to BootstrapPipeline.Register method
+            services.AddSingleton<ImportEngineFactory<OxfordRawEntry>>();
+            services.AddSingleton<Func<ImportEngineFactory<OxfordRawEntry>>>(sp =>
+                () => sp.GetRequiredService<ImportEngineFactory<OxfordRawEntry>>());
 
             // =====================================================
             // QA (READ-ONLY VERIFICATION)

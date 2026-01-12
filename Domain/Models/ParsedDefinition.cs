@@ -29,5 +29,7 @@
         public IReadOnlyList<string>? Synonyms { get; set; }
         public IReadOnlyList<CrossReference> CrossReferences { get; set; }
             = new List<CrossReference>();
+        public string? PartOfSpeech { get; set; }
+        public List<string> Examples { get; internal set; }
     }
 }

@@ -3,6 +3,7 @@ using DictionaryImporter.Core.Validation;
 using DictionaryImporter.Sources.Collins.Models;
 using DictionaryImporter.Sources.EnglishChinese.Models;
 using DictionaryImporter.Sources.Gutenberg.Models;
+using DictionaryImporter.Sources.Oxford.Models;
 using DictionaryImporter.Sources.StructuredJson.Models;
 using Microsoft.Extensions.Logging;
 
@@ -14,6 +15,7 @@ namespace DictionaryImporter.Orchestration
         private readonly Func<ImportEngineFactory<StructuredJsonRawEntry>> _jsonFactory;
         private readonly Func<ImportEngineFactory<EnglishChineseRawEntry>> _engChnFactory;
         private readonly Func<ImportEngineFactory<CollinsRawEntry>> _collinsFactory;
+        private readonly Func<ImportEngineFactory<OxfordRawEntry>> _oxfordFactory;
         private readonly ILogger<ImportEngineRegistry> _logger;
 
         public ImportEngineRegistry(
@@ -21,12 +23,14 @@ namespace DictionaryImporter.Orchestration
             Func<ImportEngineFactory<StructuredJsonRawEntry>> jsonFactory,
             Func<ImportEngineFactory<EnglishChineseRawEntry>> engChnFactory,
             Func<ImportEngineFactory<CollinsRawEntry>> collinsFactory,
+            Func<ImportEngineFactory<OxfordRawEntry>> oxfordsFactory,
             ILogger<ImportEngineRegistry> logger)
         {
             _gutFactory = gutFactory;
             _jsonFactory = jsonFactory;
             _engChnFactory = engChnFactory;
             _collinsFactory = collinsFactory;
+            _oxfordFactory = oxfordsFactory;
             _logger = logger;
         }
 
@@ -80,6 +84,15 @@ namespace DictionaryImporter.Orchestration
                         _collinsFactory,
                         validator),
 
+                // =====================================================
+                // ENG_OXFORD — Oxford English Dictionary
+                // =====================================================
+                "ENG_OXFORD" =>
+                    CreateAndLog(
+                        sourceCode,
+                        "Oxford",
+                        _oxfordFactory,
+                        validator),
                 _ => ThrowUnknownSource(sourceCode)
             };
         }

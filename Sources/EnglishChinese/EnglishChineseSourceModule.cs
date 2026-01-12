@@ -19,7 +19,8 @@ namespace DictionaryImporter.Sources.EnglishChinese
             {
                 SourceCode = SourceCode,
                 SourceName = "English–Chinese Dictionary",
-                OpenStream = () => File.OpenRead(configuration["Sources:EnglishChinese:FilePath"] ?? throw new InvalidOperationException("EnglishChinese source file path not configured")), GraphRebuildMode = GraphRebuildMode.Rebuild
+                OpenStream = () => File.OpenRead(configuration["Sources:EnglishChinese:FilePath"] ?? throw new InvalidOperationException("EnglishChinese source file path not configured")),
+                GraphRebuildMode = GraphRebuildMode.Rebuild
             };
         }
         public void RegisterServices(IServiceCollection services, IConfiguration configuration)

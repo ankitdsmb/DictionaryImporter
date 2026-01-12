@@ -17,6 +17,7 @@ namespace DictionaryImporter.Sources.Collins.Parsing
 
             // Extract domain/grammar info
             var domain = CollinsParserHelper.ExtractDomain(definition);
+
             var grammar = CollinsParserHelper.ExtractGrammar(definition);
 
             // Build cross-references from examples (e.g., "See also:")
