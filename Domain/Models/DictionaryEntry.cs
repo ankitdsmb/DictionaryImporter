@@ -11,4 +11,5 @@ public sealed class DictionaryEntry
     public int SenseNumber { get; init; }
     public string SourceCode { get; init; } = null!;
     public DateTime CreatedUtc { get; init; }
+    public string? RawFragment { get; internal set; }
 }

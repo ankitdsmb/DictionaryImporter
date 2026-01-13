@@ -16,7 +16,7 @@ public sealed class OxfordExtractor : IDataExtractor<OxfordRawEntry>
         OxfordSenseRaw? currentSense = null;
 
         string? line;
-        while ((line = await reader.ReadLineAsync()) != null)
+        while ((line = await reader.ReadLineAsync(ct)) != null)
         {
             ct.ThrowIfCancellationRequested();
 
