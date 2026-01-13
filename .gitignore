@@ -20,8 +20,11 @@ logs/
 Thumbs.db
 .DS_Store
 
-# Secrets
-appsettings.Development.json
+*.json
+*.txt
+*.patch
+*.editorconfig
 
-Data/*.jsonl
-Data/*.json
+Data/*
+Dictionaries/*
+Query/*
