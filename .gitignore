@@ -22,3 +22,6 @@ Thumbs.db
 
 # Secrets
 appsettings.Development.json
+
+Data/*.jsonl
+Data/*.json
