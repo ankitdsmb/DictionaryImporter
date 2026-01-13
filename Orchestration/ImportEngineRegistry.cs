@@ -1,91 +1,78 @@
 ﻿using DictionaryImporter.Core.Pipeline;
+using DictionaryImporter.Sources.Century21.Models;
+using DictionaryImporter.Sources.Kaikki.Models;
 
 namespace DictionaryImporter.Orchestration;
 
-public sealed class ImportEngineRegistry : IImportEngineRegistry
+public sealed class ImportEngineRegistry(
+    Func<ImportEngineFactory<GutenbergRawEntry>> gutFactory,
+    Func<ImportEngineFactory<StructuredJsonRawEntry>> jsonFactory,
+    Func<ImportEngineFactory<EnglishChineseRawEntry>> engChnFactory,
+    Func<ImportEngineFactory<CollinsRawEntry>> collinsFactory,
+    Func<ImportEngineFactory<OxfordRawEntry>> oxfordsFactory,
+    Func<ImportEngineFactory<Century21RawEntry>> country21Factory,
+    Func<ImportEngineFactory<KaikkiRawEntry>> kaikkiFactory,
+    ILogger<ImportEngineRegistry> logger) : IImportEngineRegistry
 {
-    private readonly Func<ImportEngineFactory<CollinsRawEntry>> _collinsFactory;
-    private readonly Func<ImportEngineFactory<EnglishChineseRawEntry>> _engChnFactory;
-    private readonly Func<ImportEngineFactory<GutenbergRawEntry>> _gutFactory;
-    private readonly Func<ImportEngineFactory<StructuredJsonRawEntry>> _jsonFactory;
-    private readonly ILogger<ImportEngineRegistry> _logger;
-    private readonly Func<ImportEngineFactory<OxfordRawEntry>> _oxfordFactory;
-
-    public ImportEngineRegistry(
-        Func<ImportEngineFactory<GutenbergRawEntry>> gutFactory,
-        Func<ImportEngineFactory<StructuredJsonRawEntry>> jsonFactory,
-        Func<ImportEngineFactory<EnglishChineseRawEntry>> engChnFactory,
-        Func<ImportEngineFactory<CollinsRawEntry>> collinsFactory,
-        Func<ImportEngineFactory<OxfordRawEntry>> oxfordsFactory,
-        ILogger<ImportEngineRegistry> logger)
-    {
-        _gutFactory = gutFactory;
-        _jsonFactory = jsonFactory;
-        _engChnFactory = engChnFactory;
-        _collinsFactory = collinsFactory;
-        _oxfordFactory = oxfordsFactory;
-        _logger = logger;
-    }
-
     public IImportEngine CreateEngine(
         string sourceCode,
         IDictionaryEntryValidator validator)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "ImportEngine selection | SourceCode={SourceCode}",
             sourceCode);
 
         return sourceCode switch
         {
-            // =====================================================
-            // GUT_WEBSTER — Gutenberg Webster Dictionary
-            // =====================================================
             "GUT_WEBSTER" =>
                 CreateAndLog(
                     sourceCode,
                     "Gutenberg",
-                    _gutFactory,
+                    gutFactory,
                     validator),
 
-            // =====================================================
-            // STRUCT_JSON — Structured JSON Dictionary
-            // =====================================================
             "STRUCT_JSON" =>
                 CreateAndLog(
                     sourceCode,
                     "StructuredJson",
-                    _jsonFactory,
+                    jsonFactory,
                     validator),
 
-            // =====================================================
-            // ENG_CHN — English–Chinese Dictionary
-            // =====================================================
             "ENG_CHN" =>
                 CreateAndLog(
                     sourceCode,
                     "EnglishChinese",
-                    _engChnFactory,
+                    engChnFactory,
                     validator),
 
-            // =====================================================
-            // ENG_COLLINS — Collins English Dictionary
-            // =====================================================
             "ENG_COLLINS" =>
                 CreateAndLog(
                     sourceCode,
                     "Collins",
-                    _collinsFactory,
+                    collinsFactory,
                     validator),
 
-            // =====================================================
-            // ENG_OXFORD — Oxford English Dictionary
-            // =====================================================
             "ENG_OXFORD" =>
                 CreateAndLog(
                     sourceCode,
                     "Oxford",
-                    _oxfordFactory,
+                    oxfordsFactory,
                     validator),
+
+            "CENTURY21" =>
+                CreateAndLog(
+                    sourceCode,
+                    "Century21",
+                    country21Factory,
+                    validator),
+
+            "KAIKKI" =>
+                CreateAndLog(
+                    sourceCode,
+                    "Kaikki",
+                    kaikkiFactory,
+                    validator),
+
             _ => ThrowUnknownSource(sourceCode)
         };
     }
@@ -96,7 +83,7 @@ public sealed class ImportEngineRegistry : IImportEngineRegistry
         Func<ImportEngineFactory<TRaw>> factory,
         IDictionaryEntryValidator validator)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "ImportEngine resolved | SourceCode={SourceCode} | Engine={Engine}",
             sourceCode,
             engineName);

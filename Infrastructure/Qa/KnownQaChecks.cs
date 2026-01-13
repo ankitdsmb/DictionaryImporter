@@ -1,4 +1,7 @@
-﻿namespace DictionaryImporter.Infrastructure.Qa;
+﻿using DictionaryImporter.Infrastructure.Grammar;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace DictionaryImporter.Infrastructure.Qa;
 
 public static class KnownQaChecks
 {
@@ -22,6 +25,14 @@ public static class KnownQaChecks
                 connectionString,
                 new { LocaleCode = locale }
             );
+
+            var grammarEnabled = Environment.GetEnvironmentVariable("GRAMMAR_QA_ENABLED") == "true";
+            if (grammarEnabled)
+            {
+                yield return new GrammarQaCheck(connectionString,
+                    new LanguageToolGrammarCorrector(),
+                    NullLogger<GrammarQaCheck>.Instance);
+            }
         }
         // Add more QA SPs here as system grows
     }

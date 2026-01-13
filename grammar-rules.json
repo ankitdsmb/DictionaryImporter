@@ -1,0 +1,11 @@
+﻿[
+  {
+    "Id": "double_space",
+    "Pattern": "\\s{2,}",
+    "Replacement": " ",
+    "Description": "Remove double spaces",
+    "Category": "WHITESPACE",
+    "Confidence": 100,
+    "Languages": ["en", "fr", "de"]
+  }
+]
