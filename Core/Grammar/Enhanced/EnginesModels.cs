@@ -1,4 +1,5 @@
-﻿using System.Text.Json.Serialization;
+﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace DictionaryImporter.Core.Grammar.Enhanced;
 
@@ -12,15 +13,32 @@ public sealed record EngineSuggestion(
     string Explanation
 );
 
-public sealed record GrammarFeedback(
-    string OriginalText,
-    string? CorrectedText,
-    GrammarIssue? OriginalIssue,
-    bool IsValidCorrection,
-    bool IsFalsePositive,
-    string? UserComment,
-    DateTimeOffset Timestamp
-);
+public sealed class GrammarFeedback
+{
+    public string OriginalText { get; set; } = null!;
+    public string? CorrectedText { get; set; }
+    public GrammarIssue? OriginalIssue { get; set; }
+    public bool IsValidCorrection { get; set; }
+    public bool IsFalsePositive { get; set; }
+    public string? UserComment { get; set; }
+
+    [JsonConverter(typeof(DateTimeOffsetConverter))]
+    public DateTimeOffset Timestamp { get; set; }
+}
+
+// Helper converter for DateTimeOffset serialization
+public class DateTimeOffsetConverter : JsonConverter<DateTimeOffset>
+{
+    public override DateTimeOffset Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        return DateTimeOffset.Parse(reader.GetString()!);
+    }
+
+    public override void Write(Utf8JsonWriter writer, DateTimeOffset value, JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value.ToString("O"));
+    }
+}
 
 public sealed record GrammarPatternRule
 {

@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Core.Grammar;
+﻿using DictionaryImporter.Infrastructure.Grammar.Helper;
+
+namespace DictionaryImporter.Core.Grammar;
 
 public sealed class HybridGrammarCorrector(
     ILanguageDetector languageDetector,
@@ -33,21 +35,30 @@ public sealed class HybridGrammarCorrector(
         var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var issues = new List<GrammarIssue>();
 
+        int currentPosition = 0;
+
         foreach (var word in words)
         {
             ct.ThrowIfCancellationRequested();
+
+            // Find the position of this word in the original text
+            var wordPosition = text.IndexOf(word, currentPosition, StringComparison.OrdinalIgnoreCase);
+            if (wordPosition == -1)
+            {
+                // Fallback: estimate position
+                wordPosition = currentPosition;
+                currentPosition += word.Length + 1; // +1 for space
+            }
+            else
+            {
+                currentPosition = wordPosition + word.Length;
+            }
+
             var result = spellChecker.Check(word);
             if (!result.IsCorrect)
             {
-                issues.Add(new GrammarIssue(
-                    "SPELLING",
-                    $"Spelling error: {word}",
-                    "SPELLING",
-                    0, // We don't have offset in this simple check
-                    word.Length,
-                    result.Suggestions.ToList(),
-                    90
-                ));
+                var issue = GrammarIssueHelper.CreateSpellingIssue(wordPosition, wordPosition + word.Length, word, result.Suggestions, GetWordContext(text, wordPosition));
+                issues.Add(issue);
             }
         }
 
@@ -57,6 +68,15 @@ public sealed class HybridGrammarCorrector(
             issues,
             TimeSpan.Zero
         );
+    }
+
+    private string GetWordContext(string text, int position, int contextLength = 50)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+
+        var start = Math.Max(0, position - contextLength);
+        var end = Math.Min(text.Length, position + contextLength);
+        return text.Substring(start, end - start);
     }
 
     public Task<GrammarCorrectionResult> AutoCorrectAsync(string text, string languageCode = null, CancellationToken ct = default)

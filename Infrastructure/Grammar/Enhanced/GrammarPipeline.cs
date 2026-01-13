@@ -183,7 +183,7 @@ public sealed class GrammarPipeline : IGrammarPipeline
     {
         await _customRules.TrainAsync(feedback);
 
-        foreach (var engine in _engines.Values.OfType<ITrainableGrammarEngine>())
+        foreach (var engine in _engines.Values.OfType<Core.Grammar.Enhanced.ITrainableGrammarEngine>())
         {
             await engine.TrainAsync(feedback, ct);
         }

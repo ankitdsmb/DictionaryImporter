@@ -43,6 +43,33 @@ internal static class GrammarRegistrationExtensions
         return services;
     }
 
+    public static IServiceCollection AddGrammarCorrectionStep(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        // Get the connection string
+        var connectionString = configuration.GetConnectionString("DictionaryImporter")
+                               ?? throw new InvalidOperationException("Connection string 'DictionaryImporter' not configured");
+
+        // Register GrammarCorrectionStep
+        services.AddSingleton<GrammarCorrectionStep>(sp =>
+        {
+            var grammarCorrector = sp.GetRequiredService<IGrammarCorrector>();
+            var settings = new GrammarCorrectionSettings();
+            configuration.GetSection("Grammar").Bind(settings);
+            var logger = sp.GetRequiredService<ILogger<GrammarCorrectionStep>>();
+
+            return new GrammarCorrectionStep(
+                connectionString,
+                grammarCorrector,
+                settings,
+                logger
+            );
+        });
+
+        return services;
+    }
+
     // Helper method for service decoration (requires Scrutor or similar)
     private static void Decorate<TService>(this IServiceCollection services, Func<TService, IServiceProvider, TService> decorator)
     {

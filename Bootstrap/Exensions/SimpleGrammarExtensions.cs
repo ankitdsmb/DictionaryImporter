@@ -1,59 +1,38 @@
-﻿// File: DictionaryImporter.Bootstrap/Exensions/SimpleGrammarExtensions.cs
+﻿// File: DictionaryImporter/Bootstrap/Extensions/SimpleGrammarExtensions.cs
 using DictionaryImporter.Core.Grammar;
 using DictionaryImporter.Core.Grammar.Simple;
-using DictionaryImporter.Infrastructure.Grammar;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Bootstrap.Exensions;
 
 public static class SimpleGrammarExtensions
 {
     public static IServiceCollection AddSimpleGrammarCorrection(
-        this IServiceCollection services,
-        IConfiguration configuration)
+        this IServiceCollection services, IConfiguration configuration)
     {
-        try
+        var url = configuration["Grammar:LanguageToolUrl"] ?? "http://localhost:2026";
+
+        services.AddSingleton<IGrammarCorrector>(sp =>
         {
-            // Load settings with proper defaults
-            var settings = new GrammarCorrectionSettings();
-            configuration.GetSection("GrammarCorrection").Bind(settings);
-
-            // Ensure URL is not null or empty
-            if (string.IsNullOrWhiteSpace(settings.LanguageToolUrl))
+            try
             {
-                settings.LanguageToolUrl = "http://localhost:2026";
+                return new SimpleGrammarCorrector(
+                    url,
+                    configuration,
+                    sp.GetRequiredService<ILogger<SimpleGrammarCorrector>>(),
+                    sp.GetRequiredService<ILoggerFactory>());
             }
-
-            services.AddSingleton(settings);
-
-            // Register grammar corrector with null check
-            services.AddSingleton<IGrammarCorrector>(sp =>
+            catch (Exception ex)
             {
                 var logger = sp.GetRequiredService<ILogger<SimpleGrammarCorrector>>();
-                return new SimpleGrammarCorrector(settings.LanguageToolUrl, logger);
-            });
+                logger.LogError(ex, "Failed to create SimpleGrammarCorrector with full configuration, using simplified version");
 
-            // Register grammar correction step
-            services.AddSingleton<GrammarCorrectionStep>(sp =>
-            {
-                var connectionString = configuration.GetConnectionString("DictionaryImporter")
-                    ?? throw new InvalidOperationException("Connection string 'DictionaryImporter' not configured");
-
-                return new GrammarCorrectionStep(
-                    connectionString,
-                    sp.GetRequiredService<IGrammarCorrector>(),
-                    settings,
-                    sp.GetRequiredService<ILogger<GrammarCorrectionStep>>());
-            });
-        }
-        catch (Exception ex)
-        {
-            // If registration fails, add a fallback no-op corrector
-            Console.WriteLine($"Grammar correction setup failed: {ex.Message}. Using no-op fallback.");
-            services.AddSingleton<IGrammarCorrector>(new NoOpGrammarCorrector());
-        }
+                // Fallback to simplified constructor
+                return new SimpleGrammarCorrector(
+                    url,
+                    sp.GetRequiredService<ILogger<SimpleGrammarCorrector>>());
+            }
+        });
 
         return services;
     }
