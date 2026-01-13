@@ -1,180 +1,430 @@
-﻿// File: DictionaryImporter.Infrastructure/Grammar/Engines/PatternRuleEngine.cs
+﻿// File: DictionaryImporter/Infrastructure/Grammar/Engines/PatternRuleEngine.cs
 using DictionaryImporter.Core.Grammar;
 using DictionaryImporter.Core.Grammar.Enhanced;
+using System.Diagnostics;
 using System.Text.Json;
+using DictionaryImporter.Infrastructure.Grammar.Helper;
 
 namespace DictionaryImporter.Infrastructure.Grammar.Engines;
 
-public sealed class PatternRuleEngine : IGrammarEngine, ITrainableGrammarEngine
+public sealed class PatternRuleEngine : IGrammarEngine, DictionaryImporter.Core.Grammar.Enhanced.ITrainableGrammarEngine
 {
-    private readonly List<GrammarPatternRule> _rules = new();
+    private readonly string _rulesFilePath;
     private readonly ILogger<PatternRuleEngine> _logger;
-    private readonly string _rulesPath;
+    private readonly object _lock = new();
+    private List<GrammarPatternRule> _rules = new();
+    private readonly Dictionary<string, Regex> _compiledPatterns = new();
+    private bool _initialized = false;
 
     public string Name => "PatternRules";
     public double ConfidenceWeight => 0.90;
     public bool CanTrain => true;
 
-    public PatternRuleEngine(string rulesPath, ILogger<PatternRuleEngine> logger)
+    public PatternRuleEngine(string rulesFilePath, ILogger<PatternRuleEngine> logger)
     {
-        _logger = logger;
-        _rulesPath = rulesPath;
-        LoadRules();
+        _rulesFilePath = rulesFilePath ?? throw new ArgumentNullException(nameof(rulesFilePath));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    private void LoadRules()
+    public async Task InitializeAsync()
     {
-        if (File.Exists(_rulesPath))
+        if (_initialized) return;
+
+        try
+        {
+            await LoadRulesAsync();
+            _initialized = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to initialize PatternRuleEngine");
+            CreateDefaultRules();
+            _initialized = true;
+        }
+    }
+
+    private async Task LoadRulesAsync()
+    {
+        if (!File.Exists(_rulesFilePath))
+        {
+            _logger.LogInformation("Pattern rules file not found at {Path}, creating default rules", _rulesFilePath);
+            CreateDefaultRules();
+            await SaveRulesAsync();
+            return;
+        }
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(_rulesFilePath);
+            var loadedRules = JsonSerializer.Deserialize<List<GrammarPatternRule>>(json);
+
+            lock (_lock)
+            {
+                _rules = loadedRules ?? new List<GrammarPatternRule>();
+                CompilePatterns();
+                _logger.LogInformation("Loaded {Count} pattern rules from {Path}", _rules.Count, _rulesFilePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load pattern rules from {Path}", _rulesFilePath);
+            CreateDefaultRules();
+        }
+    }
+
+    private void CompilePatterns()
+    {
+        _compiledPatterns.Clear();
+        foreach (var rule in _rules)
         {
             try
             {
-                var json = File.ReadAllText(_rulesPath);
-                var loadedRules = JsonSerializer.Deserialize<List<GrammarPatternRule>>(json);
-                if (loadedRules != null)
+                var regex = new Regex(rule.Pattern,
+                    RegexOptions.Compiled | RegexOptions.IgnoreCase);
+                _compiledPatterns[rule.Id] = regex;
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid regex pattern in rule {RuleId}: {Pattern}", rule.Id, rule.Pattern);
+            }
+        }
+    }
+
+    private void CreateDefaultRules()
+    {
+        lock (_lock)
+        {
+            _rules = new List<GrammarPatternRule>
+            {
+                new()
                 {
-                    _rules.AddRange(loadedRules);
+                    Id = "ALOT_TO_A_LOT",
+                    Pattern = @"\balot\b",
+                    Replacement = "a lot",
+                    Description = "Correct 'alot' to 'a lot'",
+                    Category = "SPELLING",
+                    Confidence = 99,
+                    Languages = new List<string> { "en" },
+                    UsageCount = 0,
+                    SuccessCount = 0
+                },
+                new()
+                {
+                    Id = "I_AM_CONTRACTION",
+                    Pattern = @"\bi\s+am\b",
+                    Replacement = "I'm",
+                    Description = "Convert 'i am' to 'I'm'",
+                    Category = "CONTRACTION",
+                    Confidence = 85,
+                    Languages = new List<string> { "en" },
+                    UsageCount = 0,
+                    SuccessCount = 0
+                },
+                new()
+                {
+                    Id = "ITS_IT_S_CONFUSION",
+                    Pattern = @"\b(it's)\b",
+                    Replacement = "its",
+                    Description = "Correct 'it's' (possessive) to 'its'",
+                    Category = "GRAMMAR",
+                    Confidence = 80,
+                    Languages = new List<string> { "en" },
+                    UsageCount = 0,
+                    SuccessCount = 0
+                }
+            };
+
+            CompilePatterns();
+            _logger.LogInformation("Created {Count} default pattern rules", _rules.Count);
+        }
+    }
+
+    //public async Task<GrammarCheckResult> CheckAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
+    //{
+    //    if (!_initialized || string.IsNullOrWhiteSpace(text))
+    //        return new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero);
+
+    //    var sw = Stopwatch.StartNew();
+    //    var issues = new List<GrammarIssue>();
+
+    //    await Task.Run(() =>
+    //    {
+    //        try
+    //        {
+    //            List<GrammarPatternRule> applicableRules;
+    //            Dictionary<string, Regex> patterns;
+
+    //            lock (_lock)
+    //            {
+    //                applicableRules = _rules
+    //                    .Where(r => r.IsApplicable(languageCode))
+    //                    .ToList();
+    //                patterns = new Dictionary<string, Regex>(_compiledPatterns);
+    //            }
+
+    //            foreach (var rule in applicableRules)
+    //            {
+    //                ct.ThrowIfCancellationRequested();
+
+    //                if (!patterns.TryGetValue(rule.Id, out var regex))
+    //                    continue;
+
+    //                var matches = regex.Matches(text);
+    //                foreach (Match match in matches)
+    //                {
+    //                    if (!match.Success) continue;
+
+    //                    // Calculate replacement
+    //                    string replacement;
+    //                    try
+    //                    {
+    //                        replacement = regex.Replace(match.Value, rule.Replacement);
+    //                    }
+    //                    catch
+    //                    {
+    //                        replacement = rule.Replacement;
+    //                    }
+
+    //                    // Skip if replacement is same as original (case-insensitive)
+    //                    if (string.Equals(match.Value, replacement, StringComparison.OrdinalIgnoreCase))
+    //                        continue;
+
+    //                    issues.Add(new GrammarIssue(
+    //                        StartOffset: match.Index,
+    //                        EndOffset: match.Index + match.Length,
+    //                        Message: rule.Description,
+    //                        ShortMessage: rule.Category,
+    //                        Replacements: new List<string> { replacement },
+    //                        RuleId: $"PATTERN_{rule.Id}",
+    //                        RuleDescription: rule.Description,
+    //                        Tags: new List<string> { rule.Category.ToLowerInvariant() },
+    //                        Context: GetContext(text, match.Index),
+    //                        ContextOffset: Math.Max(0, match.Index - 20),
+    //                        ConfidenceLevel: rule.Confidence
+    //                    ));
+    //                }
+    //            }
+    //        }
+    //        catch (Exception ex)
+    //        {
+    //            _logger.LogError(ex, "Error during pattern rule checking");
+    //        }
+    //    }, ct);
+
+    //    sw.Stop();
+    //    return new GrammarCheckResult(issues.Count > 0, issues.Count, issues, sw.Elapsed);
+    //}
+    // File: DictionaryImporter/Infrastructure/Grammar/Engines/PatternRuleEngine.cs (updated section)
+    public async Task<GrammarCheckResult> CheckAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
+    {
+        if (!_initialized || string.IsNullOrWhiteSpace(text))
+            return new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero);
+
+        var sw = Stopwatch.StartNew();
+        var issues = new List<GrammarIssue>();
+
+        await Task.Run(() =>
+        {
+            try
+            {
+                List<GrammarPatternRule> applicableRules;
+                Dictionary<string, Regex> patterns;
+
+                lock (_lock)
+                {
+                    applicableRules = _rules
+                        .Where(r => r.IsApplicable(languageCode))
+                        .ToList();
+                    patterns = new Dictionary<string, Regex>(_compiledPatterns);
+                }
+
+                foreach (var rule in applicableRules)
+                {
+                    ct.ThrowIfCancellationRequested();
+
+                    if (!patterns.TryGetValue(rule.Id, out var regex))
+                        continue;
+
+                    var matches = regex.Matches(text);
+                    foreach (Match match in matches)
+                    {
+                        if (!match.Success) continue;
+
+                        // Calculate replacement
+                        string replacement;
+                        try
+                        {
+                            replacement = regex.Replace(match.Value, rule.Replacement);
+                        }
+                        catch
+                        {
+                            replacement = rule.Replacement;
+                        }
+
+                        // Skip if replacement is same as original (case-insensitive)
+                        if (string.Equals(match.Value, replacement, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        // In PatternRuleEngine CheckAsync method, fix the GrammarIssue creation:
+                        var issue = GrammarIssueHelper.CreatePatternRuleIssue(
+                            match.Index,
+                            match.Index + match.Length,
+                            rule.Id,
+                            rule.Description,
+                            rule.Category,
+                            replacement,
+                            GetContext(text, match.Index),
+                            rule.Confidence
+                        );
+                        issues.Add(issue);
+                    }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to load pattern rules from {Path}", _rulesPath);
+                _logger.LogError(ex, "Error during pattern rule checking");
             }
-        }
+        }, ct);
 
-        AddBuiltInRules();
+        sw.Stop();
+        return new GrammarCheckResult(issues.Count > 0, issues.Count, issues, sw.Elapsed);
     }
 
-    private void AddBuiltInRules()
+    private string GetContext(string text, int position, int contextLength = 50)
     {
-        // Add some basic built-in rules
-        _rules.Add(new GrammarPatternRule
-        {
-            Pattern = @"\b(a|an)\s+[aeiou]\w+\b",
-            Replacement = @"$1n",
-            Description = "Indefinite article correction",
-            Category = "GRAMMAR",
-            Confidence = 95,
-            Languages = new List<string> { "en" }
-        });
-
-        _rules.Add(new GrammarPatternRule
-        {
-            Pattern = @"\b(can not)\b",
-            Replacement = "cannot",
-            Description = "Standard contraction",
-            Category = "SPELLING",
-            Confidence = 100,
-            Languages = new List<string> { "en" }
-        });
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        var start = Math.Max(0, position - contextLength);
+        var end = Math.Min(text.Length, position + contextLength);
+        return text.Substring(start, end - start);
     }
 
-    public bool IsSupported(string languageCode) => true;
-
-    public Task InitializeAsync() => Task.CompletedTask;
-
-    public Task<GrammarCheckResult> CheckAsync(string text, string languageCode, CancellationToken ct)
+    public async Task<bool> TrainAsync(GrammarFeedback feedback, CancellationToken ct = default)
     {
-        var issues = new List<GrammarIssue>();
-
-        foreach (var rule in _rules.Where(r => r.IsApplicable(languageCode)))
-        {
-            var matches = Regex.Matches(text, rule.Pattern, RegexOptions.IgnoreCase);
-
-            foreach (Match match in matches)
-            {
-                var corrected = Regex.Replace(match.Value, rule.Pattern, rule.Replacement);
-
-                issues.Add(new GrammarIssue(
-                    $"PATTERN_{rule.Id}",
-                    rule.Description,
-                    rule.Category,
-                    match.Index,
-                    match.Index + match.Length,
-                    new List<string> { corrected },
-                    rule.Confidence
-                ));
-            }
-        }
-
-        return Task.FromResult(new GrammarCheckResult(
-            issues.Any(),
-            issues.Count,
-            issues,
-            TimeSpan.Zero
-        ));
-    }
-
-    public Task<GrammarCorrectionResult> AutoCorrectAsync(string text, string languageCode, CancellationToken ct)
-    {
-        var checkResult = CheckAsync(text, languageCode, ct).GetAwaiter().GetResult();
-        var correctedText = text;
-        var appliedCorrections = new List<AppliedCorrection>();
-
-        foreach (var issue in checkResult.Issues.OrderByDescending(i => i.StartOffset))
-        {
-            if (issue.Replacements.Count == 0) continue;
-
-            var originalSegment = correctedText.Substring(issue.StartOffset,
-                issue.EndOffset - issue.StartOffset);
-            var replacement = issue.Replacements[0];
-
-            correctedText = correctedText.Remove(issue.StartOffset,
-                issue.EndOffset - issue.StartOffset)
-                .Insert(issue.StartOffset, replacement);
-
-            appliedCorrections.Add(new AppliedCorrection(
-                originalSegment,
-                replacement,
-                issue.RuleId,
-                issue.Message,
-                issue.ConfidenceLevel
-            ));
-        }
-
-        return Task.FromResult(new GrammarCorrectionResult(
-            text,
-            correctedText,
-            appliedCorrections,
-            checkResult.Issues
-        ));
-    }
-
-    public async Task<bool> TrainAsync(GrammarFeedback feedback, CancellationToken ct)
-    {
-        if (feedback.OriginalIssue?.RuleId?.StartsWith("PATTERN_") != true)
+        if (feedback.OriginalIssue == null || !feedback.OriginalIssue.RuleId.StartsWith("PATTERN_"))
             return false;
 
         var ruleId = feedback.OriginalIssue.RuleId.Replace("PATTERN_", "");
-        var rule = _rules.FirstOrDefault(r => r.Id == ruleId);
+        bool trained = false;
 
-        if (rule == null) return false;
-
-        rule.UsageCount++;
-
-        if (feedback.IsFalsePositive)
+        lock (_lock)
         {
-            rule.Confidence = Math.Max(0, rule.Confidence - 10);
-        }
-        else if (feedback.IsValidCorrection)
-        {
-            rule.SuccessCount++;
-            rule.Confidence = Math.Min(100, rule.Confidence + 5);
+            var rule = _rules.FirstOrDefault(r => r.Id == ruleId);
+            if (rule != null)
+            {
+                rule.UsageCount++;
+                trained = true;
+
+                if (feedback.IsFalsePositive)
+                {
+                    // Decrease confidence for false positives
+                    rule.Confidence = Math.Max(0, rule.Confidence - 10);
+                    _logger.LogDebug("Decreased confidence for rule {RuleId} to {Confidence} due to false positive",
+                        ruleId, rule.Confidence);
+                }
+                else if (feedback.IsValidCorrection)
+                {
+                    // Increase confidence for valid corrections
+                    rule.SuccessCount++;
+                    rule.Confidence = Math.Min(100, rule.Confidence + 5);
+                    _logger.LogDebug("Increased confidence for rule {RuleId} to {Confidence} due to valid correction",
+                        ruleId, rule.Confidence);
+                }
+
+                // Auto-adjust pattern if we have enough data
+                if (rule.UsageCount > 10 && rule.SuccessCount / (double)rule.UsageCount < 0.3)
+                {
+                    _logger.LogWarning("Rule {RuleId} has low success rate ({Success}/{Total}), consider revising",
+                        ruleId, rule.SuccessCount, rule.UsageCount);
+                }
+            }
         }
 
-        await SaveRulesAsync();
-        return true;
+        if (trained)
+        {
+            // Save updated rules asynchronously
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await SaveRulesAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to save rules after training");
+                }
+            }, ct);
+        }
+
+        return trained;
     }
 
     private async Task SaveRulesAsync()
     {
         try
         {
-            var json = JsonSerializer.Serialize(_rules, new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(_rulesPath, json);
+            List<GrammarPatternRule> rulesCopy;
+            lock (_lock)
+            {
+                rulesCopy = new List<GrammarPatternRule>(_rules);
+            }
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var json = JsonSerializer.Serialize(rulesCopy, options);
+
+            // Ensure directory exists
+            var directory = Path.GetDirectoryName(_rulesFilePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                Directory.CreateDirectory(directory);
+
+            await File.WriteAllTextAsync(_rulesFilePath, json);
+            _logger.LogDebug("Saved {Count} pattern rules to {Path}", rulesCopy.Count, _rulesFilePath);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save pattern rules to {Path}", _rulesPath);
+            _logger.LogError(ex, "Failed to save pattern rules to {Path}", _rulesFilePath);
+        }
+    }
+
+    public void AddRule(GrammarPatternRule rule)
+    {
+        lock (_lock)
+        {
+            _rules.Add(rule);
+            try
+            {
+                var regex = new Regex(rule.Pattern,
+                    RegexOptions.Compiled | RegexOptions.IgnoreCase);
+                _compiledPatterns[rule.Id] = regex;
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid regex pattern in new rule {RuleId}", rule.Id);
+            }
+        }
+    }
+
+    public void RemoveRule(string ruleId)
+    {
+        lock (_lock)
+        {
+            _rules.RemoveAll(r => r.Id == ruleId);
+            _compiledPatterns.Remove(ruleId);
+        }
+    }
+
+    public IReadOnlyList<GrammarPatternRule> GetRules()
+    {
+        lock (_lock)
+        {
+            return _rules.AsReadOnly();
+        }
+    }
+
+    public bool IsSupported(string languageCode)
+    {
+        lock (_lock)
+        {
+            return _rules.Any(r => r.IsApplicable(languageCode));
         }
     }
 }

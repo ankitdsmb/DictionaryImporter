@@ -27,7 +27,7 @@ if (-not (Test-Path $ltDir)) {
 }
 
 # 3. Start LanguageTool server on port 8081
-Write-Host "Starting LanguageTool server on http://localhost:2026..." -ForegroundColor Green
+Write-Host "Starting LanguageTool server on http://localhost:8081..." -ForegroundColor Green
 
 $javaArgs = @(
     "-cp", "$ltDir\languagetool-server.jar",

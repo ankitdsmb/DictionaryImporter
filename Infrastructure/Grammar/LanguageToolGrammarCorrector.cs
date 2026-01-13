@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 namespace DictionaryImporter.Infrastructure.Grammar;
 
 public sealed class LanguageToolGrammarCorrector(
-    string languageToolUrl = "http://localhost:2026",
+    string languageToolUrl = "http://localhost:8081",
     ILogger<LanguageToolGrammarCorrector>? logger = null)
     : IGrammarCorrector
 {
@@ -174,14 +174,28 @@ public sealed class LanguageToolGrammarCorrector(
         foreach (var match in response.Matches ?? Enumerable.Empty<LanguageToolMatch>())
         {
             issues.Add(new GrammarIssue(
-                match.Rule.Id,
-                match.Message,
-                match.Rule.Category.Name,
-                match.Offset,
-                match.Offset + match.Length,
-                match.Replacements?.Select(r => r.Value).ToList() ?? new List<string>(),
-                CalculateConfidence(match)
+                StartOffset: match.Offset,
+                EndOffset: Math.Min(50, match.Length),
+                Message: match.Message,
+                ShortMessage: "Language detection",
+                Replacements: match.Replacements?.Select(r => r.Value).ToList() ?? new List<string>(),
+                RuleId: match.Rule.Id,
+                RuleDescription: "Language content detection",
+                Tags: new List<string> { "language", "detection" },  // Required Tags parameter
+                Context: match.Message.Substring(0, Math.Min(100, match.Length)),
+                ContextOffset: 0,
+                ConfidenceLevel: CalculateConfidence(match)
             ));
+
+            //issues.Add(new GrammarIssue(
+            //    match.Rule.Id,
+            //    match.Message,
+            //    match.Rule.Category.Name,
+            //    match.Offset,
+            //    match.Offset + match.Length,
+            //    match.Replacements?.Select(r => r.Value).ToList() ?? new List<string>(),
+            //    CalculateConfidence(match)
+            //));
         }
 
         return issues;
@@ -222,13 +236,33 @@ public sealed class LanguageToolGrammarCorrector(
 
         public bool ShouldIgnore(GrammarIssue issue)
         {
-            // Ignore false positives and style-only suggestions
             var ignoreCategories = new[] { "CASING", "TYPOGRAPHY", "REDUNDANCY" };
             var ignoreRules = new[] { "EN_UNPAIRED_BRACKETS", "WHITESPACE_RULE" };
 
-            return ignoreCategories.Contains(issue.Category.ToUpper()) ||
-                   ignoreRules.Contains(issue.RuleId) ||
-                   issue.ConfidenceLevel < 50;
+            var category = GetCategoryFromIssue(issue);
+            return ignoreCategories.Contains(category.ToUpper()) || ignoreRules.Contains(issue.RuleId) || issue.ConfidenceLevel < 50;
+        }
+
+        private string GetCategoryFromIssue(GrammarIssue issue)
+        {
+            var categoryTags = issue.Tags?
+                .Where(t => t.Contains("grammar") || t.Contains("spelling") || t.Contains("style"))
+                .ToList();
+
+            if (categoryTags?.Count > 0)
+                return categoryTags.First();
+
+            if (!string.IsNullOrEmpty(issue.ShortMessage))
+                return issue.ShortMessage;
+
+            if (issue.RuleId.StartsWith("SPELLING_"))
+                return "spelling";
+            if (issue.RuleId.StartsWith("PATTERN_"))
+                return "pattern";
+            if (issue.RuleId.StartsWith("GRAMMAR_"))
+                return "grammar";
+
+            return "unknown";
         }
     }
 

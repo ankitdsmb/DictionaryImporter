@@ -1,133 +1,139 @@
-﻿// File: DictionaryImporter.Infrastructure/Grammar/Engines/NTextCatLanguageDetector.cs
+﻿// File: DictionaryImporter/Infrastructure/Grammar/Engines/SimpleLanguageDetector.cs
 using DictionaryImporter.Core.Grammar;
 using DictionaryImporter.Core.Grammar.Enhanced;
-using NTextCat;
 using System.Diagnostics;
 
 namespace DictionaryImporter.Infrastructure.Grammar.Engines;
 
-public sealed class NTextCatLanguageDetector(string profilePath, ILogger<NTextCatLanguageDetector> logger) : IGrammarEngine
+public sealed class SimpleLanguageDetector : IGrammarEngine
 {
-    private RankedLanguageIdentifier? _identifier;
+    private readonly ILogger<SimpleLanguageDetector> _logger;
+    private bool _initialized = false;
 
-    public string Name => "NTextCat";
-    public double ConfidenceWeight => 0.80;
+    public string Name => "SimpleLanguageDetector";
+    public double ConfidenceWeight => 0.70;
 
-    public bool IsSupported(string languageCode) => true;
+    public SimpleLanguageDetector(ILogger<SimpleLanguageDetector> logger)
+    {
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
 
     public Task InitializeAsync()
     {
-        return Task.Run(() =>
+        _initialized = true;
+        _logger.LogInformation("SimpleLanguageDetector initialized");
+        return Task.CompletedTask;
+    }
+
+    //public async Task<GrammarCheckResult> CheckAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
+    //{
+    //    if (!_initialized || string.IsNullOrWhiteSpace(text) || text.Length < 10)
+    //        return new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero);
+
+    //    var sw = Stopwatch.StartNew();
+    //    var issues = new List<GrammarIssue>();
+
+    //    await Task.Run(() =>
+    //    {
+    //        try
+    //        {
+    //            // Simple English detection heuristic
+    //            var englishScore = CalculateEnglishScore(text);
+    //            var expectedIsEnglish = languageCode.StartsWith("en", StringComparison.OrdinalIgnoreCase);
+
+    //            if (expectedIsEnglish && englishScore < 0.3)
+    //            {
+    //                issues.Add(new GrammarIssue(
+    //                    StartOffset: 0,
+    //                    EndOffset: Math.Min(50, text.Length),
+    //                    Message: $"Text appears to contain significant non-English content",
+    //                    ShortMessage: "Language detection",
+    //                    Replacements: new List<string>(),
+    //                    RuleId: "LANGUAGE_DETECTION",
+    //                    RuleDescription: "Language content detection",
+    //                    Tags: new List<string> { "language", "detection" },
+    //                    Context: text.Substring(0, Math.Min(100, text.Length)),
+    //                    ContextOffset: 0,
+    //                    ConfidenceLevel: 70
+    //                ));
+    //            }
+    //        }
+    //        catch (Exception ex)
+    //        {
+    //            _logger.LogError(ex, "Error during language detection");
+    //        }
+    //    }, ct);
+
+    //    sw.Stop();
+    //    return new GrammarCheckResult(issues.Count > 0, issues.Count, issues, sw.Elapsed);
+    //}
+    // File: DictionaryImporter/Infrastructure/Grammar/Engines/SimpleLanguageDetector.cs (updated section)
+    public async Task<GrammarCheckResult> CheckAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
+    {
+        if (!_initialized || string.IsNullOrWhiteSpace(text) || text.Length < 10)
+            return new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero);
+
+        var sw = Stopwatch.StartNew();
+        var issues = new List<GrammarIssue>();
+
+        await Task.Run(() =>
         {
             try
             {
-                if (File.Exists(profilePath))
+                // Simple English detection heuristic
+                var englishScore = CalculateEnglishScore(text);
+                var expectedIsEnglish = languageCode.StartsWith("en", StringComparison.OrdinalIgnoreCase);
+
+                if (expectedIsEnglish && englishScore < 0.3)
                 {
-                    var factory = new RankedLanguageIdentifierFactory();
-                    _identifier = factory.Load(profilePath);
-                    logger?.LogInformation("NTextCat initialized successfully");
-                }
-                else
-                {
-                    logger?.LogWarning("NTextCat profile not found at {Path}", profilePath);
+                    issues.Add(new GrammarIssue(
+                        StartOffset: 0,
+                        EndOffset: Math.Min(50, text.Length),
+                        Message: $"Text appears to contain significant non-English content",
+                        ShortMessage: "Language detection",
+                        Replacements: new List<string>(),
+                        RuleId: "LANGUAGE_DETECTION",
+                        RuleDescription: "Language content detection",
+                        Tags: new List<string> { "language", "detection" },  // Required Tags parameter
+                        Context: text.Substring(0, Math.Min(100, text.Length)),
+                        ContextOffset: 0,
+                        ConfidenceLevel: 70
+                    ));
                 }
             }
             catch (Exception ex)
             {
-                logger?.LogError(ex, "Failed to initialize NTextCat");
+                _logger.LogError(ex, "Error during language detection");
             }
-        });
-    }
-
-    public Task<GrammarCheckResult> CheckAsync(string text, string languageCode, CancellationToken ct)
-    {
-        var sw = Stopwatch.StartNew();
-        var issues = new List<GrammarIssue>();
-
-        if (_identifier == null || string.IsNullOrWhiteSpace(text) || text.Length < 10)
-        {
-            return Task.FromResult(new GrammarCheckResult(false, 0, issues, sw.Elapsed));
-        }
-
-        try
-        {
-            var languages = _identifier.Identify(text);
-            var detected = languages.FirstOrDefault();
-
-            if (detected != null && !IsLanguageMatch(detected.Item1.Iso639_3, languageCode))
-            {
-                issues.Add(new GrammarIssue(
-                    $"LANGUAGE_MISMATCH_{detected.Item1.Iso639_3}",
-                    $"Text appears to be in {GetLanguageName(detected.Item1.Iso639_3)} (confidence: {detected.Item2:P0}), not {languageCode}",
-                    "LANGUAGE",
-                    0,
-                    text.Length,
-                    new List<string> { $"Consider setting language to {detected.Item1.Iso639_3}" },
-                    (int)(detected.Item2 * 100)
-                ));
-            }
-        }
-        catch (Exception ex)
-        {
-            logger?.LogDebug(ex, "NTextCat language detection failed");
-        }
+        }, ct);
 
         sw.Stop();
-        return Task.FromResult(new GrammarCheckResult(
-            issues.Any(),
-            issues.Count,
-            issues,
-            sw.Elapsed
-        ));
+        return new GrammarCheckResult(issues.Count > 0, issues.Count, issues, sw.Elapsed);
     }
 
-    public Task<GrammarCorrectionResult> AutoCorrectAsync(string text, string languageCode, CancellationToken ct)
+    private double CalculateEnglishScore(string text)
     {
-        // NTextCat only detects language, doesn't correct
-        return Task.FromResult(new GrammarCorrectionResult(
-            text,
-            text,
-            Array.Empty<AppliedCorrection>(),
-            Array.Empty<GrammarIssue>()
-        ));
-    }
-
-    private bool IsLanguageMatch(string iso639, string languageCode)
-    {
-        var mapping = new Dictionary<string, string[]>
+        // Count common English words
+        var commonEnglishWords = new HashSet<string>
         {
-            ["eng"] = new[] { "en", "en-US", "en-GB", "en-CA", "en-AU" },
-            ["fra"] = new[] { "fr", "fr-FR", "fr-CA" },
-            ["deu"] = new[] { "de", "de-DE", "de-AT", "de-CH" },
-            ["spa"] = new[] { "es", "es-ES", "es-MX" },
-            ["ita"] = new[] { "it", "it-IT" },
-            ["por"] = new[] { "pt", "pt-PT", "pt-BR" },
-            ["rus"] = new[] { "ru", "ru-RU" },
-            ["zho"] = new[] { "zh", "zh-CN", "zh-TW" },
-            ["jpn"] = new[] { "ja", "ja-JP" },
-            ["kor"] = new[] { "ko", "ko-KR" }
+            "the", "be", "to", "of", "and", "a", "in", "that", "have", "I",
+            "it", "for", "not", "on", "with", "he", "as", "you", "do", "at"
         };
 
-        return mapping.TryGetValue(iso639, out var codes) &&
-               codes.Any(c => languageCode.StartsWith(c, StringComparison.OrdinalIgnoreCase));
+        var words = Regex.Matches(text.ToLower(), @"\b[a-z]+\b")
+            .Cast<Match>()
+            .Select(m => m.Value)
+            .ToList();
+
+        if (words.Count == 0) return 0;
+
+        var englishWordCount = words.Count(w => commonEnglishWords.Contains(w));
+        return (double)englishWordCount / words.Count;
     }
 
-    private string GetLanguageName(string iso639)
+    public bool IsSupported(string languageCode)
     {
-        var names = new Dictionary<string, string>
-        {
-            ["eng"] = "English",
-            ["fra"] = "French",
-            ["deu"] = "German",
-            ["spa"] = "Spanish",
-            ["ita"] = "Italian",
-            ["por"] = "Portuguese",
-            ["rus"] = "Russian",
-            ["zho"] = "Chinese",
-            ["jpn"] = "Japanese",
-            ["kor"] = "Korean"
-        };
-
-        return names.TryGetValue(iso639, out var name) ? name : iso639;
+        // Simple detector works for all languages but only checks for English
+        return true;
     }
 }

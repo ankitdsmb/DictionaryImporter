@@ -163,10 +163,9 @@ public static class BootstrapPipeline
                 sp.GetRequiredService<IpaVerificationReporter>(),
                 sp.GetRequiredService<IReadOnlyList<IpaSourceConfig>>(),
                 // ADD GrammarCorrectionStep here - position 20
-                sp.GetRequiredService<GrammarCorrectionStep>(),  // ← THIS IS POSITION 20
-                                                                 // Continue with remaining parameters
-                sp.GetRequiredService<ILogger<ImportOrchestrator>>(),  // ← THIS IS POSITION 21
-                sp.GetRequiredService<QaRunner>()  // ← THIS IS POSITION 22
+                sp.GetRequiredService<GrammarCorrectionStep>(),
+                sp.GetRequiredService<ILogger<ImportOrchestrator>>(),
+                sp.GetRequiredService<QaRunner>()
             );
         });
     }

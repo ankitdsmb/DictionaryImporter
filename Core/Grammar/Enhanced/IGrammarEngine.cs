@@ -6,13 +6,11 @@ public interface IGrammarEngine
     string Name { get; }
     double ConfidenceWeight { get; }
 
-    bool IsSupported(string languageCode);
-
     Task InitializeAsync();
 
-    Task<GrammarCheckResult> CheckAsync(string text, string languageCode, CancellationToken ct);
+    Task<GrammarCheckResult> CheckAsync(string text, string languageCode = "en-US", CancellationToken ct = default);
 
-    Task<GrammarCorrectionResult> AutoCorrectAsync(string text, string languageCode, CancellationToken ct);
+    bool IsSupported(string languageCode);
 }
 
 public interface ITrainableGrammarEngine : IGrammarEngine

@@ -1,4 +1,7 @@
-﻿namespace DictionaryImporter.Core.Grammar;
+﻿// File: DictionaryImporter/Core/Grammar/Abstractions.cs
+using DictionaryImporter.Core.Grammar.Enhanced;
+
+namespace DictionaryImporter.Core.Grammar;
 
 public interface IGrammarCorrector
 {
@@ -9,41 +12,50 @@ public interface IGrammarCorrector
     Task<IReadOnlyList<GrammarSuggestion>> SuggestImprovementsAsync(string text, string languageCode = "en-US", CancellationToken ct = default);
 }
 
-public sealed record GrammarCheckResult(
+public interface ITrainableGrammarEngine
+{
+    Task TrainAsync(GrammarFeedback feedback, CancellationToken ct = default);
+}
+
+public record GrammarCheckResult(
     bool HasIssues,
     int IssueCount,
     IReadOnlyList<GrammarIssue> Issues,
-    TimeSpan ProcessingTime
+    TimeSpan ElapsedTime
 );
 
-public sealed record GrammarIssue(
-    string RuleId,
-    string Message,
-    string Category,
-    int StartOffset,
-    int EndOffset,
-    IReadOnlyList<string> Replacements,
-    int ConfidenceLevel // 0-100
-);
-
-public sealed record GrammarCorrectionResult(
+public record GrammarCorrectionResult(
     string OriginalText,
     string CorrectedText,
     IReadOnlyList<AppliedCorrection> AppliedCorrections,
     IReadOnlyList<GrammarIssue> RemainingIssues
 );
 
-public sealed record AppliedCorrection(
+public record GrammarIssue(
+    int StartOffset,
+    int EndOffset,
+    string Message,
+    string ShortMessage,
+    IReadOnlyList<string> Replacements,
+    string RuleId,
+    string RuleDescription,
+    IReadOnlyList<string> Tags,
+    string Context,
+    int ContextOffset,
+    int ConfidenceLevel
+);
+
+public record AppliedCorrection(
     string OriginalSegment,
-    string CorrectedSegment,
+    string Replacement,
     string RuleId,
     string RuleDescription,
     int Confidence
 );
 
-public sealed record GrammarSuggestion(
-    string OriginalSegment,
-    string SuggestedImprovement,
-    string Reason,
-    string Impact // "clarity", "conciseness", "formality", etc.
+public record GrammarSuggestion(
+    string TargetText,
+    string Suggestion,
+    string Explanation,
+    string Category
 );

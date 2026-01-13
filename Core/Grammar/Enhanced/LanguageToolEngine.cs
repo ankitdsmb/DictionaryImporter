@@ -1,185 +1,213 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+﻿// File: DictionaryImporter/Core/Grammar/Enhanced/LanguageToolEngine.cs
+using System.Diagnostics;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Threading.Tasks;
 
-namespace DictionaryImporter.Core.Grammar.Enhanced
+namespace DictionaryImporter.Core.Grammar.Enhanced;
+
+public sealed class LanguageToolEngine : IGrammarEngine
 {
-    public sealed class LanguageToolEngine : IGrammarEngine
+    private readonly string _languageToolUrl;
+    private readonly ILogger<LanguageToolEngine> _logger;
+    private readonly HttpClient _httpClient;
+
+    public string Name => "LanguageTool";
+    public double ConfidenceWeight => 0.85;
+
+    public LanguageToolEngine(string languageToolUrl, ILogger<LanguageToolEngine> logger)
     {
-        private readonly HttpClient _httpClient;
-        private readonly string _baseUrl;
-        private readonly ILogger<LanguageToolEngine> _logger;
-
-        public string Name => "LanguageTool";
-        public double ConfidenceWeight => 0.85;
-
-        public LanguageToolEngine(string baseUrl, ILogger<LanguageToolEngine>? logger = null)
+        _languageToolUrl = languageToolUrl ?? throw new ArgumentNullException(nameof(languageToolUrl));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _httpClient = new HttpClient
         {
-            _baseUrl = baseUrl;
-            _logger = logger;
-            _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        }
+            Timeout = TimeSpan.FromSeconds(30)
+        };
+    }
 
-        public bool IsSupported(string languageCode) => true;
+    public Task InitializeAsync()
+    {
+        // LanguageTool is HTTP-based, no local initialization needed
+        return Task.CompletedTask;
+    }
 
-        public Task InitializeAsync() => Task.CompletedTask;
+    public async Task<GrammarCheckResult> CheckAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero);
 
-        public async Task<GrammarCheckResult> CheckAsync(string text, string languageCode, CancellationToken ct)
+        var sw = Stopwatch.StartNew();
+        var issues = new List<GrammarIssue>();
+
+        try
         {
-            if (string.IsNullOrWhiteSpace(text))
-                return new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero);
-
-            try
+            var request = new
             {
-                var request = new { text, language = languageCode };
-                var json = JsonSerializer.Serialize(request);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                var response = await _httpClient.PostAsync($"{_baseUrl}/v2/check", content, ct);
-                response.EnsureSuccessStatusCode();
-
-                var responseJson = await response.Content.ReadAsStringAsync(ct);
-                var ltResponse = JsonSerializer.Deserialize<LanguageToolResponse>(responseJson);
-
-                var issues = ConvertToIssues(ltResponse);
-
-                return new GrammarCheckResult(
-                    issues.Any(),
-                    issues.Count,
-                    issues,
-                    TimeSpan.Zero
-                );
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning(ex, "LanguageTool check failed");
-                return new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero);
-            }
-        }
-
-        public async Task<GrammarCorrectionResult> AutoCorrectAsync(string text, string languageCode, CancellationToken ct)
-        {
-            var checkResult = await CheckAsync(text, languageCode, ct);
-
-            if (!checkResult.HasIssues)
-                return new GrammarCorrectionResult(text, text, Array.Empty<AppliedCorrection>(), Array.Empty<GrammarIssue>());
-
-            var correctedText = text;
-            var appliedCorrections = new List<AppliedCorrection>();
-
-            foreach (var issue in checkResult.Issues.OrderByDescending(i => i.StartOffset))
-            {
-                if (issue.Replacements.Count == 0) continue;
-
-                var originalSegment = correctedText.Substring(issue.StartOffset,
-                    issue.EndOffset - issue.StartOffset);
-                var replacement = issue.Replacements[0];
-
-                correctedText = correctedText.Remove(issue.StartOffset,
-                    issue.EndOffset - issue.StartOffset)
-                    .Insert(issue.StartOffset, replacement);
-
-                appliedCorrections.Add(new AppliedCorrection(
-                    originalSegment,
-                    replacement,
-                    issue.RuleId,
-                    issue.Message,
-                    issue.ConfidenceLevel
-                ));
-            }
-
-            return new GrammarCorrectionResult(
-                text,
-                correctedText,
-                appliedCorrections,
-                checkResult.Issues
-            );
-        }
-
-        private List<GrammarIssue> ConvertToIssues(LanguageToolResponse response)
-        {
-            var issues = new List<GrammarIssue>();
-            if (response?.Matches == null) return issues;
-
-            foreach (var match in response.Matches)
-            {
-                issues.Add(new GrammarIssue(
-                    match.Rule.Id,
-                    match.Message,
-                    match.Rule.Category.Name,
-                    match.Offset,
-                    match.Offset + match.Length,
-                    match.Replacements?.Select(r => r.Value).ToList() ?? new(),
-                    CalculateConfidence(match)
-                ));
-            }
-            return issues;
-        }
-
-        private int CalculateConfidence(LanguageToolMatch match)
-        {
-            var baseConfidence = match.Rule.Category.Id switch
-            {
-                "TYPOS" => 95,
-                "GRAMMAR" => 80,
-                "STYLE" => 60,
-                _ => 70
+                text = text,
+                language = languageCode,
+                enabledOnly = false
             };
 
-            return match.Replacements?.Count > 0 ? Math.Min(100, baseConfidence + 10) : baseConfidence;
+            var jsonContent = JsonSerializer.Serialize(request);
+            var content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync(
+                $"{_languageToolUrl}/v2/check",
+                content,
+                ct);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var responseJson = await response.Content.ReadAsStringAsync(ct);
+                var result = JsonSerializer.Deserialize<LanguageToolResponse>(responseJson);
+
+                if (result?.matches != null)
+                {
+                    foreach (var match in result.matches)
+                    {
+                        var replacements = match.replacements?
+                            .Select(r => r.value)
+                            .ToList() ?? new List<string>();
+
+                        var grammarIssue = new GrammarIssue(
+                            StartOffset: match.offset,
+                            EndOffset: match.offset + match.length,
+                            Message: match.message,
+                            ShortMessage: GetShortMessageFromRule(match.rule),
+                            Replacements: replacements,
+                            RuleId: match.rule.id,
+                            RuleDescription: match.rule.description,
+                            Tags: GetTagsFromLanguageToolRule(match.rule),
+                            Context: GetContext(text, match.offset),
+                            ContextOffset: Math.Max(0, match.offset - 20),
+                            ConfidenceLevel: CalculateConfidenceFromMatch(match)
+                        );
+
+                        issues.Add(grammarIssue);
+                    }
+                }
+            }
+            else
+            {
+                _logger.LogWarning("LanguageTool API returned {StatusCode}", response.StatusCode);
+            }
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error calling LanguageTool API");
+        }
+
+        sw.Stop();
+        return new GrammarCheckResult(issues.Count > 0, issues.Count, issues, sw.Elapsed);
     }
 
-    // LanguageTool API models (add these)
-    public sealed class LanguageToolResponse
+    private string GetContext(string text, int offset, int contextLength = 50)
     {
-        [JsonPropertyName("matches")]
-        public List<LanguageToolMatch>? Matches { get; set; }
+        var start = Math.Max(0, offset - contextLength);
+        var end = Math.Min(text.Length, offset + contextLength);
+        return text.Substring(start, end - start);
     }
 
-    public sealed class LanguageToolMatch
+    private string GetShortMessageFromRule(LanguageToolRule rule)
     {
-        [JsonPropertyName("message")]
-        public string Message { get; set; } = string.Empty;
+        if (!string.IsNullOrEmpty(rule.category?.name))
+            return rule.category.name;
 
-        [JsonPropertyName("offset")]
-        public int Offset { get; set; }
+        if (!string.IsNullOrEmpty(rule.issueType?.typeName))
+            return rule.issueType.typeName;
 
-        [JsonPropertyName("length")]
-        public int Length { get; set; }
-
-        [JsonPropertyName("replacements")]
-        public List<LanguageToolReplacement>? Replacements { get; set; }
-
-        [JsonPropertyName("rule")]
-        public LanguageToolRule Rule { get; set; } = new();
+        return rule.id.Split('_').FirstOrDefault() ?? "grammar";
     }
 
-    public sealed class LanguageToolReplacement
+    private IReadOnlyList<string> GetTagsFromLanguageToolRule(LanguageToolRule rule)
     {
-        [JsonPropertyName("value")]
-        public string Value { get; set; } = string.Empty;
+        var tags = new List<string>();
+
+        // Add category as tag
+        if (!string.IsNullOrEmpty(rule.category?.name))
+            tags.Add(rule.category.name.ToLowerInvariant());
+
+        // Add rule type
+        if (!string.IsNullOrEmpty(rule.issueType?.typeName))
+            tags.Add(rule.issueType.typeName.ToLowerInvariant());
+
+        // Add default tag
+        if (tags.Count == 0)
+            tags.Add("language-tool");
+
+        return tags;
     }
 
-    public sealed class LanguageToolRule
+    private int CalculateConfidenceFromMatch(LanguageToolMatch match)
     {
-        [JsonPropertyName("id")]
-        public string Id { get; set; } = string.Empty;
+        // Calculate confidence based on rule quality score
+        if (match.rule?.issueType?.qualityScore != null)
+            return (int)(match.rule.issueType.qualityScore * 100);
 
-        [JsonPropertyName("category")]
-        public LanguageToolCategory Category { get; set; } = new();
+        // Default confidence levels based on rule type
+        return match.rule?.issueType?.typeName?.ToLowerInvariant() switch
+        {
+            "typographical" => 95,
+            "grammar" => 90,
+            "style" => 80,
+            "spelling" => 99,
+            _ => 85
+        };
     }
 
-    public sealed class LanguageToolCategory
+    public bool IsSupported(string languageCode)
     {
-        [JsonPropertyName("id")]
-        public string Id { get; set; } = string.Empty;
+        // LanguageTool supports many languages
+        return languageCode switch
+        {
+            "en-US" or "en-GB" or "en-CA" or "en-AU" => true,
+            "de-DE" or "de-AT" or "de-CH" => true,
+            "fr-FR" or "fr-CA" => true,
+            "es-ES" or "es-MX" => true,
+            "pt-PT" or "pt-BR" => true,
+            "it-IT" => true,
+            "nl-NL" => true,
+            "pl-PL" => true,
+            "ru-RU" => true,
+            _ => false
+        };
+    }
 
-        [JsonPropertyName("name")]
-        public string Name { get; set; } = string.Empty;
+    // LanguageTool API response models
+    private class LanguageToolResponse
+    {
+        public List<LanguageToolMatch>? matches { get; set; }
+    }
+
+    private class LanguageToolMatch
+    {
+        public int offset { get; set; }
+        public int length { get; set; }
+        public string message { get; set; } = null!;
+        public string? shortMessage { get; set; }
+        public List<LanguageToolReplacement>? replacements { get; set; }
+        public LanguageToolRule rule { get; set; } = null!;
+    }
+
+    private class LanguageToolReplacement
+    {
+        public string value { get; set; } = null!;
+    }
+
+    private class LanguageToolRule
+    {
+        public string id { get; set; } = null!;
+        public string description { get; set; } = null!;
+        public LanguageToolCategory? category { get; set; }
+        public LanguageToolIssueType? issueType { get; set; }
+    }
+
+    private class LanguageToolCategory
+    {
+        public string name { get; set; } = null!;
+    }
+
+    private class LanguageToolIssueType
+    {
+        public string typeName { get; set; } = null!;
+        public double? qualityScore { get; set; }
     }
 }

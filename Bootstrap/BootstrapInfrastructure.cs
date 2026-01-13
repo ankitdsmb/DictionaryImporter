@@ -21,7 +21,8 @@ public static class BootstrapInfrastructure
             .AddConcepts(connectionString)
             .AddIpa(connectionString)
             .AddGrammarCorrection(configuration)
-            .AddSimpleGrammarCorrection(configuration);
+            .AddSimpleGrammarCorrection(configuration)
+            .AddGrammarCorrectionStep(configuration);
 
         // Option 2: Enhanced grammar correction (once simple version works)
         // services.AddEnhancedGrammarCorrection(configuration);
