@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+﻿using JsonSerializer = System.Text.Json.JsonSerializer;
 
 namespace DictionaryImporter.Sources.StructuredJson;
 

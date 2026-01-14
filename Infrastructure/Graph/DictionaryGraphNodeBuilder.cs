@@ -1,36 +1,22 @@
-﻿using System.Diagnostics;
+﻿namespace DictionaryImporter.Infrastructure.Graph;
 
-namespace DictionaryImporter.Infrastructure.Graph;
-
-public sealed class DictionaryGraphNodeBuilder
+public sealed class DictionaryGraphNodeBuilder(
+    string connectionString,
+    ILogger<DictionaryGraphNodeBuilder> logger)
 {
-    private readonly string _connectionString;
-    private readonly ILogger<DictionaryGraphNodeBuilder> _logger;
-
-    public DictionaryGraphNodeBuilder(
-        string connectionString,
-        ILogger<DictionaryGraphNodeBuilder> logger)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-    }
-
     public async Task BuildAsync(
         string sourceCode,
         CancellationToken ct)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphNodeBuilder started | Source={Source}",
             sourceCode);
 
         var sw = Stopwatch.StartNew();
 
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
-        // ==================================================
-        // 1. WORD NODES
-        // ==================================================
         var wordNodes =
             await conn.ExecuteAsync(
                 new CommandDefinition(
@@ -56,14 +42,11 @@ public sealed class DictionaryGraphNodeBuilder
                     cancellationToken: ct,
                     commandTimeout: 0));
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphNodeBuilder | Source={Source} | NodeType=Word | Inserted={Count}",
             sourceCode,
             wordNodes);
 
-        // ==================================================
-        // 2. SENSE NODES
-        // ==================================================
         var senseNodes =
             await conn.ExecuteAsync(
                 new CommandDefinition(
@@ -86,14 +69,11 @@ public sealed class DictionaryGraphNodeBuilder
                     cancellationToken: ct,
                     commandTimeout: 0));
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphNodeBuilder | Source={Source} | NodeType=Sense | Inserted={Count}",
             sourceCode,
             senseNodes);
 
-        // ==================================================
-        // 3. DOMAIN NODES
-        // ==================================================
         var domainNodes =
             await conn.ExecuteAsync(
                 new CommandDefinition(
@@ -118,14 +98,11 @@ public sealed class DictionaryGraphNodeBuilder
                     cancellationToken: ct,
                     commandTimeout: 0));
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphNodeBuilder | Source={Source} | NodeType=Domain | Inserted={Count}",
             sourceCode,
             domainNodes);
 
-        // ==================================================
-        // 4. LANGUAGE NODES
-        // ==================================================
         var languageNodes =
             await conn.ExecuteAsync(
                 new CommandDefinition(
@@ -150,14 +127,14 @@ public sealed class DictionaryGraphNodeBuilder
                     cancellationToken: ct,
                     commandTimeout: 0));
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphNodeBuilder | Source={Source} | NodeType=Language | Inserted={Count}",
             sourceCode,
             languageNodes);
 
         sw.Stop();
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphNodeBuilder completed | Source={Source} | DurationMs={Duration}",
             sourceCode,
             sw.ElapsedMilliseconds);

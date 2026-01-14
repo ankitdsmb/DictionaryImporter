@@ -1,32 +1,20 @@
 ﻿namespace DictionaryImporter.Infrastructure.Graph;
 
-public sealed class DictionaryConceptMerger
+public sealed class DictionaryConceptMerger(
+    string connectionString,
+    ILogger<DictionaryConceptMerger> logger)
 {
-    private readonly string _connectionString;
-    private readonly ILogger<DictionaryConceptMerger> _logger;
-
-    public DictionaryConceptMerger(
-        string connectionString,
-        ILogger<DictionaryConceptMerger> logger)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-    }
-
     public async Task MergeAsync(
         CancellationToken ct)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "ConceptMerger started");
 
         await using var conn =
-            new SqlConnection(_connectionString);
+            new SqlConnection(connectionString);
 
         await conn.OpenAsync(ct);
 
-        // --------------------------------------------------
-        // 1. FIND DUPLICATE CONCEPT KEYS
-        // --------------------------------------------------
         var duplicates =
             (await conn.QueryAsync<(string Key, int Count)>(
                 """
@@ -37,7 +25,7 @@ public sealed class DictionaryConceptMerger
                 """))
             .ToList();
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "ConceptMerger | DuplicateKeys={Count}",
             duplicates.Count);
 
@@ -49,11 +37,8 @@ public sealed class DictionaryConceptMerger
             ct.ThrowIfCancellationRequested();
             processedKeys++;
 
-            // --------------------------------------------------
-            // HEARTBEAT (every 100 duplicate keys)
-            // --------------------------------------------------
             if (processedKeys % 100 == 0)
-                _logger.LogInformation(
+                logger.LogInformation(
                     "ConceptMerger progress | ProcessedKeys={Processed}/{Total}",
                     processedKeys,
                     duplicates.Count);
@@ -72,9 +57,6 @@ public sealed class DictionaryConceptMerger
             var canonicalId = concepts.First();
             var aliases = concepts.Skip(1).ToList();
 
-            // --------------------------------------------------
-            // 2. REDIRECT GRAPH EDGES
-            // --------------------------------------------------
             foreach (var aliasId in aliases)
             {
                 await conn.ExecuteAsync(
@@ -89,9 +71,6 @@ public sealed class DictionaryConceptMerger
                         Alias = aliasId
                     });
 
-                // ----------------------------------------------
-                // 3. RECORD ALIAS
-                // ----------------------------------------------
                 await conn.ExecuteAsync(
                     """
                     INSERT INTO dbo.ConceptAlias
@@ -114,7 +93,7 @@ public sealed class DictionaryConceptMerger
             }
         }
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "ConceptMerger completed | DuplicateKeys={Keys} | AliasesMerged={Aliases}",
             processedKeys,
             mergedAliases);

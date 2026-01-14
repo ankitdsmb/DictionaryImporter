@@ -1,5 +1,4 @@
-﻿using DictionaryImporter.Infrastructure.Grammar;
-using Microsoft.Extensions.Logging.Abstractions;
+﻿using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DictionaryImporter.Infrastructure.Qa;
 
@@ -34,6 +33,5 @@ public static class KnownQaChecks
                     NullLogger<GrammarQaCheck>.Instance);
             }
         }
-        // Add more QA SPs here as system grows
     }
 }

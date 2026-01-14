@@ -1,5 +1,4 @@
-﻿using System.Collections.Concurrent;
-using DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
+﻿using DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
 
 namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
 
@@ -18,7 +17,6 @@ public sealed class ExampleExtractorRegistry : IExampleExtractorRegistry
         _genericExtractor = genericExtractor;
         _logger = logger;
 
-        // Auto-register all extractors from DI
         foreach (var extractor in extractors) Register(extractor);
     }
 

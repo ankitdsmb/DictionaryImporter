@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-
-namespace DictionaryImporter.Core.Pipeline;
+﻿namespace DictionaryImporter.Core.Pipeline;
 
 public sealed class ImportMetrics
 {
@@ -9,11 +7,9 @@ public sealed class ImportMetrics
     public int EntriesStaged { get; private set; }
     public int EntriesRejected { get; private set; }
 
-    // ================= NEW =================
     public int RejectedByCanonicalEligibility { get; private set; }
 
     public int RejectedByValidator { get; private set; }
-    // ======================================
 
     public TimeSpan Duration => _stopwatch.Elapsed;
 

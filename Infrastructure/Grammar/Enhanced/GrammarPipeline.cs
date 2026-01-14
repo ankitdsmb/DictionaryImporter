@@ -1,8 +1,4 @@
-﻿using DictionaryImporter.Core.Grammar;
-using DictionaryImporter.Core.Grammar.Configuration;
-using DictionaryImporter.Core.Grammar.Enhanced;
-using System.Collections.Concurrent;
-using System.Diagnostics;
+﻿using DictionaryImporter.Core.Grammar.Configuration;
 
 namespace DictionaryImporter.Infrastructure.Grammar.Enhanced;
 
@@ -34,7 +30,6 @@ public sealed class GrammarPipeline : IGrammarPipeline
 
     private void InitializeEngines()
     {
-        // Initialize all engines in parallel
         var initTasks = _engines.Values.Select(e => e.InitializeAsync());
         Task.WhenAll(initTasks).Wait();
     }
@@ -42,11 +37,10 @@ public sealed class GrammarPipeline : IGrammarPipeline
     public async Task<GrammarCheckResult> CheckAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(text))
-            return new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero);
+            return new GrammarCheckResult(false, 0, [], TimeSpan.Zero);
 
         var sw = Stopwatch.StartNew();
 
-        // Run all engines in parallel
         var engineTasks = _engines.Values
             .Where(e => e.IsSupported(languageCode))
             .Select(engine => engine.CheckAsync(text, languageCode, ct))
@@ -54,7 +48,6 @@ public sealed class GrammarPipeline : IGrammarPipeline
 
         await Task.WhenAll(engineTasks);
 
-        // Merge results using blending strategy
         var engineResults = engineTasks
             .Where(t => t.IsCompletedSuccessfully)
             .Select(t => t.Result)
@@ -75,16 +68,15 @@ public sealed class GrammarPipeline : IGrammarPipeline
     public async Task<GrammarCorrectionResult> AutoCorrectAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(text))
-            return new GrammarCorrectionResult(text, text, Array.Empty<AppliedCorrection>(), Array.Empty<GrammarIssue>());
+            return new GrammarCorrectionResult(text, text, [], []);
 
         var checkResult = await CheckAsync(text, languageCode, ct);
         if (!checkResult.HasIssues)
-            return new GrammarCorrectionResult(text, text, Array.Empty<AppliedCorrection>(), Array.Empty<GrammarIssue>());
+            return new GrammarCorrectionResult(text, text, [], []);
 
-        // Apply only safe, high-confidence corrections
         var safeIssues = checkResult.Issues
             .Where(issue => issue.ConfidenceLevel >= _config.MinimumConfidence)
-            .OrderByDescending(i => i.StartOffset) // Apply from end to start
+            .OrderByDescending(i => i.StartOffset)
             .ToList();
 
         var correctedText = text;
@@ -193,10 +185,8 @@ public sealed class GrammarPipeline : IGrammarPipeline
 
     public async Task<IReadOnlyList<GrammarSuggestion>> SuggestImprovementsAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
     {
-        // Use custom rules and pattern matching for suggestions
         var suggestions = new List<GrammarSuggestion>();
 
-        // Check for long sentences
         if (text.Length > 100 && text.Count(c => c == '.') < 2)
         {
             suggestions.Add(new GrammarSuggestion(
@@ -207,7 +197,6 @@ public sealed class GrammarPipeline : IGrammarPipeline
             ));
         }
 
-        // Check for passive voice (simple detection)
         if (text.Contains(" is ") || text.Contains(" was ") || text.Contains(" were "))
         {
             var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -227,7 +216,6 @@ public sealed class GrammarPipeline : IGrammarPipeline
 
     private Dictionary<string, int> AnalyzeIssueCategories(IReadOnlyDictionary<string, EngineContribution> contributions)
     {
-        // Simplified implementation - you can enhance this
         var categories = new Dictionary<string, int>
         {
             ["SPELLING"] = 0,
@@ -236,7 +224,6 @@ public sealed class GrammarPipeline : IGrammarPipeline
             ["STYLE"] = 0
         };
 
-        // This would need to analyze actual issues from each engine
         return categories;
     }
 }

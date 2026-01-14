@@ -10,11 +10,11 @@ public static class WebsterSynonymExtractor
     public static IReadOnlyList<string> Extract(string? definition)
     {
         if (string.IsNullOrWhiteSpace(definition))
-            return Array.Empty<string>();
+            return [];
 
         var match = SynonymRegex.Match(definition);
         if (!match.Success)
-            return Array.Empty<string>();
+            return [];
 
         return match.Groups["list"].Value
             .Split(';', StringSplitOptions.RemoveEmptyEntries)

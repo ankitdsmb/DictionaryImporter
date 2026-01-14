@@ -6,18 +6,14 @@ public sealed class CollinsDefinitionParser : IDictionaryDefinitionParser
     {
         var definition = entry.Definition;
 
-        // Extract main definition (before any 【 markers)
         var mainDefinition = CollinsParserHelper.ExtractMainDefinition(definition);
 
-        // Extract examples
         var examples = CollinsParserHelper.ExtractExamples(definition).ToList();
 
-        // Extract domain/grammar info
         var domain = CollinsParserHelper.ExtractDomain(definition);
 
         var grammar = CollinsParserHelper.ExtractGrammar(definition);
 
-        // Build cross-references from examples (e.g., "See also:")
         var crossRefs = CollinsParserHelper.ExtractCrossReferences(definition);
 
         var parsedDefinition = new ParsedDefinition

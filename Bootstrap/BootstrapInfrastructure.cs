@@ -4,7 +4,6 @@ namespace DictionaryImporter.Bootstrap;
 
 public static class BootstrapInfrastructure
 {
-    // In BootstrapInfrastructure.Register method:
     public static void Register(IServiceCollection services, IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("DictionaryImporter")
@@ -21,10 +20,6 @@ public static class BootstrapInfrastructure
             .AddConcepts(connectionString)
             .AddIpa(connectionString)
             .AddGrammarCorrection(configuration)
-            .AddSimpleGrammarCorrection(configuration)
             .AddGrammarCorrectionStep(configuration);
-
-        // Option 2: Enhanced grammar correction (once simple version works)
-        // services.AddEnhancedGrammarCorrection(configuration);
     }
 }

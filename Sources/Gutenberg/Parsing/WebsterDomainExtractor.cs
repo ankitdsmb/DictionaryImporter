@@ -18,7 +18,6 @@ internal static class WebsterDomainExtractor
 
         var domain = match.Groups["domain"].Value.TrimEnd('.');
 
-        // Strip domain marker from definition
         definition =
             definition.Substring(match.Length)
                 .TrimStart();

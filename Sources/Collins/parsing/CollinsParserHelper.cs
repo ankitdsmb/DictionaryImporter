@@ -8,7 +8,6 @@ public static class CollinsParserHelper
 {
     #region Compiled Regex Patterns (Optimized for Performance)
 
-    // Cross-reference patterns
     public static readonly Regex CfRegex =
         new(@"\bCf\.?\s+(?<target>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -25,7 +24,6 @@ public static class CollinsParserHelper
         new(@"^(?<word>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)→see:\s*(?<target>[a-z]+)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    // Synonym patterns
     public static readonly Regex SynonymPatternRegex =
         new(
             @"\b(?:synonymous|synonym|same as|equivalent to|also called)\s+(?:[\w\s]*?\s)?(?<word>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
@@ -39,7 +37,6 @@ public static class CollinsParserHelper
         new(@"\b(?<word1>[A-Z][a-z]+)\s+or\s+(?<word2>[A-Z][a-z]+)\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    // Text patterns - optimized for speed
     public static readonly Regex WordBoundaryRegex =
         new(@"\b[A-Z][a-z]+\b", RegexOptions.Compiled);
 
@@ -49,14 +46,12 @@ public static class CollinsParserHelper
     public static readonly Regex EnglishSentenceRegex =
         new(@"[A-Z][^\.!?]*[\.!?]", RegexOptions.Compiled);
 
-    // Chinese character patterns - precompiled
     private static readonly Regex ChineseCharRegex =
         new(@"[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]", RegexOptions.Compiled);
 
     private static readonly Regex ChineseOnlyRegex =
         new(@"^[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\s]+$", RegexOptions.Compiled);
 
-    // Section markers - use string.IndexOf for simple patterns instead of regex
     private const string ExampleSeparator = "【Examples】";
 
     private const string NoteSeparator = "【Note】";
@@ -72,7 +67,6 @@ public static class CollinsParserHelper
     public static readonly Regex LabelRegex =
         new(@"【([^】]+)】[:：]?\s*(.+)", RegexOptions.Compiled);
 
-    // Headword and sense patterns
     public static readonly Regex HeadwordRegex =
         new(@"^★+☆+\s+([A-Za-z][A-Za-z\-\s]+?)\s+●+○+", RegexOptions.Compiled);
 
@@ -87,18 +81,15 @@ public static class CollinsParserHelper
     public static readonly Regex GrammarCodeWithSlashRegex =
         new(@"^([A-Z][A-Z\-\s;]+)[\t\s]*[/\\]\s*(.+)", RegexOptions.Compiled);
 
-    // Example patterns - optimized
     public static readonly Regex ExampleRegex =
         new(@"^(?:\.{2,}|…)\s*(?<example>[A-Z].*?[.!?])(?:\s*[^\x00-\x7F]*)?$", RegexOptions.Compiled);
 
     public static readonly Regex SimpleExampleRegex =
         new(@"^[A-Z][^.!?]*[.!?](?:\s*[^\x00-\x7F]*)?$", RegexOptions.Compiled);
 
-    // Optimized: Combined ellipsis patterns
     public static readonly Regex EllipsisOrDotsRegex =
         new(@"^(\.{2,}|…)", RegexOptions.Compiled);
 
-    // Special patterns - precompiled with IgnoreCase
     public static readonly Regex PhrasalVerbRegex =
         new(@"^(?:PHRASAL\s+VERB|PHR\s+V)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
@@ -117,7 +108,6 @@ public static class CollinsParserHelper
             @"\b(?:V-ERG|N-COUNT|N-UNCOUNT|ADJ-GRADED|PHR-CONJ-SUBORD|PHR-V|PHR-ADV|PHR-PREP|V-TRANS|V-INTRANS|V-REFL|V-PASS)\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    // Text cleaning patterns - optimized
     private static readonly Regex LeadingStrayPunctuationRegex =
         new(@"^[\s、。，；,\.\(\)（）:：…\/\\]+", RegexOptions.Compiled);
 
@@ -150,11 +140,10 @@ public static class CollinsParserHelper
         RegexOptions.IgnoreCase | RegexOptions.Compiled
     );
 
-    // Cache for common string operations
-    private static readonly char[] TrimChars = { '.', '。', ' ', '…', '"', '\'' };
+    private static readonly char[] TrimChars = ['.', '。', ' ', '…', '"', '\''];
 
-    private static readonly char[] SeparatorChars = { ',', ';', '，', '；' };
-    private static readonly string[] SectionMarkers = { "【Examples】", "【Note】", "【Domain】", "【Grammar】" };
+    private static readonly char[] SeparatorChars = [',', ';', '，', '；'];
+    private static readonly string[] SectionMarkers = ["【Examples】", "【Note】", "【Domain】", "【Grammar】"];
 
     #endregion Compiled Regex Patterns (Optimized for Performance)
 
@@ -162,11 +151,9 @@ public static class CollinsParserHelper
 
     #region Domain and Grammar Code Mappings
 
-    // Use Dictionary for fast lookups
     private static readonly Dictionary<string, string> DomainCodeMap =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            // Locale / Variety
             ["AM"] = "US",
             ["US"] = "US",
             ["BRIT"] = "UK",
@@ -175,8 +162,6 @@ public static class CollinsParserHelper
             ["美式"] = "US",
             ["主英"] = "UK",
             ["英式"] = "UK",
-
-            // Register / Style
             ["FORMAL"] = "FORMAL",
             ["正式"] = "FORMAL",
             ["INFORMAL"] = "INFORMAL",
@@ -221,11 +206,9 @@ public static class CollinsParserHelper
         ["俚语"] = "SLANG"
     };
 
-    // Optimize POS normalization with direct dictionary lookup - FIXED ISSUE #2
     private static readonly Dictionary<string, string> PosNormalizationMap =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            // Nouns
             ["N"] = "noun",
             ["N-COUNT"] = "noun",
             ["N-UNCOUNT"] = "noun",
@@ -240,8 +223,6 @@ public static class CollinsParserHelper
             ["N-COUNT; N-IN-NAMES"] = "noun",
             ["N-COUNT & N-UNCOUNT"] = "noun",
             ["N-COUNT OR N-UNCOUNT"] = "noun",
-
-            // Verbs - FIXED: Added common verb variations
             ["VERB"] = "verb",
             ["V"] = "verb",
             ["V-LINK"] = "verb",
@@ -254,27 +235,19 @@ public static class CollinsParserHelper
             ["V-T / V-I"] = "verb",
             ["V-RECIP-ERG"] = "verb",
             ["V-ERG-RECIP"] = "verb",
-
-            // Adjectives
             ["ADJ"] = "adj",
             ["ADJ-GRADED"] = "adj",
             ["ADJ-COMPAR"] = "adj",
             ["ADJ-SUPERL"] = "adj",
             ["ADJ CLASSIF"] = "adj",
             ["ADJ CLASSIFIC"] = "adj",
-
-            // Adverbs
             ["ADV"] = "adv",
             ["PHR-ADV"] = "adv",
-
-            // Phrasal verbs / phrases
             ["PHRASAL VERB"] = "phrasal_verb",
             ["PHRASAL VB"] = "phrasal_verb",
             ["PHR V"] = "phrasal_verb",
             ["PHR"] = "phrase",
             ["PHRASE"] = "phrase",
-
-            // Function words
             ["PREP"] = "preposition",
             ["PHR-PREP"] = "preposition",
             ["CONJ"] = "conjunction",
@@ -283,8 +256,6 @@ public static class CollinsParserHelper
             ["DET"] = "determiner",
             ["DETERMINER"] = "determiner",
             ["ARTICLE"] = "determiner",
-
-            // Other - FIXED: Added more specific mappings
             ["EXCLAM"] = "exclamation",
             ["EXCL"] = "exclamation",
             ["INTERJ"] = "exclamation",
@@ -298,8 +269,6 @@ public static class CollinsParserHelper
             ["AUX"] = "auxiliary",
             ["AUXILIARY"] = "auxiliary",
             ["MODAL"] = "modal",
-
-            // Collins-specific codes from QA results
             ["ADJ CLASSIF"] = "adj",
             ["ADJ CLASSIFIC"] = "adj",
             ["ADJ COLOR"] = "adj",
@@ -329,7 +298,6 @@ public static class CollinsParserHelper
             ["V-RECIP-ADJ"] = "verb"
         };
 
-    // Fast lookup for common POS prefixes - EXPANDED
     private static readonly HashSet<string> PosPrefixes = new(StringComparer.OrdinalIgnoreCase)
     {
         "N-", "V-", "ADJ-", "ADV-", "PHR-", "PREP", "CONJ", "PRON", "DET", "EXCLAM",
@@ -382,8 +350,6 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(line))
             return false;
 
-        // FIXED ISSUE #3: Sense number continuity - added better sense number extraction
-        // Try multiple parsing strategies
         var parsingStrategies = new List<Func<string, CollinsSenseRaw?>>
         {
             TryParseEnhancedSenseHeader,
@@ -416,7 +382,6 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(line))
             return false;
 
-        // Fast path: check for common patterns
         if (line.Contains("→see:", StringComparison.OrdinalIgnoreCase))
         {
             var match = CrossReferenceRegex.Match(line);
@@ -458,11 +423,9 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(line) || line.Length < 3)
             return false;
 
-        // Fast path: check if line starts with capital letter
         if (!char.IsUpper(line[0]))
             return false;
 
-        // Try with ellipsis marker first
         var match = ExampleRegex.Match(line);
         if (match.Success)
         {
@@ -470,7 +433,6 @@ public static class CollinsParserHelper
             return example.Length > 0;
         }
 
-        // Fallback to simple example pattern
         match = SimpleExampleRegex.Match(line);
         if (match.Success)
         {
@@ -542,7 +504,6 @@ public static class CollinsParserHelper
 
         var trimmed = line.TrimStart();
 
-        // Fast path checks (ordered by frequency)
         if (line.StartsWith(" ") && trimmed.Length > 0 && char.IsUpper(trimmed[0]))
             return true;
 
@@ -593,27 +554,22 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(example))
             return example;
 
-        // Fast path: remove Chinese characters first
         var cleaned = ChineseCharRegex.Replace(example, "");
 
         if (string.IsNullOrWhiteSpace(cleaned))
             return cleaned;
 
-        // Normalize ellipsis
         if (cleaned.Contains("...") || cleaned.Contains("…"))
             cleaned = cleaned.Replace("…", "...").Replace("．．．", "...");
 
-        // Trim and fix common issues
         cleaned = cleaned.Trim(TrimChars);
         cleaned = FastFixTextIssues(cleaned);
 
         if (string.IsNullOrWhiteSpace(cleaned))
             return cleaned;
 
-        // Ensure proper formatting
         if (char.IsLower(cleaned[0])) cleaned = char.ToUpper(cleaned[0]) + cleaned.Substring(1);
 
-        // Ensure ending punctuation
         if (!cleaned.EndsWith(".") && !cleaned.EndsWith("!") && !cleaned.EndsWith("?")) cleaned += ".";
 
         return cleaned.Trim();
@@ -637,17 +593,13 @@ public static class CollinsParserHelper
 
         var result = text;
 
-        // Remove Chinese characters if requested
         if (removeChinese)
             result = ChineseCharRegex.Replace(result, "");
 
-        // Normalize punctuation if requested
         if (normalizePunctuation)
         {
-            // Remove leading junk
             result = LeadingJunkRegex.Replace(result, "");
 
-            // Fast punctuation replacements
             if (result.Contains("、")) result = result.Replace("、", ", ");
             if (result.Contains("。")) result = result.Replace("。", ". ");
             if (result.Contains("；")) result = result.Replace("；", "; ");
@@ -655,7 +607,6 @@ public static class CollinsParserHelper
             if (result.Contains("…")) result = result.Replace("…", "...");
             if (result.Contains("．．．")) result = result.Replace("．．．", "...");
 
-            // Fix spacing
             result = result.Replace(" ,", ",").Replace(" .", ".")
                 .Replace(" ;", ";").Replace(" :", ":")
                 .Replace("( ", "(").Replace(" )", ")")
@@ -663,7 +614,6 @@ public static class CollinsParserHelper
                 .Replace("..", ".");
         }
 
-        // Normalize whitespace
         if (result.Contains("  "))
             result = ExtraSpacesRegex.Replace(result, " ");
 
@@ -680,7 +630,6 @@ public static class CollinsParserHelper
 
         var result = text;
 
-        // Fast punctuation replacements
         result = result.Replace("、", ", ").Replace("。", ". ")
             .Replace("；", "; ").Replace("：", ": ")
             .Replace("…", "...").Replace("．．．", "...")
@@ -690,7 +639,6 @@ public static class CollinsParserHelper
             .Replace("?.", "?").Replace("!.", "!")
             .Replace("..", ".");
 
-        // Fast double space removal
         while (result.Contains("  "))
             result = result.Replace("  ", " ");
 
@@ -707,12 +655,10 @@ public static class CollinsParserHelper
 
         var text = domainText.Trim();
 
-        // Fast path: check Chinese indicators first
         foreach (var kvp in ChineseDomainMap)
             if (text.Contains(kvp.Key))
                 return kvp.Value;
 
-        // Check domain codes (case-insensitive)
         foreach (var kvp in DomainCodeMap)
             if (text.IndexOf(kvp.Key, StringComparison.OrdinalIgnoreCase) >= 0)
                 return kvp.Value;
@@ -732,12 +678,10 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(cleaned))
             return null;
 
-        // Fast phrasal verb detection
         if (cleaned.StartsWith("PHRASAL VERB", StringComparison.OrdinalIgnoreCase) ||
             cleaned.StartsWith("PHR V", StringComparison.OrdinalIgnoreCase))
             return "phrasal_verb";
 
-        // Extract English text
         for (var i = 0; i < cleaned.Length; i++)
             if (!char.IsLetterOrDigit(cleaned[i]) && cleaned[i] != '-' && cleaned[i] != ' ')
             {
@@ -762,7 +706,6 @@ public static class CollinsParserHelper
 
         var firstIndex = definition.Length;
 
-        // Fast string index search instead of regex
         foreach (var marker in SectionMarkers)
         {
             var index = definition.IndexOf(marker, StringComparison.Ordinal);
@@ -791,8 +734,7 @@ public static class CollinsParserHelper
             {
                 var exampleSection = definition.Substring(start, end - start);
 
-                // Fast bullet extraction without regex
-                var lines = exampleSection.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                var lines = exampleSection.Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries);
                 foreach (var line in lines)
                 {
                     var trimmed = line.Trim();
@@ -896,14 +838,11 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(definition))
             return crossRefs;
 
-        // Extract from main definition
         crossRefs.AddRange(FastExtractCrossReferencesFromText(definition));
 
-        // Also check the note section
         var note = ExtractNotes(definition);
         if (!string.IsNullOrEmpty(note)) crossRefs.AddRange(FastExtractCrossReferencesFromText(note));
 
-        // Remove duplicates using HashSet
         var seen = new HashSet<(string, string)>();
         var uniqueRefs = new List<CrossReference>();
 
@@ -930,7 +869,6 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(text))
             return crossRefs;
 
-        // Look for "See also:" patterns
         if (text.Contains("See also:", StringComparison.OrdinalIgnoreCase))
             foreach (Match match in SeeAlsoRegex.Matches(text))
             {
@@ -945,7 +883,6 @@ public static class CollinsParserHelper
                     });
             }
 
-        // Look for "See:" patterns
         if (text.Contains("See:", StringComparison.OrdinalIgnoreCase))
             foreach (Match match in SeeRegex.Matches(text))
                 crossRefs.Add(new CrossReference
@@ -954,7 +891,6 @@ public static class CollinsParserHelper
                     ReferenceType = "See"
                 });
 
-        // Look for "Cf." patterns
         if (text.Contains("Cf.", StringComparison.OrdinalIgnoreCase))
             foreach (Match match in CfRegex.Matches(text))
                 crossRefs.Add(new CrossReference
@@ -982,7 +918,6 @@ public static class CollinsParserHelper
         {
             var trimmed = part.Trim();
 
-            // Handle "and" and "or" at the end
             if (trimmed.EndsWith(" and", StringComparison.OrdinalIgnoreCase))
                 trimmed = trimmed.Substring(0, trimmed.Length - 4);
             else if (trimmed.EndsWith(" or", StringComparison.OrdinalIgnoreCase))
@@ -1024,17 +959,14 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(text))
             return;
 
-        // Look for explicit synonym patterns
         var synonymMatch = SynonymPatternRegex.Match(text);
         if (synonymMatch.Success)
             FastAddSynonym(synonymMatch.Groups["word"].Value, synonyms);
 
-        // Look for parenthetical synonyms
         var parentheticalMatch = ParentheticalSynonymRegex.Match(text);
         if (parentheticalMatch.Success)
             FastAddSynonym(parentheticalMatch.Groups["word"].Value, synonyms);
 
-        // Look for "X or Y" patterns
         var orMatch = OrSynonymRegex.Match(text);
         if (orMatch.Success)
         {
@@ -1062,7 +994,6 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(rawFragment))
             return null;
 
-        // Fast string search instead of regex
         var labelIndex = rawFragment.IndexOf("【语域标签】：", StringComparison.Ordinal);
         if (labelIndex >= 0)
         {
@@ -1075,7 +1006,6 @@ public static class CollinsParserHelper
             }
         }
 
-        // Check for Chinese domain indicators
         if (rawFragment.Contains("正式")) return "FORMAL";
         if (rawFragment.Contains("非正式")) return "INFORMAL";
         if (rawFragment.Contains("主美") || rawFragment.Contains("美式")) return "US";
@@ -1092,7 +1022,6 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(rawFragment))
             return null;
 
-        // Fast string search
         var grammarIndex = rawFragment.IndexOf("【Grammar】", StringComparison.Ordinal);
         if (grammarIndex >= 0)
         {
@@ -1143,7 +1072,6 @@ public static class CollinsParserHelper
                 continue;
             }
 
-            // Fast removal of section markers
             var withoutSections = definition;
             foreach (var marker in SectionMarkers)
             {
@@ -1151,7 +1079,6 @@ public static class CollinsParserHelper
                 if (index >= 0) withoutSections = withoutSections.Substring(0, index);
             }
 
-            // Fast cleaning
             results.Add(FastCleanDefinitionText(withoutSections));
         }
 
@@ -1168,14 +1095,12 @@ public static class CollinsParserHelper
 
         var result = rawFragment;
 
-        // Fast removal of problematic patterns
         if (result.StartsWith("、") || result.StartsWith("…"))
             result = result.Substring(1).TrimStart();
 
         if (result.StartsWith("DISCOURSE USES", StringComparison.OrdinalIgnoreCase))
             result = result.Substring("DISCOURSE USES".Length).TrimStart();
 
-        // Extract first English sentence
         var match = EnglishSentenceRegex.Match(result);
         if (match.Success)
             result = match.Value;
@@ -1192,11 +1117,8 @@ public static class CollinsParserHelper
     /// </summary>
     public static string CleanDefinitionText(string definition)
     {
-        // FIXED ISSUE #1: Empty definitions - don't return empty for valid content
         var cleaned = FastCleanDefinitionText(definition);
 
-        // If cleaning resulted in empty string but original had content,
-        // try a more lenient cleaning approach
         if (string.IsNullOrWhiteSpace(cleaned) && !string.IsNullOrWhiteSpace(definition))
             cleaned = LenientCleanDefinitionText(definition);
 
@@ -1213,19 +1135,14 @@ public static class CollinsParserHelper
 
         var result = definition;
 
-        // Remove Chinese characters
         result = ChineseCharRegex.Replace(result, "");
 
-        // Remove common stray patterns but be more lenient
         result = Regex.Replace(result, @"^[\s、。，；,\.\(\)（）:：…\/\\]+", "");
 
-        // Fix formatting
         result = FastFixTextIssues(result);
 
-        // Ensure proper structure
         result = FastEnsureSentenceStructure(result);
 
-        // If still empty, return original without Chinese
         if (string.IsNullOrWhiteSpace(result)) result = ChineseCharRegex.Replace(definition, "").Trim();
 
         return result.Trim();
@@ -1239,28 +1156,21 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(definition))
             return definition;
 
-        // Fast checks for non-definitions
         if (IsNonDefinition(definition))
             return string.Empty;
 
-        // Step 1: Extract core definition
         var cleaned = FastExtractDefinitionCore(definition);
         if (string.IsNullOrWhiteSpace(cleaned))
             return cleaned;
 
-        // Step 2: Remove stray elements
         cleaned = FastRemoveStrayElements(cleaned);
 
-        // Step 3: Fast text cleaning
         cleaned = FastCleanText(cleaned, true, true);
 
-        // Step 4: Fast formatting fix
         cleaned = FastFixTextFormatting(cleaned);
 
-        // Step 5: Ensure proper structure
         cleaned = FastEnsureSentenceStructure(cleaned);
 
-        // Step 6: Final capitalization and punctuation
         if (!string.IsNullOrEmpty(cleaned)) cleaned = FastEnsureCapitalizationAndPunctuation(cleaned);
 
         return cleaned.Trim();
@@ -1274,7 +1184,6 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(definition))
             return definition;
 
-        // Fast pattern detection
         if (IsNonDefinition(definition))
             return string.Empty;
 
@@ -1297,22 +1206,18 @@ public static class CollinsParserHelper
                     continue;
                 }
 
-                // Fast check for non-definitions
                 if (IsNonDefinition(definition))
                 {
                     results.Add(string.Empty);
                     continue;
                 }
 
-                // Fast advanced cleaning
                 var cleaned = AdvancedCleanDefinition(definition);
 
-                // FIXED: Use more lenient validation for definitions
                 results.Add(FastIsValidDefinition(cleaned, true) ? cleaned : string.Empty);
             }
             catch
             {
-                // Fast fallback cleaning
                 results.Add(FastCleanDefinitionText(definition));
             }
 
@@ -1345,10 +1250,8 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(pos) || string.IsNullOrWhiteSpace(definition))
             return null;
 
-        // Fast Chinese character removal
         definition = ChineseCharRegex.Replace(definition, "").Trim();
 
-        // FIXED: Don't return empty definition - use lenient cleaning if needed
         var cleanedDefinition = FastCleanDefinitionText(definition);
         if (string.IsNullOrWhiteSpace(cleanedDefinition)) cleanedDefinition = LenientCleanDefinitionText(definition);
 
@@ -1365,7 +1268,6 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(posText))
             return 1;
 
-        // Fast extraction without regex for common patterns
         if (posText.Length > 0 && char.IsDigit(posText[0]))
         {
             var dotIndex = posText.IndexOf('.');
@@ -1383,23 +1285,18 @@ public static class CollinsParserHelper
 
         var trimmed = rawPos.Trim();
 
-        // Remove any sense numbers from the beginning (e.g., "1. N-COUNT")
         trimmed = Regex.Replace(trimmed, @"^\d+\.\s*", "");
 
-        // Fast exact match
         if (PosNormalizationMap.TryGetValue(trimmed, out var exactMatch))
             return exactMatch;
 
-        // Try removing any Chinese characters
         var noChinese = ChineseCharRegex.Replace(trimmed, "").Trim();
         if (PosNormalizationMap.TryGetValue(noChinese, out var noChineseMatch))
             return noChineseMatch;
 
-        // Fast prefix check
         foreach (var prefix in PosPrefixes)
             if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             {
-                // Try to find the full code
                 var slashIndex = trimmed.IndexOf('/');
                 if (slashIndex > 0)
                 {
@@ -1408,11 +1305,9 @@ public static class CollinsParserHelper
                         return slashMatch;
                 }
 
-                // Try the prefix
                 if (PosNormalizationMap.TryGetValue(prefix, out var prefixMatch))
                     return prefixMatch;
 
-                // Generic mapping based on prefix
                 if (prefix.StartsWith("N-", StringComparison.OrdinalIgnoreCase) || prefix == "N")
                     return "noun";
                 if (prefix.StartsWith("V-", StringComparison.OrdinalIgnoreCase) || prefix == "V")
@@ -1425,7 +1320,6 @@ public static class CollinsParserHelper
                     return "phrase";
             }
 
-        // FIXED: Try to infer from common patterns
         if (trimmed.Contains("NOUN", StringComparison.OrdinalIgnoreCase))
             return "noun";
         if (trimmed.Contains("VERB", StringComparison.OrdinalIgnoreCase))
@@ -1440,7 +1334,6 @@ public static class CollinsParserHelper
         return "unk";
     }
 
-    // New parsing strategies for sense headers
     private static CollinsSenseRaw? TryParseEnhancedSenseHeader(string line)
     {
         var match = SenseHeaderEnhancedRegex.Match(line);
@@ -1510,7 +1403,6 @@ public static class CollinsParserHelper
 
     private static int ExtractSenseNumberFromText(string text)
     {
-        // Try to extract sense number from beginning of text
         var match = Regex.Match(text, @"^(\d+)\.\s*");
         if (match.Success && int.TryParse(match.Groups[1].Value, out var number))
             return number;
@@ -1535,7 +1427,6 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(text))
             return text;
 
-        // Fast check for common headers
         if (text.StartsWith("NOUN AND VERB USES", StringComparison.OrdinalIgnoreCase) ||
             text.StartsWith("DISCOURSE USES", StringComparison.OrdinalIgnoreCase) ||
             text.StartsWith("PHRASAL VERB USES", StringComparison.OrdinalIgnoreCase))
@@ -1549,13 +1440,11 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(text))
             return text;
 
-        // Fast removal of common grammar codes at start
         var result = text.TrimStart();
 
         if (result.StartsWith("N-") || result.StartsWith("V-") || result.StartsWith("ADJ-") ||
             result.StartsWith("ADV-") || result.StartsWith("PHR-"))
         {
-            // Find where the grammar code ends (space, tab, or punctuation)
             var endIndex = 0;
             while (endIndex < result.Length &&
                    (char.IsLetterOrDigit(result[endIndex]) || result[endIndex] == '-'))
@@ -1575,7 +1464,6 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(text))
             return text;
 
-        // Fast check for cross-references at start
         if (text.StartsWith("See also:", StringComparison.OrdinalIgnoreCase) ||
             text.StartsWith("See:", StringComparison.OrdinalIgnoreCase) ||
             text.StartsWith("Cf.", StringComparison.OrdinalIgnoreCase))
@@ -1589,16 +1477,13 @@ public static class CollinsParserHelper
         if (string.IsNullOrWhiteSpace(text))
             return text;
 
-        // Fast extraction: find first English sentence
         for (var i = 0; i < text.Length; i++)
             if (char.IsUpper(text[i]))
             {
-                // Find end of sentence
                 for (var j = i; j < text.Length; j++)
                     if (text[j] == '.' || text[j] == '!' || text[j] == '?')
                         return text.Substring(i, j - i + 1).Trim();
 
-                // No end punctuation found
                 return text.Substring(i).Trim();
             }
 
@@ -1612,10 +1497,8 @@ public static class CollinsParserHelper
 
         var result = text;
 
-        // Fast removal of leading punctuation
         result = result.TrimStart(' ', '、', '。', '，', '；', ',', '.', '(', ')', '（', '）', ':', '：', '…', '/', '\\', ';');
 
-        // Fast removal of numbering
         if (result.Length > 0 && char.IsDigit(result[0]))
         {
             var i = 0;
@@ -1634,7 +1517,6 @@ public static class CollinsParserHelper
 
         var result = text;
 
-        // Fast fixes
         result = result.Replace("  ", " ")
             .Replace(" ,", ",").Replace(" .", ".")
             .Replace(" ;", ";").Replace(" :", ":")
@@ -1713,13 +1595,10 @@ public static class CollinsParserHelper
 
         var trimmed = text.Trim();
 
-        // Fast checks for common grammar-only patterns
         if (trimmed.Contains("/") && !trimmed.Contains(" "))
             return true;
 
-        if (trimmed.StartsWith("N-") || trimmed.StartsWith("V-") || trimmed.StartsWith("ADJ-"))
-            // Check if it's just the code without definition
-            return !trimmed.Contains(" ") || trimmed.IndexOf(' ') > trimmed.Length / 2;
+        if (trimmed.StartsWith("N-") || trimmed.StartsWith("V-") || trimmed.StartsWith("ADJ-")) return !trimmed.Contains(" ") || trimmed.IndexOf(' ') > trimmed.Length / 2;
 
         return false;
     }
@@ -1731,26 +1610,21 @@ public static class CollinsParserHelper
 
         var trimmed = text.Trim();
 
-        // In lenient mode, accept shorter definitions
         if (lenient && trimmed.Length < 10)
             return true;
 
         if (!lenient && text.Length < 10)
             return false;
 
-        // Must start with uppercase letter
         if (!char.IsUpper(trimmed[0]))
             return false;
 
-        // Must contain at least one space (except for very short definitions)
         if (!trimmed.Contains(' ') && trimmed.Length > 20)
             return false;
 
-        // Must contain at least one lowercase letter
         if (!trimmed.Any(char.IsLower))
             return false;
 
-        // Must end with proper punctuation
         if (!trimmed.EndsWith(".") && !trimmed.EndsWith("!") && !trimmed.EndsWith("?"))
             return false;
 

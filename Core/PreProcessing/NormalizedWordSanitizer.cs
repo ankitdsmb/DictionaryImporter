@@ -11,7 +11,7 @@ internal static class NormalizedWordSanitizer
             return string.Empty;
 
         if (language == "zh")
-            return input.Trim(); // Chinese preserved verbatim
+            return input.Trim();
 
         var text = input.ToLowerInvariant();
         text = Noise.Replace(text, " ");

@@ -10,15 +10,12 @@ public sealed class HybridGrammarCorrector(
     public async Task<GrammarCheckResult> CheckAsync(string text, string languageCode = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(text))
-            return new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero);
+            return new GrammarCheckResult(false, 0, [], TimeSpan.Zero);
 
-        // If languageCode is not provided, detect it
         languageCode ??= languageDetector.Detect(text);
 
-        // For short texts, we might rely on spell checking only
         if (text.Length < 10)
         {
-            // Use NHunspell if available for the language
             var spellChecker = new NHunspellSpellChecker(languageCode);
             if (spellChecker.IsSupported)
             {
@@ -26,7 +23,6 @@ public sealed class HybridGrammarCorrector(
             }
         }
 
-        // For longer texts, use LanguageTool
         return await languageToolCorrector.CheckAsync(text, languageCode, ct);
     }
 
@@ -41,13 +37,11 @@ public sealed class HybridGrammarCorrector(
         {
             ct.ThrowIfCancellationRequested();
 
-            // Find the position of this word in the original text
             var wordPosition = text.IndexOf(word, currentPosition, StringComparison.OrdinalIgnoreCase);
             if (wordPosition == -1)
             {
-                // Fallback: estimate position
                 wordPosition = currentPosition;
-                currentPosition += word.Length + 1; // +1 for space
+                currentPosition += word.Length + 1;
             }
             else
             {
@@ -81,7 +75,6 @@ public sealed class HybridGrammarCorrector(
 
     public Task<GrammarCorrectionResult> AutoCorrectAsync(string text, string languageCode = null, CancellationToken ct = default)
     {
-        // For now, delegate to LanguageTool. We can enhance with NHunspell for spelling.
         languageCode ??= languageDetector.Detect(text);
         return languageToolCorrector.AutoCorrectAsync(text, languageCode, ct);
     }

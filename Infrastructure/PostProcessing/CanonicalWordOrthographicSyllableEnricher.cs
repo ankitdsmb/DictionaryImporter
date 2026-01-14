@@ -1,27 +1,18 @@
 ﻿namespace DictionaryImporter.Infrastructure.PostProcessing;
 
-public sealed class CanonicalWordOrthographicSyllableEnricher
+public sealed class CanonicalWordOrthographicSyllableEnricher(
+    string connectionString,
+    ILogger<CanonicalWordOrthographicSyllableEnricher> logger)
 {
-    private readonly string _connectionString;
-    private readonly ILogger<CanonicalWordOrthographicSyllableEnricher> _logger;
-
-    public CanonicalWordOrthographicSyllableEnricher(
-        string connectionString,
-        ILogger<CanonicalWordOrthographicSyllableEnricher> logger)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-    }
-
     public async Task ExecuteAsync(
         string localeCode,
         CancellationToken ct)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "Orthographic syllable enrichment started | Locale={Locale}",
             localeCode);
 
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
         var words =
@@ -91,7 +82,7 @@ public sealed class CanonicalWordOrthographicSyllableEnricher
             }
         }
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Orthographic syllable enrichment completed | Locale={Locale} | Inserted={Inserted} | Skipped={Skipped}",
             localeCode,
             inserted,

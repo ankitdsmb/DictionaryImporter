@@ -1,10 +1,8 @@
 ﻿using DictionaryImporter.Bootstrap;
 using Serilog;
 
-// Configuration
 var configuration = BootstrapConfiguration.Build();
 
-// Logging
 BootstrapLogging.Configure();
 
 var services = new ServiceCollection();
@@ -12,12 +10,10 @@ BootstrapLogging.Register(services);
 
 services.AddSingleton(configuration);
 
-// Dependency Injection
 BootstrapInfrastructure.Register(services, configuration);
 BootstrapSources.Register(services, configuration);
 BootstrapPipeline.Register(services, configuration);
 
-// Run
 using var provider = services.BuildServiceProvider();
 
 var orchestrator = provider.GetRequiredService<ImportOrchestrator>();

@@ -3,11 +3,10 @@
 internal static class IpaSyllabifier
 {
     private static readonly HashSet<char> Vowels =
-        new()
-        {
-            'i', 'y', 'ɪ', 'ʏ', 'e', 'ø', 'ɛ', 'œ', 'æ', 'a', 'ɑ', 'ɒ', 'ɔ', 'o', 'ʊ', 'u',
-            'ə', 'ɚ', 'ɝ', 'ɜ', 'ɵ', 'ɐ'
-        };
+    [
+        'i', 'y', 'ɪ', 'ʏ', 'e', 'ø', 'ɛ', 'œ', 'æ', 'a', 'ɑ', 'ɒ', 'ɔ', 'o', 'ʊ', 'u',
+        'ə', 'ɚ', 'ɝ', 'ɜ', 'ɵ', 'ɐ'
+    ];
 
     public static IReadOnlyList<IpaSyllable> Split(string ipa)
     {

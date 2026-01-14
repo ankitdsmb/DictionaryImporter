@@ -1,18 +1,9 @@
 ﻿namespace DictionaryImporter.Infrastructure.Persistence;
 
-public sealed class SqlDictionaryEntryCrossReferenceWriter
+public sealed class SqlDictionaryEntryCrossReferenceWriter(
+    string connectionString,
+    ILogger<SqlDictionaryEntryCrossReferenceWriter> logger)
 {
-    private readonly string _connectionString;
-    private readonly ILogger<SqlDictionaryEntryCrossReferenceWriter> _logger;
-
-    public SqlDictionaryEntryCrossReferenceWriter(
-        string connectionString,
-        ILogger<SqlDictionaryEntryCrossReferenceWriter> logger)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-    }
-
     public async Task WriteAsync(
         long parsedDefinitionId,
         CrossReference crossRef,
@@ -49,7 +40,7 @@ public sealed class SqlDictionaryEntryCrossReferenceWriter
                 .Trim();
 
         await using var conn =
-            new SqlConnection(_connectionString);
+            new SqlConnection(connectionString);
 
         await conn.OpenAsync(ct);
 
@@ -66,7 +57,7 @@ public sealed class SqlDictionaryEntryCrossReferenceWriter
                     cancellationToken: ct));
 
         if (rows > 0)
-            _logger.LogDebug(
+            logger.LogDebug(
                 "CrossReference inserted | ParsedId={ParsedId} | Type={Type} | Target={Target}",
                 parsedDefinitionId,
                 type,

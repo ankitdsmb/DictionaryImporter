@@ -11,7 +11,6 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger) :
 
         var senseNumber = 1;
 
-        // Main entry
         var mainDefinition = BuildDefinition(raw);
         yield return new DictionaryEntry
         {
@@ -24,7 +23,6 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger) :
             CreatedUtc = DateTime.UtcNow
         };
 
-        // Variants
         foreach (var variant in raw.Variants)
         {
             var variantDefinition = BuildVariantDefinition(variant);
@@ -40,7 +38,6 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger) :
             };
         }
 
-        // Idioms (treated as separate entries since they have different headwords)
         foreach (var idiom in raw.Idioms)
         {
             var idiomDefinition = BuildIdiomDefinition(idiom);
@@ -48,9 +45,9 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger) :
             {
                 Word = idiom.Headword,
                 NormalizedWord = NormalizeWord(idiom.Headword),
-                PartOfSpeech = "phrase", // Idioms are typically phrases
+                PartOfSpeech = "phrase",
                 Definition = idiomDefinition,
-                SenseNumber = 1, // Each idiom is its own entry
+                SenseNumber = 1,
                 SourceCode = "COUNTRY21",
                 CreatedUtc = DateTime.UtcNow
             };
@@ -61,18 +58,14 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger) :
     {
         var parts = new List<string>();
 
-        // Add phonetics if present
         if (!string.IsNullOrWhiteSpace(raw.Phonetics))
             parts.Add($"【Pronunciation】{raw.Phonetics}");
 
-        // Add grammar info if present
         if (!string.IsNullOrWhiteSpace(raw.GrammarInfo))
             parts.Add($"【Grammar】{raw.GrammarInfo}");
 
-        // Add main definition
         parts.Add(raw.Definition);
 
-        // Add examples if present
         if (raw.Examples.Any())
         {
             parts.Add("【Examples】");
@@ -92,10 +85,8 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger) :
     {
         var parts = new List<string>();
 
-        // Add variant definition
         parts.Add(variant.Definition);
 
-        // Add examples if present
         if (variant.Examples.Any())
         {
             parts.Add("【Examples】");
@@ -115,10 +106,8 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger) :
     {
         var parts = new List<string>();
 
-        // Add idiom definition
         parts.Add(idiom.Definition);
 
-        // Add examples if present
         if (idiom.Examples.Any())
         {
             parts.Add("【Examples】");
@@ -174,15 +163,12 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger) :
         };
     }
 
-    // In Country21Transformer.cs, update the BuildDefinition method:
     private static string BuildDefinition1(Century21RawEntry raw)
     {
         var parts = new List<string>();
 
-        // Preserve the original HTML structure in RawFragment
         var rawFragment = BuildRawFragment(raw);
 
-        // Build display definition
         if (!string.IsNullOrWhiteSpace(raw.Phonetics))
             parts.Add($"【Pronunciation】{raw.Phonetics}");
 
@@ -205,7 +191,6 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger) :
 
     private static string BuildRawFragment(Century21RawEntry raw)
     {
-        // Reconstruct a simplified version of the HTML structure
         var sb = new StringBuilder();
         sb.AppendLine($"<div class=\"word_block\">");
         sb.AppendLine($"  <div class=\"basic_def\">");
@@ -222,7 +207,6 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger) :
         sb.AppendLine($"    </div>");
         sb.AppendLine($"  </div>");
 
-        // Add variants if any
         foreach (var variant in raw.Variants)
         {
             sb.AppendLine($"  <div class=\"variant\">");
@@ -234,7 +218,6 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger) :
             sb.AppendLine($"  </div>");
         }
 
-        // Add idioms if any
         foreach (var idiom in raw.Idioms)
         {
             sb.AppendLine($"  <div class=\"idiom\">");

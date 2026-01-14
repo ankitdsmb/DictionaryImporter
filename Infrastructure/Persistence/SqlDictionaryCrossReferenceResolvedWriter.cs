@@ -1,14 +1,7 @@
 ﻿namespace DictionaryImporter.Infrastructure.Persistence;
 
-public sealed class SqlDictionaryCrossReferenceResolvedWriter
+public sealed class SqlDictionaryCrossReferenceResolvedWriter(string cs)
 {
-    private readonly string _cs;
-
-    public SqlDictionaryCrossReferenceResolvedWriter(string cs)
-    {
-        _cs = cs;
-    }
-
     public async Task WriteAsync(
         long sourceParsedId,
         long targetCanonicalWordId,
@@ -28,7 +21,7 @@ public sealed class SqlDictionaryCrossReferenceResolvedWriter
                            );
                            """;
 
-        await using var conn = new SqlConnection(_cs);
+        await using var conn = new SqlConnection(cs);
 
         await conn.ExecuteAsync(
             new CommandDefinition(

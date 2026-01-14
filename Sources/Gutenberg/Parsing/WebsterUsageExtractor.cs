@@ -34,7 +34,6 @@ internal static class WebsterUsageExtractor
         if (usage == null)
             return null;
 
-        // Strip usage marker from definition
         definition =
             definition.Substring(match.Length)
                 .TrimStart();

@@ -1,9 +1,4 @@
-﻿// File: DictionaryImporter/Core/Grammar/Simple/SimpleGrammarCorrector.cs
-using DictionaryImporter.Core.Grammar;
-using DictionaryImporter.Core.Grammar.Enhanced;
-using DictionaryImporter.Infrastructure.Grammar;
-using DictionaryImporter.Infrastructure.Grammar.Engines;
-using Microsoft.Extensions.Configuration;
+﻿using DictionaryImporter.Infrastructure.Grammar.Engines;
 
 namespace DictionaryImporter.Core.Grammar.Simple;
 
@@ -12,10 +7,9 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
     private readonly ILogger<SimpleGrammarCorrector> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly GrammarCorrectionSettings _settings;
-    private readonly List<IGrammarEngine> _engines = new();
+    private readonly List<IGrammarEngine> _engines = [];
     private bool _disposed = false;
 
-    // Main constructor
     public SimpleGrammarCorrector(
         string languageToolUrl,
         IConfiguration configuration,
@@ -37,71 +31,10 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
         InitializeEngines();
     }
 
-    // Simplified constructor for fallback/quick initialization
-    public SimpleGrammarCorrector(string languageToolUrl, ILogger<SimpleGrammarCorrector> logger)
-    {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-
-        _settings = new GrammarCorrectionSettings
-        {
-            MinDefinitionLength = 20,
-            DefaultLanguage = "en-US",
-            LanguageToolUrl = languageToolUrl,
-            HunspellDictionaryPath = "Dictionaries",
-            PatternRulesPath = "grammar-rules.json"
-        };
-
-        // Create a minimal logger factory for internal use
-        _loggerFactory = LoggerFactory.Create(builder =>
-        {
-            builder.AddFilter("Microsoft", LogLevel.Warning)
-                .AddFilter("System", LogLevel.Warning)
-                .AddFilter("DictionaryImporter", LogLevel.Debug);
-            //.AddSimpleConsole(options =>
-            //{
-            //    options.SingleLine = true;
-            //    options.TimestampFormat = "HH:mm:ss ";
-            //});
-        });
-
-        InitializeEngines();
-    }
-
-    // Minimal constructor for fallback
-    private SimpleGrammarCorrector(ILogger<SimpleGrammarCorrector> logger)
-    {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-
-        _settings = new GrammarCorrectionSettings
-        {
-            MinDefinitionLength = 20,
-            DefaultLanguage = "en-US",
-            LanguageToolUrl = "http://localhost:2026",
-            HunspellDictionaryPath = "Dictionaries",
-            PatternRulesPath = "grammar-rules.json"
-        };
-
-        // Create a minimal logger factory for internal use
-        _loggerFactory = LoggerFactory.Create(builder =>
-        {
-            builder.AddFilter("Microsoft", LogLevel.Warning)
-                .AddFilter("System", LogLevel.Warning)
-                .AddFilter("DictionaryImporter", LogLevel.Warning);
-            //.AddSimpleConsole(options =>
-            //{
-            //    options.SingleLine = true;
-            //    options.TimestampFormat = "HH:mm:ss ";
-            //});
-        });
-
-        InitializeEngines();
-    }
-
     private void InitializeEngines()
     {
         _logger.LogInformation("Initializing SimpleGrammarCorrector with LanguageTool at {Url}", _settings.LanguageToolUrl);
 
-        // Initialize LanguageTool engine (primary engine)
         try
         {
             var languageToolLogger = _loggerFactory.CreateLogger<LanguageToolEngine>();
@@ -114,7 +47,6 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
             _logger.LogWarning(ex, "✗ Failed to initialize LanguageTool engine");
         }
 
-        // Initialize NHunspell engine if configured
         if (!string.IsNullOrEmpty(_settings.HunspellDictionaryPath))
         {
             try
@@ -134,7 +66,6 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
             _logger.LogDebug("NHunspell engine disabled - no dictionary path configured");
         }
 
-        // Initialize PatternRule engine
         try
         {
             var patternRuleLogger = _loggerFactory.CreateLogger<PatternRuleEngine>();
@@ -147,7 +78,6 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
             _logger.LogWarning(ex, "✗ Failed to initialize PatternRule engine");
         }
 
-        // Initialize engines asynchronously
         _ = InitializeEnginesAsync();
     }
 
@@ -161,12 +91,12 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
 
         _logger.LogDebug("Asynchronously initializing {Count} grammar engines...", _engines.Count);
 
-        var initTasks = _engines.Select(e => SafeInitializeAsync(e)).ToList();
+        var initTasks = _engines.Select(SafeInitializeAsync).ToList();
 
         try
         {
             await Task.WhenAll(initTasks);
-            var successfulInitializations = initTasks.Count(t => t.IsCompletedSuccessfully && t.Result);
+            var successfulInitializations = initTasks.Count(t => t is { IsCompletedSuccessfully: true, Result: true });
             _logger.LogDebug("{Successful}/{Total} grammar engines initialized successfully",
                 successfulInitializations, _engines.Count);
         }
@@ -197,17 +127,16 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
     {
         if (string.IsNullOrWhiteSpace(text) || text.Length < _settings.MinDefinitionLength)
         {
-            return new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero);
+            return new GrammarCheckResult(false, 0, [], TimeSpan.Zero);
         }
 
         if (string.IsNullOrEmpty(languageCode))
             languageCode = _settings.DefaultLanguage;
 
-        // Filter engines that support the language
         var supportedEngines = _engines.Where(e => e.IsSupported(languageCode)).ToList();
         if (supportedEngines.Count == 0)
         {
-            return new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero);
+            return new GrammarCheckResult(false, 0, [], TimeSpan.Zero);
         }
 
         var checkTasks = supportedEngines.Select(e => SafeCheckAsync(e, text, languageCode, ct)).ToList();
@@ -223,20 +152,15 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
 
         var allIssues = new List<GrammarIssue>();
         var totalTime = TimeSpan.Zero;
-        var completedChecks = 0;
 
         foreach (var task in checkTasks)
         {
-            if (task.IsCompletedSuccessfully && task.Result != null)
-            {
-                var result = task.Result;
-                allIssues.AddRange(result.Issues);
-                totalTime += result.ElapsedTime;
-                completedChecks++;
-            }
+            if (!task.IsCompletedSuccessfully || task.Result == null) continue;
+            var result = task.Result;
+            allIssues.AddRange(result.Issues);
+            totalTime += result.ElapsedTime;
         }
 
-        // Deduplicate issues
         var uniqueIssues = DeduplicateIssues(allIssues);
 
         return new GrammarCheckResult(
@@ -276,16 +200,14 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
             return new GrammarCorrectionResult(
                 text,
                 text,
-                Array.Empty<AppliedCorrection>(),
-                Array.Empty<GrammarIssue>()
+                [],
+                []
             );
         }
 
-        // Apply corrections from end to start to maintain offsets
         var correctedText = text;
         var appliedCorrections = new List<AppliedCorrection>();
 
-        // Group issues by position and rule to avoid conflicts
         var issueGroups = checkResult.Issues
             .Where(i => i.Replacements.Count > 0)
             .GroupBy(i => $"{i.StartOffset}-{i.EndOffset}-{i.RuleId}")
@@ -298,14 +220,12 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
             if (issue.Replacements.Count == 0)
                 continue;
 
-            // Use the highest confidence replacement
             var replacement = issue.Replacements[0];
             var originalSegment = correctedText.Substring(
                 issue.StartOffset,
                 issue.EndOffset - issue.StartOffset
             );
 
-            // Skip if replacement would be identical (case-insensitive)
             if (string.Equals(originalSegment, replacement, StringComparison.OrdinalIgnoreCase))
                 continue;
 
@@ -316,7 +236,6 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
                     issue.EndOffset - issue.StartOffset
                 ).Insert(issue.StartOffset, replacement);
 
-                // Create AppliedCorrection - check if AppliedCorrection constructor needs fixing too
                 appliedCorrections.Add(new AppliedCorrection(
                     originalSegment,
                     replacement,
@@ -332,7 +251,7 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
         }
 
         var remainingIssues = checkResult.Issues
-            .Where(i => !appliedCorrections.Any(a => a.RuleId == i.RuleId))
+            .Where(i => appliedCorrections.All(a => a.RuleId != i.RuleId))
             .ToList();
 
         return new GrammarCorrectionResult(
@@ -353,29 +272,24 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
         if (string.IsNullOrWhiteSpace(text))
             return suggestions;
 
-        // Basic readability suggestions
-        if (text.Length > 100)
+        if (text.Length <= 100) return await Task.FromResult<IReadOnlyList<GrammarSuggestion>>(suggestions);
+        var sentenceCount = text.Count(c => c is '.' or '!' or '?');
+        if (sentenceCount <= 0) return await Task.FromResult<IReadOnlyList<GrammarSuggestion>>(suggestions);
+        var avgSentenceLength = text.Length / (double)sentenceCount;
+        if (avgSentenceLength > 25)
         {
-            var sentenceCount = text.Count(c => c == '.' || c == '!' || c == '?');
-            if (sentenceCount > 0)
-            {
-                var avgSentenceLength = text.Length / (double)sentenceCount;
-                if (avgSentenceLength > 25)
-                {
-                    suggestions.Add(new GrammarSuggestion(
-                        "Consider breaking long sentences",
-                        "Long sentences can be hard to read. Try breaking them into shorter ones.",
-                        "Readability",
-                        "Readability improvement"
-                    ));
-                }
-            }
+            suggestions.Add(new GrammarSuggestion(
+                "Consider breaking long sentences",
+                "Long sentences can be hard to read. Try breaking them into shorter ones.",
+                "Readability",
+                "Readability improvement"
+            ));
         }
 
-        return await Task.FromResult((IReadOnlyList<GrammarSuggestion>)suggestions);
+        return await Task.FromResult<IReadOnlyList<GrammarSuggestion>>(suggestions);
     }
 
-    private List<GrammarIssue> DeduplicateIssues(List<GrammarIssue> issues)
+    private static List<GrammarIssue> DeduplicateIssues(List<GrammarIssue> issues)
     {
         var uniqueIssues = new List<GrammarIssue>();
         var seen = new HashSet<string>();
@@ -384,7 +298,6 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
         {
             var key = $"{issue.StartOffset}-{issue.EndOffset}-{issue.RuleId}";
 
-            // Check for overlap with existing issues
             var overlapping = uniqueIssues.FirstOrDefault(existing =>
                 issue.StartOffset <= existing.EndOffset &&
                 issue.EndOffset >= existing.StartOffset &&
@@ -396,7 +309,6 @@ public sealed class SimpleGrammarCorrector : IGrammarCorrector, IDisposable
             }
             else if (overlapping != null && issue.ConfidenceLevel > overlapping.ConfidenceLevel)
             {
-                // Replace with higher confidence issue
                 uniqueIssues.Remove(overlapping);
                 uniqueIssues.Add(issue);
             }

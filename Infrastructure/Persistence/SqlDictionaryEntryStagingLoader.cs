@@ -1,21 +1,11 @@
 ﻿namespace DictionaryImporter.Infrastructure.Persistence;
 
-public sealed class SqlDictionaryEntryStagingLoader
+public sealed class SqlDictionaryEntryStagingLoader(
+    string connectionString,
+    ILogger<SqlDictionaryEntryStagingLoader> logger)
     : IStagingLoader
 {
-    // SQL Server datetime minimum
     private static readonly DateTime SqlMinDate = new(1753, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-
-    private readonly string _cs;
-    private readonly ILogger<SqlDictionaryEntryStagingLoader> _logger;
-
-    public SqlDictionaryEntryStagingLoader(
-        string connectionString,
-        ILogger<SqlDictionaryEntryStagingLoader> logger)
-    {
-        _cs = connectionString;
-        _logger = logger;
-    }
 
     public async Task LoadAsync(
         IEnumerable<DictionaryEntryStaging> entries,
@@ -27,9 +17,6 @@ public sealed class SqlDictionaryEntryStagingLoader
 
         var now = DateTime.UtcNow;
 
-        // ------------------------------------------------------------
-        // FIX: Project into NEW instances (init-only safe)
-        // ------------------------------------------------------------
         var sanitized = list.Select(e =>
                 new DictionaryEntryStaging
                 {
@@ -71,7 +58,7 @@ public sealed class SqlDictionaryEntryStagingLoader
                            );
                            """;
 
-        await using var conn = new SqlConnection(_cs);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
         await using var tx = await conn.BeginTransactionAsync(ct);
@@ -85,7 +72,7 @@ public sealed class SqlDictionaryEntryStagingLoader
 
             await tx.CommitAsync(ct);
 
-            _logger.LogInformation(
+            logger.LogInformation(
                 "Committed batch of {Count} staging rows",
                 sanitized.Count);
         }
@@ -93,7 +80,7 @@ public sealed class SqlDictionaryEntryStagingLoader
         {
             await tx.RollbackAsync(ct);
 
-            _logger.LogError(
+            logger.LogError(
                 "Rolled back batch of {Count} staging rows",
                 sanitized.Count);
 

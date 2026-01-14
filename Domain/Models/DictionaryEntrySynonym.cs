@@ -1,12 +1,10 @@
-﻿// Update DictionaryEntrySynonym.cs in DictionaryImporter.Domain.Models
-
-namespace DictionaryImporter.Domain.Models;
+﻿namespace DictionaryImporter.Domain.Models;
 
 public sealed class DictionaryEntrySynonym
 {
     public long DictionaryEntrySynonymId { get; set; }
     public long DictionaryEntryParsedId { get; set; }
     public string SynonymText { get; set; } = null!;
-    public string? Source { get; set; } // Add this field
+    public string? Source { get; set; }
     public DateTime CreatedUtc { get; set; }
 }

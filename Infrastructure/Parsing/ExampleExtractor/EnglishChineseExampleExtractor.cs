@@ -1,6 +1,4 @@
-﻿// EnglishChineseExampleExtractor.cs
-
-namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
+﻿namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
 
 public sealed class EnglishChineseExampleExtractor : IExampleExtractor
 {
@@ -13,7 +11,6 @@ public sealed class EnglishChineseExampleExtractor : IExampleExtractor
         if (string.IsNullOrWhiteSpace(parsed.Definition))
             return examples;
 
-        // Chinese example markers
         var chineseMarkers = new[] { "例如", "比如", "例句", "例子" };
 
         foreach (var marker in chineseMarkers)
@@ -23,7 +20,7 @@ public sealed class EnglishChineseExampleExtractor : IExampleExtractor
                 if (index >= 0)
                 {
                     var example = parsed.Definition.Substring(index + marker.Length).Trim();
-                    var endIndex = example.IndexOfAny(new[] { '。', '.', ';', '，', ',' });
+                    var endIndex = example.IndexOfAny(['。', '.', ';', '，', ',']);
                     if (endIndex > 0) example = example.Substring(0, endIndex);
                     examples.Add(example.Trim());
                 }

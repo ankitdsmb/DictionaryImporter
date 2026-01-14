@@ -1,27 +1,22 @@
-﻿// File: DictionaryImporter/Infrastructure/Grammar/Engines/NHunspellEngine.cs
-using DictionaryImporter.Core.Grammar;
-using DictionaryImporter.Core.Grammar.Enhanced;
-using NHunspell;
-using System.Diagnostics;
-using DictionaryImporter.Infrastructure.Grammar.Helper;
+﻿using NHunspell;
 
 namespace DictionaryImporter.Infrastructure.Grammar.Engines;
 
-public sealed class NHunspellEngine : IGrammarEngine, IDisposable
+public sealed class NHunspellEngine(string dictionaryPath, ILogger<NHunspellEngine> logger)
+    : IGrammarEngine, IDisposable
 {
-    private readonly string _dictionaryPath;
-    private readonly ILogger<NHunspellEngine> _logger;
     private Hunspell? _hunspell;
-    private readonly object _lock = new();
     private bool _initialized = false;
+    private readonly object _lock = new();
 
     public string Name => "NHunspell";
     public double ConfidenceWeight => 0.95;
 
-    public NHunspellEngine(string dictionaryPath, ILogger<NHunspellEngine> logger)
+    public bool IsSupported(string languageCode)
     {
-        _dictionaryPath = dictionaryPath ?? throw new ArgumentNullException(nameof(dictionaryPath));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        var supportedLanguages = new[] { "en", "en-US", "en-GB", "en-CA", "en-AU" };
+        return supportedLanguages.Any(lang =>
+            languageCode.StartsWith(lang, StringComparison.OrdinalIgnoreCase));
     }
 
     public async Task InitializeAsync()
@@ -30,259 +25,124 @@ public sealed class NHunspellEngine : IGrammarEngine, IDisposable
 
         await Task.Run(() =>
         {
-            try
+            lock (_lock)
             {
-                lock (_lock)
+                try
                 {
-                    if (!Directory.Exists(_dictionaryPath))
+                    var dictionaryFiles = Directory.GetFiles(dictionaryPath, "*.dic", SearchOption.TopDirectoryOnly);
+
+                    if (dictionaryFiles.Length == 0)
                     {
-                        _logger.LogWarning("Dictionary path does not exist: {Path}", _dictionaryPath);
-                        return;
+                        logger.LogWarning("No Hunspell dictionary files found at {Path}", dictionaryPath);
+                        _hunspell = null;
                     }
-
-                    // Look for dictionary files
-                    var dicFiles = Directory.GetFiles(_dictionaryPath, "*.dic");
-                    var affFiles = Directory.GetFiles(_dictionaryPath, "*.aff");
-
-                    if (dicFiles.Length == 0 || affFiles.Length == 0)
+                    else
                     {
-                        _logger.LogWarning("No dictionary files found in {Path}", _dictionaryPath);
-                        return;
-                    }
-
-                    // Use the first found dictionary/affix pair with matching names
-                    foreach (var dicFile in dicFiles)
-                    {
-                        var baseName = Path.GetFileNameWithoutExtension(dicFile);
-                        var affFile = Path.Combine(_dictionaryPath, baseName + ".aff");
+                        var dicFile = dictionaryFiles[0];
+                        var affFile = Path.ChangeExtension(dicFile, ".aff");
 
                         if (File.Exists(affFile))
                         {
                             _hunspell = new Hunspell(affFile, dicFile);
-                            _initialized = true;
-                            _logger.LogInformation(
-                                "NHunspell engine initialized with dictionary: {Dictionary}",
-                                Path.GetFileName(dicFile)
-                            );
-                            break;
+                            logger.LogInformation("Loaded Hunspell dictionary: {Dictionary}", Path.GetFileName(dicFile));
+                        }
+                        else
+                        {
+                            logger.LogWarning("Affix file not found for dictionary: {Dictionary}", dicFile);
+                            _hunspell = null;
                         }
                     }
 
-                    if (!_initialized)
-                    {
-                        _logger.LogWarning("Could not find matching .aff and .dic files in {Path}", _dictionaryPath);
-                    }
+                    _initialized = true;
+                    logger.LogInformation("NHunspell engine initialized: {Status}",
+                        _hunspell != null ? "Success" : "No dictionary loaded");
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to initialize NHunspell engine");
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Failed to initialize NHunspell engine");
+                    _hunspell = null;
+                    _initialized = true;
+                }
             }
         });
     }
 
-    //public async Task<GrammarCheckResult> CheckAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
-    //{
-    //    if (!_initialized || _hunspell == null || string.IsNullOrWhiteSpace(text))
-    //        return new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero);
-
-    //    var sw = Stopwatch.StartNew();
-    //    var issues = new List<GrammarIssue>();
-
-    //    await Task.Run(() =>
-    //    {
-    //        try
-    //        {
-    //            // Simple word boundary detection
-    //            var wordPattern = new Regex(@"\b[a-zA-Z]+(?:'[a-zA-Z]+)?\b", RegexOptions.Compiled);
-    //            var matches = wordPattern.Matches(text);
-
-    //            foreach (Match match in matches)
-    //            {
-    //                ct.ThrowIfCancellationRequested();
-
-    //                var word = match.Value;
-    //                if (string.IsNullOrEmpty(word) || word.Length < 2) continue;
-
-    //                // Skip proper nouns (starting with capital in middle of sentence)
-    //                if (char.IsUpper(word[0]) && match.Index > 0 &&
-    //                    char.IsLetterOrDigit(text[match.Index - 1]))
-    //                    continue;
-
-    //                // Check spelling
-    //                if (!_hunspell.Spell(word))
-    //                {
-    //                    var suggestions = _hunspell.Suggest(word);
-
-    //                    // Filter suggestions
-    //                    var validSuggestions = suggestions
-    //                        .Where(s => !string.IsNullOrEmpty(s) && s.Length >= 2)
-    //                        .Take(3)
-    //                        .ToList();
-
-    //                    if (validSuggestions.Any())
-    //                    {
-    //                        issues.Add(new GrammarIssue(
-    //                            StartOffset: match.Index,
-    //                            EndOffset: match.Index + match.Length,
-    //                            Message: $"Possible spelling error: '{word}'",
-    //                            ShortMessage: "Spelling",
-    //                            Replacements: validSuggestions,
-    //                            RuleId: $"SPELLING_{word.ToUpperInvariant()}",
-    //                            RuleDescription: $"Spelling check for '{word}'",
-    //                            Tags: new List<string> { "spelling" },
-    //                            Context: GetContext(text, match.Index),
-    //                            ContextOffset: Math.Max(0, match.Index - 20),
-    //                            ConfidenceLevel: 85
-    //                        ));
-    //                    }
-    //                }
-    //            }
-
-    //            // Check for repeated words
-    //            for (int i = 0; i < matches.Count - 1; i++)
-    //            {
-    //                var current = matches[i];
-    //                var next = matches[i + 1];
-
-    //                // Check if words are adjacent and identical (case-insensitive)
-    //                if (next.Index == current.Index + current.Length + 1 && // +1 for space
-    //                    string.Equals(current.Value, next.Value, StringComparison.OrdinalIgnoreCase))
-    //                {
-    //                    issues.Add(new GrammarIssue(
-    //                        StartOffset: current.Index,
-    //                        EndOffset: next.Index + next.Length,
-    //                        Message: $"Repeated word: '{current.Value}'",
-    //                        ShortMessage: "Repeated word",
-    //                        Replacements: new List<string> { current.Value },
-    //                        RuleId: "REPEATED_WORD",
-    //                        RuleDescription: "Repeated word detection",
-    //                        Tags: new List<string> { "style", "repetition" },
-    //                        Context: GetContext(text, current.Index),
-    //                        ContextOffset: Math.Max(0, current.Index - 20),
-    //                        ConfidenceLevel: 90
-    //                    ));
-    //                }
-    //            }
-    //        }
-    //        catch (Exception ex)
-    //        {
-    //            _logger.LogError(ex, "Error during NHunspell spell check");
-    //        }
-    //    }, ct);
-
-    //    sw.Stop();
-    //    return new GrammarCheckResult(issues.Count > 0, issues.Count, issues, sw.Elapsed);
-    //}
-    // File: DictionaryImporter/Infrastructure/Grammar/Engines/NHunspellEngine.cs (updated section)
-    public async Task<GrammarCheckResult> CheckAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
+    public async Task<GrammarCheckResult> CheckAsync(
+        string text,
+        string languageCode = "en-US",
+        CancellationToken ct = default)
     {
-        if (!_initialized || _hunspell == null || string.IsNullOrWhiteSpace(text))
-            return new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero);
+        if (!_initialized)
+        {
+            await InitializeAsync();
+        }
 
-        var sw = Stopwatch.StartNew();
+        if (_hunspell == null || string.IsNullOrWhiteSpace(text) || !IsSupported(languageCode))
+        {
+            return new GrammarCheckResult(false, 0, [], TimeSpan.Zero);
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var issues = new List<GrammarIssue>();
 
-        await Task.Run(() =>
+        try
         {
-            try
+            var words = Regex.Matches(text, @"\b[\w']+\b")
+                .Cast<Match>()
+                .Where(m => m.Length > 0)
+                .Select(m => new
+                {
+                    Word = m.Value,
+                    StartOffset = m.Index,
+                    EndOffset = m.Index + m.Length
+                })
+                .ToList();
+
+            foreach (var wordInfo in words)
             {
-                // Simple word boundary detection
-                var wordPattern = new Regex(@"\b[a-zA-Z]+(?:'[a-zA-Z]+)?\b", RegexOptions.Compiled);
-                var matches = wordPattern.Matches(text);
+                ct.ThrowIfCancellationRequested();
 
-                foreach (Match match in matches)
+                if (wordInfo.Word.Length < 2 || wordInfo.Word.Any(char.IsDigit))
+                    continue;
+
+                if (!_hunspell.Spell(wordInfo.Word))
                 {
-                    ct.ThrowIfCancellationRequested();
+                    var suggestions = _hunspell.Suggest(wordInfo.Word);
+                    var contextStart = Math.Max(0, wordInfo.StartOffset - 20);
+                    var contextLength = Math.Min(40, text.Length - contextStart);
+                    var context = text.Substring(contextStart, contextLength);
 
-                    var word = match.Value;
-                    if (string.IsNullOrEmpty(word) || word.Length < 2) continue;
+                    var issue = new GrammarIssue(
+                        StartOffset: wordInfo.StartOffset,
+                        EndOffset: wordInfo.EndOffset,
+                        Message: $"Possible spelling error: '{wordInfo.Word}'",
+                        ShortMessage: "Spelling",
+                        Replacements: suggestions.Take(5).ToList(),
+                        RuleId: $"SPELLING_{wordInfo.Word.ToUpperInvariant()}",
+                        RuleDescription: $"Spelling check for '{wordInfo.Word}'",
+                        Tags: new List<string> { "spelling" },
+                        Context: context,
+                        ContextOffset: Math.Max(0, wordInfo.StartOffset - 20),
+                        ConfidenceLevel: 85
+                    );
 
-                    // Skip proper nouns (starting with capital in middle of sentence)
-                    if (char.IsUpper(word[0]) && match.Index > 0 &&
-                        char.IsLetterOrDigit(text[match.Index - 1]))
-                        continue;
-
-                    // Check spelling
-                    if (!_hunspell.Spell(word))
-                    {
-                        var suggestions = _hunspell.Suggest(word);
-
-                        // Filter suggestions
-                        var validSuggestions = suggestions
-                            .Where(s => !string.IsNullOrEmpty(s) && s.Length >= 2)
-                            .Take(3)
-                            .ToList();
-
-                        if (validSuggestions.Any())
-                        {
-                            var issue = GrammarIssueHelper.CreateSpellingIssue(
-                                match.Index,
-                                match.Index + match.Length,
-                                word,
-                                validSuggestions,
-                                GetContext(text, match.Index),
-                                85
-                            );
-                            issues.Add(issue);
-                        }
-                    }
-                }
-
-                // Check for repeated words
-                for (int i = 0; i < matches.Count - 1; i++)
-                {
-                    var current = matches[i];
-                    var next = matches[i + 1];
-
-                    // Check if words are adjacent and identical (case-insensitive)
-                    if (next.Index == current.Index + current.Length + 1 && // +1 for space
-                        string.Equals(current.Value, next.Value, StringComparison.OrdinalIgnoreCase))
-                    {
-                        var repeatedIssue = GrammarIssueHelper.CreateRepeatedWordIssue(
-                            current.Index,
-                            next.Index + next.Length,
-                            current.Value,
-                            90
-                        );
-                        issues.Add(repeatedIssue with
-                        {
-                            Context = GetContext(text, current.Index),
-                            ContextOffset = Math.Max(0, current.Index - 20)
-                        });
-                    }
+                    issues.Add(issue);
                 }
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during NHunspell spell check");
-            }
-        }, ct);
 
-        sw.Stop();
-        return new GrammarCheckResult(issues.Count > 0, issues.Count, issues, sw.Elapsed);
-    }
-
-    private string GetContext(string text, int position, int contextLength = 50)
-    {
-        var start = Math.Max(0, position - contextLength);
-        var end = Math.Min(text.Length, position + contextLength);
-        return text.Substring(start, end - start);
-    }
-
-    public bool IsSupported(string languageCode)
-    {
-        // NHunspell primarily supports English variants
-        return languageCode.StartsWith("en", StringComparison.OrdinalIgnoreCase);
+            sw.Stop();
+            return new GrammarCheckResult(true, issues.Count, issues, sw.Elapsed);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error in NHunspell spell check");
+            sw.Stop();
+            return new GrammarCheckResult(false, 0, [], sw.Elapsed);
+        }
     }
 
     public void Dispose()
     {
-        lock (_lock)
-        {
-            _hunspell?.Dispose();
-            _hunspell = null;
-            _initialized = false;
-        }
+        _hunspell?.Dispose();
     }
 }

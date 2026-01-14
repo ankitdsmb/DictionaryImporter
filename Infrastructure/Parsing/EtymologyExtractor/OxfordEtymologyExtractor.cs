@@ -1,6 +1,6 @@
 ﻿namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
 
-public sealed class OxfordEtymologyExtractor : IEtymologyExtractor
+public sealed class OxfordEtymologyExtractor(ILogger<OxfordEtymologyExtractor> logger) : IEtymologyExtractor
 {
     private static readonly Regex EtymologyMarkerRegex =
         new(@"【语源】\s*(?<etymology>.+)", RegexOptions.Compiled);
@@ -23,12 +23,7 @@ public sealed class OxfordEtymologyExtractor : IEtymologyExtractor
             { "Sanskrit", "sa" }
         };
 
-    private readonly ILogger<OxfordEtymologyExtractor> _logger;
-
-    public OxfordEtymologyExtractor(ILogger<OxfordEtymologyExtractor> logger)
-    {
-        _logger = logger;
-    }
+    private readonly ILogger<OxfordEtymologyExtractor> _logger = logger;
 
     public string SourceCode => "ENG_OXFORD";
 
@@ -47,7 +42,6 @@ public sealed class OxfordEtymologyExtractor : IEtymologyExtractor
                 SourceText = string.Empty
             };
 
-        // Look for 【语源】 marker
         var match = EtymologyMarkerRegex.Match(definition);
         if (!match.Success)
             return new EtymologyExtractionResult
@@ -60,9 +54,8 @@ public sealed class OxfordEtymologyExtractor : IEtymologyExtractor
             };
 
         var etymologyText = match.Groups["etymology"].Value.Trim();
-        var languageCode = ""; // ExtractLanguageCode(etymologyText);
+        var languageCode = "";
 
-        // Remove etymology from definition for cleaner text
         var cleanedDefinition = EtymologyMarkerRegex.Replace(definition, "").Trim();
 
         return new EtymologyExtractionResult

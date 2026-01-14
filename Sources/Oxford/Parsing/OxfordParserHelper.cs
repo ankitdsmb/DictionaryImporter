@@ -1,6 +1,4 @@
-﻿// DictionaryImporter/Sources/Oxford/Parsing/OxfordParserHelper.cs
-
-namespace DictionaryImporter.Sources.Oxford.Parsing;
+﻿namespace DictionaryImporter.Sources.Oxford.Parsing;
 
 public static class OxfordParserHelper
 {
@@ -25,7 +23,6 @@ public static class OxfordParserHelper
         headword = match.Groups["headword"].Value.Trim();
         var rest = match.Groups["rest"].Value;
 
-        // Extract pronunciation if present
         var pronMatch = PronunciationRegex.Match(rest);
         if (pronMatch.Success)
         {
@@ -33,7 +30,6 @@ public static class OxfordParserHelper
             rest = rest.Replace(pronMatch.Value, "").Trim();
         }
 
-        // Extract variant forms
         var variantMatch = VariantFormsRegex.Match(rest);
         if (variantMatch.Success)
         {
@@ -41,7 +37,6 @@ public static class OxfordParserHelper
             rest = rest.Replace(variantMatch.Value, "").Trim();
         }
 
-        // Extract part of speech
         var posMatch = PartOfSpeechRegex.Match(rest);
         if (posMatch.Success)
         {
@@ -66,7 +61,6 @@ public static class OxfordParserHelper
         if (string.IsNullOrWhiteSpace(line))
             return false;
 
-        // Check if this is a sense line (starts with number)
         var senseMatch = SenseNumberRegex.Match(line);
         if (!senseMatch.Success)
             return false;
@@ -74,7 +68,6 @@ public static class OxfordParserHelper
         senseNumber = int.Parse(senseMatch.Groups["number"].Value);
         var rest = senseMatch.Groups["rest"].Value.Trim();
 
-        // Check for sense label in parentheses
         if (rest.StartsWith("("))
         {
             var labelMatch = SenseLabelRegex.Match(rest);
@@ -85,7 +78,6 @@ public static class OxfordParserHelper
             }
         }
 
-        // Extract Chinese translation (after •)
         var translationMatch = ChineseTranslationRegex.Match(rest);
         if (translationMatch.Success)
         {
@@ -143,72 +135,47 @@ public static class OxfordParserHelper
 
         var posMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            // Nouns
             ["noun"] = "noun",
             ["n"] = "noun",
             ["n."] = "noun",
-
-            // Verbs
             ["verb"] = "verb",
             ["v"] = "verb",
             ["v."] = "verb",
-
-            // Adjectives
             ["adjective"] = "adj",
             ["adj"] = "adj",
             ["adj."] = "adj",
             ["a"] = "adj",
             ["a."] = "adj",
-
-            // Adverbs
             ["adverb"] = "adv",
             ["adv"] = "adv",
             ["adv."] = "adv",
             ["ad"] = "adv",
             ["ad."] = "adv",
-
-            // Prepositions
             ["preposition"] = "preposition",
             ["prep"] = "preposition",
             ["prep."] = "preposition",
-
-            // Conjunctions
             ["conjunction"] = "conjunction",
             ["conj"] = "conjunction",
             ["conj."] = "conjunction",
-
-            // Pronouns
             ["pronoun"] = "pronoun",
             ["pron"] = "pronoun",
             ["pron."] = "pronoun",
-
-            // Determiners
             ["determiner"] = "determiner",
             ["det"] = "determiner",
             ["det."] = "determiner",
-
-            // Interjections
             ["interjection"] = "exclamation",
             ["interj"] = "exclamation",
             ["interj."] = "exclamation",
             ["exclamation"] = "exclamation",
             ["exclam"] = "exclamation",
             ["exclam."] = "exclamation",
-
-            // Abbreviations
             ["abbreviation"] = "abbreviation",
             ["abbr"] = "abbreviation",
             ["abbr."] = "abbreviation",
             ["abbreviations"] = "abbreviation",
-
-            // Prefix/Suffix
             ["prefix"] = "prefix",
             ["suffix"] = "suffix",
-
-            // Articles
             ["article"] = "determiner",
-
-            // Numerals
             ["numeral"] = "numeral",
             ["num"] = "numeral",
             ["num."] = "numeral"

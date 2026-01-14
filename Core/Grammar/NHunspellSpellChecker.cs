@@ -8,7 +8,6 @@ public sealed class NHunspellSpellChecker : ISpellChecker
 
     public NHunspellSpellChecker(string languageCode)
     {
-        // Map languageCode to dictionary and affix files
         var dictPath = GetDictionaryPath(languageCode);
         var affPath = GetAffixPath(languageCode);
 
@@ -27,17 +26,16 @@ public sealed class NHunspellSpellChecker : ISpellChecker
     public SpellCheckResult Check(string word)
     {
         if (_hunspell == null)
-            return new SpellCheckResult(false, Array.Empty<string>());
+            return new SpellCheckResult(false, []);
 
         var correct = _hunspell.Spell(word);
-        var suggestions = correct ? Array.Empty<string>() : _hunspell.Suggest(word).ToArray();
+        var suggestions = correct ? [] : _hunspell.Suggest(word).ToArray();
 
         return new SpellCheckResult(correct, suggestions);
     }
 
     private string GetDictionaryPath(string languageCode)
     {
-        // We can store dictionaries in a folder like "Dictionaries"
         return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Dictionaries", $"{languageCode}.dic");
     }
 
@@ -46,12 +44,3 @@ public sealed class NHunspellSpellChecker : ISpellChecker
         return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Dictionaries", $"{languageCode}.aff");
     }
 }
-
-public interface ISpellChecker
-{
-    bool IsSupported { get; }
-
-    SpellCheckResult Check(string word);
-}
-
-public record SpellCheckResult(bool IsCorrect, IReadOnlyList<string> Suggestions);

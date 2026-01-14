@@ -1,67 +1,33 @@
-﻿// Update DictionaryParsedDefinitionProcessor.cs
+﻿namespace DictionaryImporter.Infrastructure.Parsing;
 
-namespace DictionaryImporter.Infrastructure.Parsing;
-
-public sealed class DictionaryParsedDefinitionProcessor
+public sealed class DictionaryParsedDefinitionProcessor(
+    string connectionString,
+    IDictionaryDefinitionParser parser,
+    SqlParsedDefinitionWriter parsedWriter,
+    SqlDictionaryEntryCrossReferenceWriter crossRefWriter,
+    SqlDictionaryAliasWriter aliasWriter,
+    IEntryEtymologyWriter etymologyWriter,
+    SqlDictionaryEntryVariantWriter variantWriter,
+    IDictionaryEntryExampleWriter exampleWriter,
+    IExampleExtractorRegistry exampleExtractorRegistry,
+    ISynonymExtractorRegistry synonymExtractorRegistry,
+    IDictionaryEntrySynonymWriter synonymWriter,
+    IEtymologyExtractorRegistry etymologyExtractorRegistry,
+    ILogger<DictionaryParsedDefinitionProcessor> logger)
 {
-    private readonly SqlDictionaryAliasWriter _aliasWriter;
-    private readonly string _connectionString;
-    private readonly SqlDictionaryEntryCrossReferenceWriter _crossRefWriter;
-    private readonly IEtymologyExtractorRegistry _etymologyExtractorRegistry;
-    private readonly IEntryEtymologyWriter _etymologyWriter;
-    private readonly IExampleExtractorRegistry _exampleExtractorRegistry; // NEW
-    private readonly IDictionaryEntryExampleWriter _exampleWriter;
-    private readonly ILogger<DictionaryParsedDefinitionProcessor> _logger;
-    private readonly SqlParsedDefinitionWriter _parsedWriter;
-    private readonly IDictionaryDefinitionParser _parser;
-    private readonly ISynonymExtractorRegistry _synonymExtractorRegistry;
-    private readonly IDictionaryEntrySynonymWriter _synonymWriter;
-    private readonly SqlDictionaryEntryVariantWriter _variantWriter;
-
-    public DictionaryParsedDefinitionProcessor(
-        string connectionString,
-        IDictionaryDefinitionParser parser,
-        SqlParsedDefinitionWriter parsedWriter,
-        SqlDictionaryEntryCrossReferenceWriter crossRefWriter,
-        SqlDictionaryAliasWriter aliasWriter,
-        IEntryEtymologyWriter etymologyWriter,
-        SqlDictionaryEntryVariantWriter variantWriter,
-        IDictionaryEntryExampleWriter exampleWriter,
-        IExampleExtractorRegistry exampleExtractorRegistry,
-        ISynonymExtractorRegistry synonymExtractorRegistry,
-        IDictionaryEntrySynonymWriter synonymWriter,
-        IEtymologyExtractorRegistry etymologyExtractorRegistry, // NEW
-        ILogger<DictionaryParsedDefinitionProcessor> logger)
-    {
-        _connectionString = connectionString;
-        _parser = parser;
-        _parsedWriter = parsedWriter;
-        _crossRefWriter = crossRefWriter;
-        _aliasWriter = aliasWriter;
-        _etymologyWriter = etymologyWriter;
-        _variantWriter = variantWriter;
-        _exampleWriter = exampleWriter;
-        _exampleExtractorRegistry = exampleExtractorRegistry;
-        _synonymExtractorRegistry = synonymExtractorRegistry;
-        _synonymWriter = synonymWriter; // Store it
-        _etymologyExtractorRegistry = etymologyExtractorRegistry;
-        _logger = logger;
-    }
+    private readonly SqlDictionaryEntryVariantWriter _variantWriter = variantWriter;
 
     public async Task ExecuteAsync(
         string sourceCode,
         CancellationToken ct)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "Stage=Parsing started | Source={SourceCode}",
             sourceCode);
 
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
-        // --------------------------------------------------
-        // 1. Load ALL DictionaryEntry rows for source
-        // --------------------------------------------------
         var entries = (await conn.QueryAsync<DictionaryEntry>(
                 """
                 SELECT *
@@ -71,14 +37,13 @@ public sealed class DictionaryParsedDefinitionProcessor
                 new { SourceCode = sourceCode }))
             .ToList();
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Stage=Parsing | EntriesLoaded={Count} | Source={SourceCode}",
             entries.Count,
             sourceCode);
 
-        // Get the appropriate extractor for this source
-        var exampleExtractor = _exampleExtractorRegistry.GetExtractor(sourceCode);
-        _logger.LogDebug(
+        var exampleExtractor = exampleExtractorRegistry.GetExtractor(sourceCode);
+        logger.LogDebug(
             "Using example extractor: {ExtractorType} for source {Source}",
             exampleExtractor.GetType().Name,
             sourceCode);
@@ -98,7 +63,7 @@ public sealed class DictionaryParsedDefinitionProcessor
             entryIndex++;
 
             if (entryIndex % 1_000 == 0)
-                _logger.LogInformation(
+                logger.LogInformation(
                     "Stage=Parsing completed | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants} | Examples={Examples} | Synonyms={Synonyms}",
                     sourceCode,
                     entryIndex,
@@ -109,21 +74,18 @@ public sealed class DictionaryParsedDefinitionProcessor
                     exampleInserted,
                     synonymInserted);
 
-            // --------------------------------------------------
-            // 2. Parse entry
-            // --------------------------------------------------
-            var parsedDefinitions = _parser.Parse(entry)?.ToList();
+            var parsedDefinitions = parser.Parse(entry)?.ToList();
 
             if (parsedDefinitions == null || parsedDefinitions.Count == 0)
-                parsedDefinitions = new List<ParsedDefinition>
-                {
+                parsedDefinitions =
+                [
                     new()
                     {
                         Definition = null,
                         RawFragment = entry.Definition,
                         SenseNumber = entry.SenseNumber
                     }
-                };
+                ];
 
             if (parsedDefinitions.Count != 1)
                 throw new InvalidOperationException(
@@ -131,12 +93,8 @@ public sealed class DictionaryParsedDefinitionProcessor
 
             foreach (var parsed in parsedDefinitions)
             {
-                // Inside the foreach loop for parsedDefinitions
                 var currentParsed = parsed;
-                // --------------------------------------------------
-                // 3. Persist parsed definition
-                // --------------------------------------------------
-                var parsedId = await _parsedWriter.WriteAsync(
+                var parsedId = await parsedWriter.WriteAsync(
                     entry.DictionaryEntryId,
                     currentParsed,
                     null,
@@ -148,16 +106,13 @@ public sealed class DictionaryParsedDefinitionProcessor
 
                 parsedInserted++;
 
-                // --------------------------------------------------
-                // 4. Extract and save examples (GENERIC APPROACH)
-                // --------------------------------------------------
                 if (!string.IsNullOrWhiteSpace(currentParsed.Definition))
                 {
                     var examples = exampleExtractor.Extract(currentParsed);
 
                     foreach (var example in examples)
                     {
-                        await _exampleWriter.WriteAsync(
+                        await exampleWriter.WriteAsync(
                             parsedId,
                             example,
                             sourceCode,
@@ -167,18 +122,15 @@ public sealed class DictionaryParsedDefinitionProcessor
                     }
 
                     if (examples.Count > 0)
-                        _logger.LogDebug(
+                        logger.LogDebug(
                             "Extracted {Count} examples for parsed definition {ParsedId}",
                             examples.Count,
                             parsedId);
                 }
 
-                // --------------------------------------------------
-                // 5. Extract and save synonyms
-                // --------------------------------------------------
                 if (!string.IsNullOrWhiteSpace(currentParsed.Definition))
                 {
-                    var synonymExtractor = _synonymExtractorRegistry.GetExtractor(sourceCode);
+                    var synonymExtractor = synonymExtractorRegistry.GetExtractor(sourceCode);
                     var synonymResults = synonymExtractor.Extract(
                         entry.Word,
                         currentParsed.Definition,
@@ -187,23 +139,21 @@ public sealed class DictionaryParsedDefinitionProcessor
                     var validSynonyms = new List<string>();
 
                     foreach (var synonymResult in synonymResults)
-                        // Only process high and medium confidence synonyms
                         if (synonymResult.ConfidenceLevel == "high" || synonymResult.ConfidenceLevel == "medium")
                             if (synonymExtractor.ValidateSynonymPair(entry.Word, synonymResult.TargetHeadword))
                             {
                                 validSynonyms.Add(synonymResult.TargetHeadword);
 
-                                _logger.LogDebug(
+                                logger.LogDebug(
                                     "Synonym detected | Headword={Headword} | Synonym={Synonym} | Confidence={Confidence}",
                                     entry.Word,
                                     synonymResult.TargetHeadword,
                                     synonymResult.ConfidenceLevel);
                             }
 
-                    // Save valid synonyms
                     if (validSynonyms.Count > 0)
                     {
-                        await _synonymWriter.WriteSynonymsForParsedDefinition(
+                        await synonymWriter.WriteSynonymsForParsedDefinition(
                             parsedId,
                             validSynonyms,
                             sourceCode,
@@ -213,21 +163,17 @@ public sealed class DictionaryParsedDefinitionProcessor
                     }
                 }
 
-                // --------------------------------------------------
-                // 6. Extract and save etymology
-                // --------------------------------------------------
                 if (!string.IsNullOrWhiteSpace(currentParsed.Definition))
                 {
-                    var etymologyExtractor = _etymologyExtractorRegistry.GetExtractor(sourceCode);
+                    var etymologyExtractor = etymologyExtractorRegistry.GetExtractor(sourceCode);
                     var etymologyResult = etymologyExtractor.Extract(
                         entry.Word,
                         currentParsed.Definition,
                         currentParsed.RawFragment);
 
-                    // If etymology was found in definition, save it
                     if (!string.IsNullOrWhiteSpace(etymologyResult.EtymologyText))
                     {
-                        await _etymologyWriter.WriteAsync(
+                        await etymologyWriter.WriteAsync(
                             new DictionaryEntryEtymology
                             {
                                 DictionaryEntryId = entry.DictionaryEntryId,
@@ -239,14 +185,13 @@ public sealed class DictionaryParsedDefinitionProcessor
 
                         etymologyExtracted++;
 
-                        _logger.LogDebug(
+                        logger.LogDebug(
                             "Etymology extracted from definition | Headword={Headword} | Etymology={Etymology} | Method={Method}",
                             entry.Word,
                             etymologyResult.EtymologyText.Substring(0,
                                 Math.Min(100, etymologyResult.EtymologyText.Length)),
                             etymologyResult.DetectionMethod);
 
-                        // Update workingParsed to use cleaned definition (without etymology)
                         if (!string.IsNullOrWhiteSpace(etymologyResult.CleanedDefinition))
                             currentParsed = new ParsedDefinition
                             {
@@ -265,12 +210,9 @@ public sealed class DictionaryParsedDefinitionProcessor
                     }
                 }
 
-                // --------------------------------------------------
-                // 7. Cross-references
-                // --------------------------------------------------
                 foreach (var cr in currentParsed.CrossReferences)
                 {
-                    await _crossRefWriter.WriteAsync(
+                    await crossRefWriter.WriteAsync(
                         parsedId,
                         cr,
                         ct);
@@ -278,21 +220,17 @@ public sealed class DictionaryParsedDefinitionProcessor
                     crossRefInserted++;
                 }
 
-                // --------------------------------------------------
-                // 8. Alias
-                // --------------------------------------------------
-                if (!string.IsNullOrWhiteSpace(currentParsed.Alias)) // Use workingParsed
+                if (!string.IsNullOrWhiteSpace(currentParsed.Alias))
                 {
-                    await _aliasWriter.WriteAsync(
+                    await aliasWriter.WriteAsync(
                         parsedId,
-                        currentParsed.Alias, // Use workingParsed
-                        ct);
+                        currentParsed.Alias, ct);
 
                     aliasInserted++;
                 }
             }
 
-            _logger.LogInformation(
+            logger.LogInformation(
                 "Stage=Parsing completed | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants} | Examples={Examples}",
                 sourceCode,
                 entryIndex,

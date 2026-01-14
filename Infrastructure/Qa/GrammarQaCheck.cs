@@ -1,7 +1,4 @@
-﻿// File: DictionaryImporter.Infrastructure/Qa/GrammarQaCheck.cs
-using DictionaryImporter.Core.Grammar;
-
-namespace DictionaryImporter.Infrastructure.Qa;
+﻿namespace DictionaryImporter.Infrastructure.Qa;
 
 public sealed class GrammarQaCheck(string connectionString, IGrammarCorrector grammarCorrector, ILogger<GrammarQaCheck> logger) : IQaCheck
 {
@@ -15,7 +12,6 @@ public sealed class GrammarQaCheck(string connectionString, IGrammarCorrector gr
         await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
-        // Sample definitions for grammar checking
         var definitions = await conn.QueryAsync<string>(
             """
             SELECT TOP 100 Definition
@@ -36,7 +32,6 @@ public sealed class GrammarQaCheck(string connectionString, IGrammarCorrector gr
             {
                 issueCount += checkResult.IssueCount;
 
-                // Log high-severity issues
                 var severeIssues = checkResult.Issues
                     .Where(i => i.ConfidenceLevel > 90)
                     .ToList();

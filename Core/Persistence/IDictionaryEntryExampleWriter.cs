@@ -1,6 +1,4 @@
-﻿// Add this interface in DictionaryImporter.Core.Persistence namespace
-
-namespace DictionaryImporter.Core.Persistence;
+﻿namespace DictionaryImporter.Core.Persistence;
 
 public interface IDictionaryEntryExampleWriter
 {

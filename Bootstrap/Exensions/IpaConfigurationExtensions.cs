@@ -10,7 +10,7 @@ internal static class IpaConfigurationExtensions
             configuration
                 .GetSection("IPA:Sources")
                 .Get<IReadOnlyList<IpaSourceConfig>>()
-            ?? Array.Empty<IpaSourceConfig>());
+            ?? []);
 
         return services;
     }

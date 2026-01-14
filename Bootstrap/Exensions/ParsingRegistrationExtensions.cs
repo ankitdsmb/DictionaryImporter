@@ -1,5 +1,3 @@
-// Update ParsingRegistrationExtensions.cs
-
 using DictionaryImporter.Infrastructure.Parsing;
 using DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
 using DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
@@ -18,42 +16,34 @@ public static class ParsingRegistrationExtensions
     {
         services.AddSingleton<IDictionaryDefinitionParser, OxfordDefinitionParser>();
 
-        // Register example writers
         services.AddSingleton<IDictionaryEntryExampleWriter>(sp =>
             new SqlDictionaryEntryExampleWriter(
                 connectionString,
                 sp.GetRequiredService<ILogger<SqlDictionaryEntryExampleWriter>>()));
 
-        // Register example extractors
         services.AddSingleton<IExampleExtractor, WebsterExampleExtractor>();
         services.AddSingleton<IExampleExtractor, EnglishChineseExampleExtractor>();
-        services.AddSingleton<GenericExampleExtractor>(); // Special registration for generic
+        services.AddSingleton<GenericExampleExtractor>();
 
-        // Register example extractor registry
         services.AddSingleton<IExampleExtractorRegistry, ExampleExtractorRegistry>();
 
-        // Register synonym writers
         services.AddSingleton<IDictionaryEntrySynonymWriter>(sp =>
             new SqlDictionaryEntrySynonymWriter(
                 connectionString,
                 sp.GetRequiredService<ILogger<SqlDictionaryEntrySynonymWriter>>()));
 
-        // Register synonym extractors
         services.AddSingleton<ISynonymExtractor, EnglishChineseSynonymExtractor>();
         services.AddSingleton<ISynonymExtractor, WebsterSynonymExtractor>();
         services.AddSingleton<ISynonymExtractor, CollinsSynonymExtractor>();
         services.AddSingleton<GenericSynonymExtractor>();
 
-        // Register synonym extractor registry
         services.AddSingleton<ISynonymExtractorRegistry, SynonymExtractorRegistry>();
 
-        // Register SqlParsedDefinitionWriter
         services.AddSingleton<SqlParsedDefinitionWriter>(sp =>
             new SqlParsedDefinitionWriter(
                 connectionString,
                 sp.GetRequiredService<ILogger<SqlParsedDefinitionWriter>>()));
 
-        // Register other parsing-related services
         services.AddSingleton<SqlDictionaryEntryCrossReferenceWriter>(sp =>
             new SqlDictionaryEntryCrossReferenceWriter(
                 connectionString,
@@ -65,15 +55,12 @@ public static class ParsingRegistrationExtensions
         services.AddSingleton<SqlDictionaryEntryVariantWriter>(sp =>
             new SqlDictionaryEntryVariantWriter(connectionString));
 
-        // Register etymology extractors
         services.AddSingleton<IEtymologyExtractor, WebsterEtymologyExtractor>();
         services.AddSingleton<IEtymologyExtractor, EnglishChineseEtymologyExtractor>();
         services.AddSingleton<GenericEtymologyExtractor>();
 
-        // Register etymology extractor registry
         services.AddSingleton<IEtymologyExtractorRegistry, EtymologyExtractorRegistry>();
 
-        // Register DictionaryParsedDefinitionProcessor with ALL dependencies
         services.AddSingleton<DictionaryParsedDefinitionProcessor>(sp =>
             new DictionaryParsedDefinitionProcessor(
                 connectionString,
@@ -87,8 +74,7 @@ public static class ParsingRegistrationExtensions
                 sp.GetRequiredService<IExampleExtractorRegistry>(),
                 sp.GetRequiredService<ISynonymExtractorRegistry>(),
                 sp.GetRequiredService<IDictionaryEntrySynonymWriter>(),
-                sp.GetRequiredService<IEtymologyExtractorRegistry>(), // NEW
-                sp.GetRequiredService<ILogger<DictionaryParsedDefinitionProcessor>>()));
+                sp.GetRequiredService<IEtymologyExtractorRegistry>(), sp.GetRequiredService<ILogger<DictionaryParsedDefinitionProcessor>>()));
 
         return services;
     }

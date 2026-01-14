@@ -10,7 +10,6 @@ public sealed class ParsedDefinitionPartOfSpeechInfererV2
 
         var text = definition.Trim();
 
-        // 1. Explicit POS tokens (highest confidence)
         if (Regex.IsMatch(text, @"\b(noun|n\.)\b", RegexOptions.IgnoreCase))
             return new PartOfSpeechResult { Pos = "noun", Confidence = 95 };
 
@@ -23,7 +22,6 @@ public sealed class ParsedDefinitionPartOfSpeechInfererV2
         if (Regex.IsMatch(text, @"\b(adverb|adv\.)\b", RegexOptions.IgnoreCase))
             return new PartOfSpeechResult { Pos = "adv", Confidence = 90 };
 
-        // 2. Structure heuristics
         if (text.StartsWith("To ", StringComparison.OrdinalIgnoreCase))
             return new PartOfSpeechResult { Pos = "verb", Confidence = 80 };
 
@@ -33,7 +31,6 @@ public sealed class ParsedDefinitionPartOfSpeechInfererV2
         if (text.StartsWith("Of or relating to ", StringComparison.OrdinalIgnoreCase))
             return new PartOfSpeechResult { Pos = "adj", Confidence = 75 };
 
-        // 3. Weak fallback
         return new PartOfSpeechResult { Pos = "unk", Confidence = 30 };
     }
 

@@ -1,5 +1,4 @@
-﻿// File: DictionaryImporter.Core/Grammar/Simple/NoOpGrammarCorrector.cs
-namespace DictionaryImporter.Core.Grammar.Simple;
+﻿namespace DictionaryImporter.Core.Grammar.Simple;
 
 public sealed class NoOpGrammarCorrector : IGrammarCorrector
 {
@@ -8,7 +7,7 @@ public sealed class NoOpGrammarCorrector : IGrammarCorrector
         return Task.FromResult(new GrammarCheckResult(
             false,
             0,
-            Array.Empty<GrammarIssue>(),
+            [],
             TimeSpan.Zero));
     }
 
@@ -17,12 +16,12 @@ public sealed class NoOpGrammarCorrector : IGrammarCorrector
         return Task.FromResult(new GrammarCorrectionResult(
             text,
             text,
-            Array.Empty<AppliedCorrection>(),
-            Array.Empty<GrammarIssue>()));
+            [],
+            []));
     }
 
     public Task<IReadOnlyList<GrammarSuggestion>> SuggestImprovementsAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
     {
-        return Task.FromResult<IReadOnlyList<GrammarSuggestion>>(Array.Empty<GrammarSuggestion>());
+        return Task.FromResult<IReadOnlyList<GrammarSuggestion>>([]);
     }
 }

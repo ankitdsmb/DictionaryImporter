@@ -1,21 +1,12 @@
 ﻿namespace DictionaryImporter.Infrastructure.PostProcessing.Verification;
 
-public sealed class IpaVerificationReporter
+public sealed class IpaVerificationReporter(
+    string connectionString,
+    ILogger<IpaVerificationReporter> logger)
 {
-    private readonly string _connectionString;
-    private readonly ILogger<IpaVerificationReporter> _logger;
-
-    public IpaVerificationReporter(
-        string connectionString,
-        ILogger<IpaVerificationReporter> logger)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-    }
-
     public async Task ReportAsync(CancellationToken ct)
     {
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
         var rows =
@@ -28,13 +19,13 @@ public sealed class IpaVerificationReporter
 
         if (!rows.Any())
         {
-            _logger.LogInformation(
+            logger.LogInformation(
                 "IPA verification: no pronunciation data loaded");
             return;
         }
 
         foreach (var row in rows)
-            _logger.LogInformation(
+            logger.LogInformation(
                 "IPA verification | Locale={Locale} | Words={Count}",
                 row.Locale,
                 row.Count);

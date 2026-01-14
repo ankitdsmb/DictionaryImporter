@@ -1,25 +1,16 @@
 ﻿namespace DictionaryImporter.Infrastructure.Merge;
 
-public sealed class SqlDictionaryEntryMergeExecutor
+public sealed class SqlDictionaryEntryMergeExecutor(
+    string connectionString,
+    ILogger<SqlDictionaryEntryMergeExecutor> logger)
     : IDataMergeExecutor
 {
-    private readonly string _connectionString;
-    private readonly ILogger<SqlDictionaryEntryMergeExecutor> _logger;
-
-    public SqlDictionaryEntryMergeExecutor(
-        string connectionString,
-        ILogger<SqlDictionaryEntryMergeExecutor> logger)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-    }
-
     public async Task ExecuteAsync(
         string sourceCode,
         CancellationToken ct)
     {
         await using var connection =
-            new SqlConnection(_connectionString);
+            new SqlConnection(connectionString);
 
         await connection.OpenAsync(ct);
 
@@ -28,9 +19,6 @@ public sealed class SqlDictionaryEntryMergeExecutor
 
         try
         {
-            /* =====================================================
-               1. PRE-MERGE STAGING ANALYSIS (LOG ONLY)
-            ===================================================== */
             const string stagingStatsSql = """
                                            SELECT
                                                COUNT_BIG(*) AS TotalRows,
@@ -51,16 +39,13 @@ public sealed class SqlDictionaryEntryMergeExecutor
             var duplicateCount =
                 stats.TotalRows - stats.UniqueKeys;
 
-            _logger.LogInformation(
+            logger.LogInformation(
                 "Staging analysis | Source={SourceCode} | Total={Total} | Unique={Unique} | Duplicates={Duplicates}",
                 sourceCode,
                 stats.TotalRows,
                 stats.UniqueKeys,
                 duplicateCount);
 
-            /* =====================================================
-               2. DEDUPLICATING IDEMPOTENT MERGE
-            ===================================================== */
             const string mergeSql = """
                                     SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
 
@@ -138,9 +123,6 @@ public sealed class SqlDictionaryEntryMergeExecutor
                 tx,
                 0);
 
-            /* =====================================================
-               3. SOURCE-SCOPED STAGING CLEANUP
-            ===================================================== */
             const string clearStagingSql = """
                                            DELETE FROM dbo.DictionaryEntry_Staging
                                            WHERE SourceCode = @SourceCode;
@@ -152,14 +134,14 @@ public sealed class SqlDictionaryEntryMergeExecutor
                     new { SourceCode = sourceCode },
                     tx);
 
-            _logger.LogInformation(
+            logger.LogInformation(
                 "Cleared {Count} staging rows for source {SourceCode}",
                 cleared,
                 sourceCode);
 
             await tx.CommitAsync(ct);
 
-            _logger.LogInformation(
+            logger.LogInformation(
                 "Merge completed successfully for source {SourceCode}",
                 sourceCode);
         }
@@ -167,7 +149,7 @@ public sealed class SqlDictionaryEntryMergeExecutor
         {
             await tx.RollbackAsync(ct);
 
-            _logger.LogError(
+            logger.LogError(
                 ex,
                 "Merge failed for source {SourceCode}. Staging preserved.",
                 sourceCode);

@@ -14,9 +14,6 @@ internal static class DictionaryGraphBuilderCrossReferences
             sourceCode,
             rebuildMode);
 
-        // --------------------------------------------------
-        // 1. Optional rebuild (SAFE)
-        // --------------------------------------------------
         if (rebuildMode == GraphRebuildMode.Rebuild)
         {
             var deleted = await DeleteExistingEdgesAsync(conn, sourceCode, ct);
@@ -27,9 +24,6 @@ internal static class DictionaryGraphBuilderCrossReferences
                 deleted);
         }
 
-        // --------------------------------------------------
-        // 2. SEE
-        // --------------------------------------------------
         await InsertEdgesAsync(
             conn,
             sourceCode,
@@ -40,9 +34,6 @@ internal static class DictionaryGraphBuilderCrossReferences
             ct,
             logger);
 
-        // --------------------------------------------------
-        // 3. SEE ALSO
-        // --------------------------------------------------
         await InsertEdgesAsync(
             conn,
             sourceCode,
@@ -53,9 +44,6 @@ internal static class DictionaryGraphBuilderCrossReferences
             ct,
             logger);
 
-        // --------------------------------------------------
-        // 4. CF.
-        // --------------------------------------------------
         await InsertEdgesAsync(
             conn,
             sourceCode,
@@ -71,9 +59,6 @@ internal static class DictionaryGraphBuilderCrossReferences
             sourceCode);
     }
 
-    // ==================================================
-    // Core reusable inserter
-    // ==================================================
     private static async Task InsertEdgesAsync(
         SqlConnection conn,
         string sourceCode,
@@ -145,9 +130,6 @@ internal static class DictionaryGraphBuilderCrossReferences
             relationType,
             inserted);
 
-        // --------------------------------------------------
-        // Reverse edges (optional)
-        // --------------------------------------------------
         if (addReverseEdge)
         {
             var reverseInserted =
@@ -166,9 +148,6 @@ internal static class DictionaryGraphBuilderCrossReferences
         }
     }
 
-    // ==================================================
-    // Reverse edges
-    // ==================================================
     private static async Task<int> InsertReverseEdgesAsync(
         SqlConnection conn,
         string sourceCode,
@@ -216,9 +195,6 @@ internal static class DictionaryGraphBuilderCrossReferences
                 commandTimeout: 0));
     }
 
-    // ==================================================
-    // Safe rebuild helper
-    // ==================================================
     private static async Task<int> DeleteExistingEdgesAsync(
         SqlConnection conn,
         string sourceCode,

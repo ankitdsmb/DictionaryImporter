@@ -1,6 +1,4 @@
-﻿// DictionaryImporter/Sources/Oxford/OxfordEntryValidator.cs
-
-namespace DictionaryImporter.Sources.Oxford;
+﻿namespace DictionaryImporter.Sources.Oxford;
 
 public sealed class OxfordEntryValidator : IDictionaryEntryValidator
 {
@@ -12,7 +10,6 @@ public sealed class OxfordEntryValidator : IDictionaryEntryValidator
         if (string.IsNullOrWhiteSpace(entry.Definition))
             return ValidationResult.Invalid("Definition missing");
 
-        // Oxford entries must have a sense number
         if (entry.SenseNumber <= 0)
             return ValidationResult.Invalid("Invalid sense number");
 

@@ -7,6 +7,6 @@ public sealed class QaSummaryRow
 {
     public string Phase { get; init; } = "";
     public string CheckName { get; init; } = "";
-    public string Status { get; init; } = ""; // PASS / WARN / FAIL
-    public string Details { get; init; } = ""; // compact human-readable summary
+    public string Status { get; init; } = "";
+    public string Details { get; init; } = "";
 }

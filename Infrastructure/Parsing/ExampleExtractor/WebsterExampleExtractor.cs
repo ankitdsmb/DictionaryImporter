@@ -1,6 +1,4 @@
-﻿// WebsterExampleExtractor.cs
-
-namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
+﻿namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
 
 public sealed class WebsterExampleExtractor : IExampleExtractor
 {
@@ -13,11 +11,9 @@ public sealed class WebsterExampleExtractor : IExampleExtractor
         if (string.IsNullOrWhiteSpace(parsed.Definition))
             return examples;
 
-        // Extract quoted examples
         var quotedMatches = Regex.Matches(parsed.Definition, @"[""']([^""']+)[""']");
         foreach (Match match in quotedMatches) examples.Add(match.Groups[1].Value);
 
-        // Extract examples after "e.g." or "for example"
         var egMatches = Regex.Matches(
             parsed.Definition,
             @"(?:e\.g\.|for example|ex\.|example:)\s*([^.;]+)",

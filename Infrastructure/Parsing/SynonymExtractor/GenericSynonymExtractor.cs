@@ -3,12 +3,12 @@
 public sealed class GenericSynonymExtractor : ISynonymExtractor
 {
     private static readonly Regex[] SafePatterns =
-    {
+    [
         new(@"^\s*(?<word1>\w+)\s+means\s+(?<word2>\w+)\s*$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled),
         new(@"^\s*(?<word1>\w+)\s+is\s+(?<word2>\w+)\s*$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled)
-    };
+    ];
 
     public string SourceCode => "*";
 
@@ -17,7 +17,6 @@ public sealed class GenericSynonymExtractor : ISynonymExtractor
         string definition,
         string? rawDefinition = null)
     {
-        // Generic extractor is conservative - only catches obvious cases
         var results = new List<SynonymDetectionResult>();
 
         if (string.IsNullOrWhiteSpace(definition) || string.IsNullOrWhiteSpace(headword))

@@ -1,6 +1,4 @@
-﻿// SynonymDetectionResult.cs
-
-namespace DictionaryImporter.Core.Parsing;
+﻿namespace DictionaryImporter.Core.Parsing;
 
 public interface ISynonymExtractor
 {

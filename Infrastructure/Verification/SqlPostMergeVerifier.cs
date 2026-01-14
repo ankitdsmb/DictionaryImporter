@@ -1,35 +1,23 @@
 ﻿namespace DictionaryImporter.Infrastructure.Verification;
 
-public sealed class SqlPostMergeVerifier
+public sealed class SqlPostMergeVerifier(
+    string connectionString,
+    ILogger<SqlPostMergeVerifier> logger)
     : IPostMergeVerifier
 {
-    private readonly string _connectionString;
-    private readonly ILogger<SqlPostMergeVerifier> _logger;
-
-    public SqlPostMergeVerifier(
-        string connectionString,
-        ILogger<SqlPostMergeVerifier> logger)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-    }
-
     public async Task VerifyAsync(
         string sourceCode,
         CancellationToken ct)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "PostMergeVerifier started | Source={Source}",
             sourceCode);
 
         await using var conn =
-            new SqlConnection(_connectionString);
+            new SqlConnection(connectionString);
 
         await conn.OpenAsync(ct);
 
-        /* ----------------------------------------------------
-           1. STAGING MUST BE EMPTY
-        ---------------------------------------------------- */
         var stagingCount =
             await conn.ExecuteScalarAsync<int>(
                 """
@@ -39,14 +27,14 @@ public sealed class SqlPostMergeVerifier
                 """,
                 new { SourceCode = sourceCode });
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "PostMergeVerifier | Source={Source} | StagingRows={Count}",
             sourceCode,
             stagingCount);
 
         if (stagingCount > 0)
         {
-            _logger.LogError(
+            logger.LogError(
                 "PostMergeVerifier FAILED | Source={Source} | Reason=StagingNotEmpty | Rows={Count}",
                 sourceCode,
                 stagingCount);
@@ -56,9 +44,6 @@ public sealed class SqlPostMergeVerifier
                 $"{stagingCount} staging rows remain for source '{sourceCode}'.");
         }
 
-        /* ----------------------------------------------------
-           2. NO DUPLICATES IN FINAL TABLE
-        ---------------------------------------------------- */
         var duplicateCount =
             await conn.ExecuteScalarAsync<int>(
                 """
@@ -74,14 +59,14 @@ public sealed class SqlPostMergeVerifier
                 """,
                 new { SourceCode = sourceCode });
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "PostMergeVerifier | Source={Source} | DuplicateGroups={Count}",
             sourceCode,
             duplicateCount);
 
         if (duplicateCount > 0)
         {
-            _logger.LogError(
+            logger.LogError(
                 "PostMergeVerifier FAILED | Source={Source} | Reason=DuplicateKeys | Count={Count}",
                 sourceCode,
                 duplicateCount);
@@ -92,9 +77,6 @@ public sealed class SqlPostMergeVerifier
                 $"for source '{sourceCode}'.");
         }
 
-        /* ----------------------------------------------------
-           3. CANONICAL LINKAGE MUST BE COMPLETE
-        ---------------------------------------------------- */
         var missingCanonical =
             await conn.ExecuteScalarAsync<int>(
                 """
@@ -105,14 +87,14 @@ public sealed class SqlPostMergeVerifier
                 """,
                 new { SourceCode = sourceCode });
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "PostMergeVerifier | Source={Source} | MissingCanonical={Count}",
             sourceCode,
             missingCanonical);
 
         if (missingCanonical > 0)
         {
-            _logger.LogError(
+            logger.LogError(
                 "PostMergeVerifier FAILED | Source={Source} | Reason=MissingCanonical | Count={Count}",
                 sourceCode,
                 missingCanonical);
@@ -123,7 +105,7 @@ public sealed class SqlPostMergeVerifier
                 $"for source '{sourceCode}'.");
         }
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "PostMergeVerifier PASSED | Source={Source}",
             sourceCode);
     }

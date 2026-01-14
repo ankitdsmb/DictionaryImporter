@@ -1,14 +1,7 @@
 ﻿namespace DictionaryImporter.Infrastructure.Persistence;
 
-public sealed class SqlDictionaryEntryVariantWriter
+public sealed class SqlDictionaryEntryVariantWriter(string cs)
 {
-    private readonly string _cs;
-
-    public SqlDictionaryEntryVariantWriter(string cs)
-    {
-        _cs = cs;
-    }
-
     public async Task WriteAsync(
         long entryId,
         string variant,
@@ -28,7 +21,7 @@ public sealed class SqlDictionaryEntryVariantWriter
                            );
                            """;
 
-        await using var conn = new SqlConnection(_cs);
+        await using var conn = new SqlConnection(cs);
 
         await conn.ExecuteAsync(
             new CommandDefinition(

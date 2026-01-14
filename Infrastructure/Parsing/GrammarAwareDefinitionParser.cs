@@ -1,23 +1,12 @@
-﻿// File: DictionaryImporter.Infrastructure/Parsing/GrammarAwareDefinitionParser.cs
-using DictionaryImporter.Core.Grammar;
+﻿namespace DictionaryImporter.Infrastructure.Parsing;
 
-namespace DictionaryImporter.Infrastructure.Parsing;
-
-public sealed class GrammarAwareDefinitionParser : IDictionaryDefinitionParser
+public sealed class GrammarAwareDefinitionParser(
+    IDictionaryDefinitionParser innerParser,
+    IGrammarCorrector grammarCorrector = null,
+    ILogger<GrammarAwareDefinitionParser> logger = null)
+    : IDictionaryDefinitionParser
 {
-    private readonly IDictionaryDefinitionParser _innerParser;
-    private readonly IGrammarCorrector _grammarCorrector;
-    private readonly ILogger<GrammarAwareDefinitionParser> _logger;
-
-    public GrammarAwareDefinitionParser(
-        IDictionaryDefinitionParser innerParser,
-        IGrammarCorrector grammarCorrector = null,
-        ILogger<GrammarAwareDefinitionParser> logger = null)
-    {
-        _innerParser = innerParser ?? throw new ArgumentNullException(nameof(innerParser));
-        _grammarCorrector = grammarCorrector;
-        _logger = logger;
-    }
+    private readonly IDictionaryDefinitionParser _innerParser = innerParser ?? throw new ArgumentNullException(nameof(innerParser));
 
     public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
     {
@@ -30,7 +19,6 @@ public sealed class GrammarAwareDefinitionParser : IDictionaryDefinitionParser
                 parsed.Definition = ApplyGrammarImprovements(parsed.Definition).GetAwaiter().GetResult();
             }
 
-            // Also improve examples if present
             if (parsed.Examples?.Any() == true)
             {
                 var improvedExamples = new List<string>();
@@ -47,20 +35,19 @@ public sealed class GrammarAwareDefinitionParser : IDictionaryDefinitionParser
 
     private async Task<string> ApplyGrammarImprovements(string text)
     {
-        if (_grammarCorrector == null || string.IsNullOrWhiteSpace(text))
+        if (grammarCorrector == null || string.IsNullOrWhiteSpace(text))
             return text;
 
         try
         {
-            // Only apply corrections for definitions over a certain length
             if (text.Length < 10)
                 return text;
 
-            var result = await _grammarCorrector.AutoCorrectAsync(text, "en-US");
+            var result = await grammarCorrector.AutoCorrectAsync(text, "en-US");
 
             if (result.AppliedCorrections.Any())
             {
-                _logger?.LogDebug(
+                logger?.LogDebug(
                     "Applied {Count} grammar corrections to definition text",
                     result.AppliedCorrections.Count
                 );
@@ -70,7 +57,7 @@ public sealed class GrammarAwareDefinitionParser : IDictionaryDefinitionParser
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Failed to apply grammar corrections to text");
+            logger?.LogWarning(ex, "Failed to apply grammar corrections to text");
             return text;
         }
     }

@@ -23,18 +23,15 @@ public sealed class EnglishChineseExtractor
             if (line.Length == 0)
                 continue;
 
-            // Rule 1: must contain separator
             var sepIndex = line.IndexOf('⬄');
             if (sepIndex <= 0)
                 continue;
 
             var headword = line.Substring(0, sepIndex).Trim();
 
-            // Rule 2: must contain English letters
             if (!HasEnglishLetter.IsMatch(headword))
                 continue;
 
-            // Rule 3: length guard (DB safety)
             if (headword.Length > 200)
                 continue;
 

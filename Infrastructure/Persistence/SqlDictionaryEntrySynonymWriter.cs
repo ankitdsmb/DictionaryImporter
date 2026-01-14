@@ -1,22 +1,12 @@
-﻿// SqlDictionaryEntrySynonymWriter.cs
-
-using System.Data;
+﻿using System.Data;
 
 namespace DictionaryImporter.Infrastructure.Persistence;
 
-public sealed class SqlDictionaryEntrySynonymWriter : IDictionaryEntrySynonymWriter
+public sealed class SqlDictionaryEntrySynonymWriter(
+    string connectionString,
+    ILogger<SqlDictionaryEntrySynonymWriter> logger)
+    : IDictionaryEntrySynonymWriter
 {
-    private readonly string _connectionString;
-    private readonly ILogger<SqlDictionaryEntrySynonymWriter> _logger;
-
-    public SqlDictionaryEntrySynonymWriter(
-        string connectionString,
-        ILogger<SqlDictionaryEntrySynonymWriter> logger)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-    }
-
     public async Task WriteAsync(
         DictionaryEntrySynonym synonym,
         CancellationToken ct)
@@ -46,7 +36,7 @@ public sealed class SqlDictionaryEntrySynonymWriter : IDictionaryEntrySynonymWri
                            END
                            """;
 
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
 
         try
         {
@@ -62,14 +52,14 @@ public sealed class SqlDictionaryEntrySynonymWriter : IDictionaryEntrySynonymWri
                     cancellationToken: ct));
 
             if (rows > 0)
-                _logger.LogDebug(
+                logger.LogDebug(
                     "Synonym inserted | ParsedId={ParsedId} | Synonym={Synonym}",
                     synonym.DictionaryEntryParsedId,
                     synonym.SynonymText);
         }
         catch (Exception ex)
         {
-            _logger.LogError(
+            logger.LogError(
                 ex,
                 "Failed to insert synonym | ParsedId={ParsedId} | Synonym={Synonym}",
                 synonym.DictionaryEntryParsedId,
@@ -108,14 +98,13 @@ public sealed class SqlDictionaryEntrySynonymWriter : IDictionaryEntrySynonymWri
                            );
                            """;
 
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
         using var transaction = await conn.BeginTransactionAsync(ct);
 
         try
         {
-            // Create a DataTable for table-valued parameter
             var synonymTable = new DataTable();
             synonymTable.Columns.Add("DictionaryEntryParsedId", typeof(long));
             synonymTable.Columns.Add("SynonymText", typeof(string));
@@ -141,7 +130,7 @@ public sealed class SqlDictionaryEntrySynonymWriter : IDictionaryEntrySynonymWri
 
             await transaction.CommitAsync(ct);
 
-            _logger.LogInformation(
+            logger.LogInformation(
                 "Bulk inserted {Count} synonyms | TotalRows={Rows}",
                 synonymList.Count,
                 rows);
@@ -150,7 +139,7 @@ public sealed class SqlDictionaryEntrySynonymWriter : IDictionaryEntrySynonymWri
         {
             await transaction.RollbackAsync(ct);
 
-            _logger.LogError(
+            logger.LogError(
                 ex,
                 "Failed to bulk insert synonyms | Count={Count}",
                 synonymList.Count);
@@ -158,7 +147,6 @@ public sealed class SqlDictionaryEntrySynonymWriter : IDictionaryEntrySynonymWri
         }
     }
 
-    // Helper method for cleaner processing
     public async Task WriteSynonymsForParsedDefinition(
         long parsedDefinitionId,
         IEnumerable<string> synonyms,
@@ -178,10 +166,8 @@ public sealed class SqlDictionaryEntrySynonymWriter : IDictionaryEntrySynonymWri
         });
 
         if (synonymList.Count > 10)
-            // Use bulk insert for large batches
             await BulkWriteAsync(synonymEntities, ct);
         else
-            // Use individual inserts for small batches
             foreach (var synonym in synonymEntities)
                 await WriteAsync(synonym, ct);
     }

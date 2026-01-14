@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Grammar;
-
-namespace DictionaryImporter.Infrastructure.Grammar;
+﻿namespace DictionaryImporter.Infrastructure.Grammar;
 
 public sealed class GrammarCorrectionStep(
     string connectionString,
@@ -20,10 +18,8 @@ public sealed class GrammarCorrectionStep(
 
         try
         {
-            // Step 1: Correct definitions
             await CorrectDefinitions(sourceCode, ct);
 
-            // Step 2: Correct examples
             await CorrectExamples(sourceCode, ct);
 
             logger.LogInformation("Grammar correction completed | Source={Source}", sourceCode);
@@ -43,7 +39,6 @@ public sealed class GrammarCorrectionStep(
         await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
-        // Get definitions that need correction
         var definitions = await conn.QueryAsync<DefinitionRecord>(
             """
             SELECT p.DictionaryEntryParsedId, p.Definition, e.Word

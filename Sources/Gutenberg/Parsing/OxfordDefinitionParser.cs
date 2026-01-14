@@ -1,6 +1,4 @@
-﻿// DictionaryImporter/Sources/Oxford/Parsing/OxfordDefinitionParser.cs
-
-namespace DictionaryImporter.Sources.Gutenberg.Parsing;
+﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing;
 
 public sealed class OxfordDefinitionParser : IDictionaryDefinitionParser
 {
@@ -8,22 +6,16 @@ public sealed class OxfordDefinitionParser : IDictionaryDefinitionParser
     {
         var definition = entry.Definition;
 
-        // Extract main definition (before any 【 markers)
         var mainDefinition = ExtractMainDefinition(definition);
 
-        // Extract examples
         var examples = ExtractExamples(definition).ToList();
 
-        // Extract pronunciation
         var pronunciation = ExtractPronunciation(definition);
 
-        // Extract labels (domain/usage info)
         var label = ExtractLabel(definition);
 
-        // Extract Chinese translation
         var chineseTranslation = ExtractChineseTranslation(definition);
 
-        // Build cross-references
         var crossRefs = ExtractCrossReferences(definition);
 
         yield return new ParsedDefinition
@@ -33,7 +25,7 @@ public sealed class OxfordDefinitionParser : IDictionaryDefinitionParser
             RawFragment = entry.Definition,
             SenseNumber = entry.SenseNumber,
             Domain = label,
-            UsageLabel = null, // Oxford uses integrated labels
+            UsageLabel = null,
             CrossReferences = crossRefs,
             Synonyms = ExtractSynonymsFromExamples(examples),
             Alias = ExtractAlias(definition)
@@ -45,7 +37,6 @@ public sealed class OxfordDefinitionParser : IDictionaryDefinitionParser
         if (string.IsNullOrWhiteSpace(definition))
             return string.Empty;
 
-        // Find the first 【 marker
         var firstMarkerIndex = definition.IndexOf("【");
         if (firstMarkerIndex >= 0)
             return definition.Substring(0, firstMarkerIndex).Trim();
@@ -161,21 +152,21 @@ public sealed class OxfordDefinitionParser : IDictionaryDefinitionParser
         };
 
         foreach (var example in examples)
-        foreach (var pattern in synonymPatterns)
-        {
-            var matches = Regex.Matches(example, pattern);
-            foreach (Match match in matches)
+            foreach (var pattern in synonymPatterns)
             {
-                if (match.Groups["word"].Success)
-                    synonyms.Add(match.Groups["word"].Value.ToLowerInvariant());
+                var matches = Regex.Matches(example, pattern);
+                foreach (Match match in matches)
+                {
+                    if (match.Groups["word"].Success)
+                        synonyms.Add(match.Groups["word"].Value.ToLowerInvariant());
 
-                if (match.Groups["word1"].Success)
-                    synonyms.Add(match.Groups["word1"].Value.ToLowerInvariant());
+                    if (match.Groups["word1"].Success)
+                        synonyms.Add(match.Groups["word1"].Value.ToLowerInvariant());
 
-                if (match.Groups["word2"].Success)
-                    synonyms.Add(match.Groups["word2"].Value.ToLowerInvariant());
+                    if (match.Groups["word2"].Success)
+                        synonyms.Add(match.Groups["word2"].Value.ToLowerInvariant());
+                }
             }
-        }
 
         return synonyms.Count > 0 ? synonyms.ToList() : null;
     }
