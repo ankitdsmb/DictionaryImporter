@@ -9,11 +9,9 @@
 /// </summary>
 internal static class IpaSyllablePostProcessor
 {
-    // IPA vowels (English-safe)
     private static readonly Regex VowelRegex =
         new(@"[aeiouæɪʊəɐɑɔɛɜʌoøɒyɯɨɶ]", RegexOptions.Compiled);
 
-    // IPA consonants (English-safe)
     private static readonly Regex ConsonantRegex =
         new(@"[bcdfghjklmnpqrstvwxyzθðʃʒŋ]", RegexOptions.Compiled);
 
@@ -40,7 +38,6 @@ internal static class IpaSyllablePostProcessor
             var hasVowel = VowelRegex.IsMatch(current.Text);
             var hasConsonant = ConsonantRegex.IsMatch(current.Text);
 
-            // ❌ Invalid syllable → merge into previous
             if (!hasVowel || !hasConsonant)
             {
                 var prev = buffer[^1];
@@ -56,7 +53,6 @@ internal static class IpaSyllablePostProcessor
             }
         }
 
-        // Re-index sequentially
         var result = new List<IpaSyllable>(buffer.Count);
         var index = 1;
 

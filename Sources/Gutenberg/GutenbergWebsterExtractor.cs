@@ -1,21 +1,13 @@
 ﻿namespace DictionaryImporter.Sources.Gutenberg;
 
-public sealed class GutenbergWebsterExtractor
+public sealed class GutenbergWebsterExtractor(ILogger<GutenbergWebsterExtractor> logger)
     : IDataExtractor<GutenbergRawEntry>
 {
-    private readonly ILogger<GutenbergWebsterExtractor> _logger;
-
-    public GutenbergWebsterExtractor(
-        ILogger<GutenbergWebsterExtractor> logger)
-    {
-        _logger = logger;
-    }
-
     public async IAsyncEnumerable<GutenbergRawEntry> ExtractAsync(
         Stream source,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Gutenberg extraction started");
+        logger.LogInformation("Gutenberg extraction started");
 
         using var reader = new StreamReader(
             source,
@@ -38,7 +30,7 @@ public sealed class GutenbergWebsterExtractor
                 if (line.StartsWith("*** START"))
                 {
                     bodyStarted = true;
-                    _logger.LogInformation("Gutenberg body detected");
+                    logger.LogInformation("Gutenberg body detected");
                 }
 
                 continue;
@@ -71,7 +63,7 @@ public sealed class GutenbergWebsterExtractor
             count++;
         }
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Gutenberg extraction completed. Entries: {Count}",
             count);
     }
@@ -83,15 +75,12 @@ public sealed class GutenbergWebsterExtractor
 
         var text = line.Trim();
 
-        // Length constraint
         if (text.Length > 40)
             return false;
 
-        // Must be uppercase
         if (!text.Equals(text.ToUpperInvariant(), StringComparison.Ordinal))
             return false;
 
-        // MUST contain at least one letter
         var hasLetter = text.Any(char.IsLetter);
         if (!hasLetter)
             return false;

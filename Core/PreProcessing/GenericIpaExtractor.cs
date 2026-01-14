@@ -14,40 +14,30 @@
 /// </summary>
 internal static class GenericIpaExtractor
 {
-    // -------------------------------
-    // Core patterns
-    // -------------------------------
     private static readonly Regex SlashBlockRegex =
         new(@"/([^/]+)/", RegexOptions.Compiled);
 
-    // IPA Unicode presence (must-have)
     private static readonly Regex IpaPresenceRegex =
         new(@"[ˈˌɑ-ʊəɐɛɪɔʌθðŋʃʒʤʧɡɜɒɫɾɹɻʲ̃ː]",
             RegexOptions.Compiled);
 
-    // Allowed IPA characters (whitelist)
     private static readonly Regex IpaAllowedCharsRegex =
         new(@"[^ˈˌɑ-ʊəɐɛɪɔʌθðŋʃʒʤʧɡɜɒɫɾɹɻʲ̃ː\. ]",
             RegexOptions.Compiled);
 
-    // Obvious junk
     private static readonly Regex RejectRegex =
         new(@"^[0-9\s./:-]+$", RegexOptions.Compiled);
 
-    // Editorial / explanatory words
     private static readonly Regex ProseRegex =
         new(@"\b(strong|weak|form|plural|singular)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    // Punctuation cleanup
     private static readonly Regex EditorialPunctuationRegex =
         new(@"[.,，]", RegexOptions.Compiled);
 
-    // Parentheses IPA (e.g. (r))
     private static readonly Regex ParenthesesRegex =
         new(@"[\(\)]", RegexOptions.Compiled);
 
-    // Leading / trailing hyphens
     private static readonly Regex EdgeHyphenRegex =
         new(@"(^-)|(-$)", RegexOptions.Compiled);
 
@@ -62,13 +52,12 @@ internal static class GenericIpaExtractor
         if (string.IsNullOrWhiteSpace(text))
             return result;
 
-        // 1. Prefer slash IPA
         var slashMatches = SlashBlockRegex.Matches(text);
 
         var candidates =
             slashMatches.Count > 0
                 ? slashMatches.Select(m => m.Groups[1].Value)
-                : new[] { text };
+                : [text];
 
         foreach (var raw in candidates)
         {
@@ -81,11 +70,9 @@ internal static class GenericIpaExtractor
             if (ProseRegex.IsMatch(raw))
                 continue;
 
-            // Must contain IPA Unicode somewhere
             if (!IpaPresenceRegex.IsMatch(raw))
                 continue;
 
-            // 2. Mechanical cleanup
             var cleaned = raw;
 
             cleaned = cleaned.Replace(":", "ː");
@@ -97,7 +84,6 @@ internal static class GenericIpaExtractor
             if (cleaned.Length == 0)
                 continue;
 
-            // 3. Split multiple IPA variants
             var parts =
                 cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 

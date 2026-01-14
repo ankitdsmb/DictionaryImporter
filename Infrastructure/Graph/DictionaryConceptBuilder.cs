@@ -1,32 +1,20 @@
 ﻿namespace DictionaryImporter.Infrastructure.Graph;
 
-public sealed class DictionaryConceptBuilder
+public sealed class DictionaryConceptBuilder(
+    string connectionString,
+    ILogger<DictionaryConceptBuilder> logger)
 {
-    private readonly string _connectionString;
-    private readonly ILogger<DictionaryConceptBuilder> _logger;
-
-    public DictionaryConceptBuilder(
-        string connectionString,
-        ILogger<DictionaryConceptBuilder> logger)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-    }
-
     public async Task BuildAsync(
         string sourceCode,
         CancellationToken ct)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "ConceptBuilder started | Source={Source}",
             sourceCode);
 
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
-        // --------------------------------------------------
-        // 1. SELECT CANDIDATE SENSES
-        // --------------------------------------------------
         var senses = (
             await conn.QueryAsync<ConceptSeed>(
                 """
@@ -43,7 +31,7 @@ public sealed class DictionaryConceptBuilder
                 new { SourceCode = sourceCode })
         ).ToList();
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "ConceptBuilder | Source={Source} | CandidateSenses={Count}",
             sourceCode,
             senses.Count);
@@ -55,11 +43,8 @@ public sealed class DictionaryConceptBuilder
             ct.ThrowIfCancellationRequested();
             processed++;
 
-            // --------------------------------------------------
-            // PROGRESS HEARTBEAT (every 10k senses)
-            // --------------------------------------------------
             if (processed % 10_000 == 0)
-                _logger.LogInformation(
+                logger.LogInformation(
                     "ConceptBuilder progress | Source={Source} | Processed={Processed}/{Total}",
                     sourceCode,
                     processed,
@@ -70,9 +55,6 @@ public sealed class DictionaryConceptBuilder
 
             await using var tx = await conn.BeginTransactionAsync(ct);
 
-            // --------------------------------------------------
-            // 2. ENSURE CONCEPT EXISTS (SAFE)
-            // --------------------------------------------------
             var conceptId =
                 await conn.ExecuteScalarAsync<long>(
                     """
@@ -102,9 +84,6 @@ public sealed class DictionaryConceptBuilder
                     },
                     tx);
 
-            // --------------------------------------------------
-            // 3. ENSURE CONCEPT NODE EXISTS
-            // --------------------------------------------------
             await conn.ExecuteAsync(
                 """
                 INSERT INTO dbo.GraphNode
@@ -124,9 +103,6 @@ public sealed class DictionaryConceptBuilder
                 new { ConceptId = conceptId },
                 tx);
 
-            // --------------------------------------------------
-            // 4. LINK SENSE → CONCEPT
-            // --------------------------------------------------
             await conn.ExecuteAsync(
                 """
                 INSERT INTO dbo.GraphEdge
@@ -155,7 +131,7 @@ public sealed class DictionaryConceptBuilder
             await tx.CommitAsync(ct);
         }
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "ConceptBuilder completed | Source={Source} | TotalProcessed={Total}",
             sourceCode,
             processed);

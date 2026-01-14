@@ -5,16 +5,16 @@ namespace DictionaryImporter.Infrastructure.Persistence;
 /// <summary>
 ///     Writer for parsed dictionary definitions.
 /// </summary>
-public sealed class SqlParsedDefinitionWriter
+public sealed class SqlParsedDefinitionWriter(
+    string connectionString,
+    ILogger<SqlParsedDefinitionWriter> logger)
 {
-    // Constants for schema constraints
     private const int DomainCodeMaxLength = 50;
 
     private const int UsageLabelMaxLength = 50;
     private const int MeaningTitleMaxLength = 200;
     private const int CommandTimeoutSeconds = 30;
 
-    // SQL that matches the original working version
     private const string MergeSql = """
                                     MERGE dbo.DictionaryEntryParsed AS target
                                     USING
@@ -64,16 +64,8 @@ public sealed class SqlParsedDefinitionWriter
                                         inserted.DictionaryEntryParsedId;
                                     """;
 
-    private readonly string _connectionString;
-    private readonly ILogger<SqlParsedDefinitionWriter> _logger;
-
-    public SqlParsedDefinitionWriter(
-        string connectionString,
-        ILogger<SqlParsedDefinitionWriter> logger)
-    {
-        _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
+    private readonly string _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+    private readonly ILogger<SqlParsedDefinitionWriter> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <summary>
     ///     Writes a single parsed definition.
@@ -105,7 +97,6 @@ public sealed class SqlParsedDefinitionWriter
 
             if (!parsedId.HasValue || parsedId <= 0)
             {
-                // This is not necessarily an error - it could mean the row already exists
                 _logger.LogDebug(
                     "ParsedDefinition MERGE returned no ID (likely already exists) | EntryId={EntryId}",
                     dictionaryEntryId);
@@ -120,20 +111,18 @@ public sealed class SqlParsedDefinitionWriter
         }
         catch (SqlException sqlEx) when (sqlEx.Number == 2627 || sqlEx.Number == 2601)
         {
-            // Unique constraint violation - safe to ignore (row already exists)
             _logger.LogDebug(
                 "Duplicate parsed definition detected | EntryId={EntryId}",
                 dictionaryEntryId);
             return -1;
         }
-        catch (SqlException sqlEx) when (sqlEx.Number == 8152) // String or binary data would be truncated
+        catch (SqlException sqlEx) when (sqlEx.Number == 8152)
         {
             _logger.LogError(
                 sqlEx,
                 "Data truncation error | EntryId={EntryId} | Domain={Domain} | UsageLabel={UsageLabel}",
                 dictionaryEntryId, parsed.Domain, parsed.UsageLabel);
 
-            // Try again with truncated values
             return await WriteWithTruncatedValuesAsync(dictionaryEntryId, parsed, parentParsedId, ct);
         }
         catch (Exception ex)
@@ -204,7 +193,6 @@ public sealed class SqlParsedDefinitionWriter
         ParsedDefinition parsed,
         long? parentParsedId)
     {
-        // CRITICAL: MeaningTitle cannot be NULL in the database
         var meaningTitle = parsed.MeaningTitle;
         if (string.IsNullOrWhiteSpace(meaningTitle)) meaningTitle = "unnamed sense";
 
@@ -255,12 +243,10 @@ public sealed class SqlParsedDefinitionWriter
 
         var trimmed = domainText.Trim();
 
-        // Try to extract a short code first
         var shortCode = ExtractShortDomainCode(trimmed);
         if (!string.IsNullOrEmpty(shortCode))
             return shortCode;
 
-        // If no short code found, truncate to 50 characters
         if (trimmed.Length <= DomainCodeMaxLength)
             return trimmed;
 
@@ -275,7 +261,6 @@ public sealed class SqlParsedDefinitionWriter
         if (string.IsNullOrWhiteSpace(domainText))
             return null;
 
-        // Look for common domain codes in the text
         var domainCodes = new[]
         {
             "AM", "US", "BRIT", "UK", "FORMAL", "INFORMAL", "LITERARY",
@@ -287,7 +272,6 @@ public sealed class SqlParsedDefinitionWriter
             if (domainText.IndexOf(code, StringComparison.OrdinalIgnoreCase) >= 0)
                 return code;
 
-        // Look for Chinese domain indicators and map them
         if (domainText.Contains("主美") || domainText.Contains("美式"))
             return "US";
         if (domainText.Contains("主英") || domainText.Contains("英式"))
@@ -310,12 +294,10 @@ public sealed class SqlParsedDefinitionWriter
 
         var trimmed = usageText.Trim();
 
-        // Try to extract a short label first
         var shortLabel = ExtractShortUsageLabel(trimmed);
         if (!string.IsNullOrEmpty(shortLabel))
             return shortLabel;
 
-        // If no short label found, truncate to 50 characters
         if (trimmed.Length <= UsageLabelMaxLength)
             return trimmed;
 
@@ -330,7 +312,6 @@ public sealed class SqlParsedDefinitionWriter
         if (string.IsNullOrWhiteSpace(usageText))
             return null;
 
-        // Look for common grammar/usage patterns
         var usagePatterns = new[]
         {
             "N-COUNT", "N-UNCOUNT", "VERB", "ADJ", "ADV", "PREP",
@@ -342,7 +323,6 @@ public sealed class SqlParsedDefinitionWriter
             if (usageText.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
                 return pattern;
 
-        // Extract just the first part before any Chinese characters or commas
         var match = Regex.Match(usageText, @"^([A-Za-z0-9\-\s]+)");
         if (match.Success)
         {
@@ -365,7 +345,7 @@ public sealed class SqlParsedDefinitionWriter
 
         var itemList = items.ToList();
         if (!itemList.Any())
-            return Array.Empty<long>();
+            return [];
 
         try
         {

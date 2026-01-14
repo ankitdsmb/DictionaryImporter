@@ -19,15 +19,12 @@ internal static class WebsterMeaningGuard
 
         title = title.Trim();
 
-        // Reject labels like [R.], [Obs.]
         if (InvalidTitleRegex.IsMatch(title))
             return false;
 
-        // Reject non-word garbage
         if (GarbageTitleRegex.IsMatch(title))
             return false;
 
-        // Must start with a letter
         if (!char.IsLetter(title[0]))
             return false;
 

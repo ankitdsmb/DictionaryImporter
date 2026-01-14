@@ -1,22 +1,13 @@
 ﻿namespace DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
 
-public sealed class CanonicalWordSyllableEnricher
+public sealed class CanonicalWordSyllableEnricher(
+    string connectionString,
+    ILogger<CanonicalWordSyllableEnricher> logger)
 {
-    private readonly string _connectionString;
-    private readonly ILogger<CanonicalWordSyllableEnricher> _logger;
-
-    public CanonicalWordSyllableEnricher(
-        string connectionString,
-        ILogger<CanonicalWordSyllableEnricher> logger)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-    }
-
     public async Task ExecuteAsync(
         CancellationToken ct)
     {
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
         var ipas =
@@ -30,11 +21,9 @@ public sealed class CanonicalWordSyllableEnricher
         {
             ct.ThrowIfCancellationRequested();
 
-            // 1. Split into syllables
             var syllables = IpaSyllabifier.Split(row.Ipa);
             var cleaned = IpaSyllablePostProcessor.Normalize(syllables);
 
-            // 3. Persist syllables
             foreach (var s in cleaned)
                 await conn.ExecuteAsync(
                     """
@@ -75,6 +64,6 @@ public sealed class CanonicalWordSyllableEnricher
                     });
         }
 
-        _logger.LogInformation("IPA syllable enrichment completed");
+        logger.LogInformation("IPA syllable enrichment completed");
     }
 }

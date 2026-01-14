@@ -1,17 +1,12 @@
-﻿// File: DictionaryImporter.Core/PreProcessing/GrammarAwareTextCleaner.cs
-using DictionaryImporter.Core.Grammar;
-using DictionaryImporter.Infrastructure.Grammar;
-
-namespace DictionaryImporter.Core.PreProcessing;
+﻿namespace DictionaryImporter.Core.PreProcessing;
 
 public static class GrammarAwareTextCleaner
 {
-    private static readonly IGrammarCorrector _grammarCorrector;
+    private static readonly IGrammarCorrector GrammarCorrector;
 
     static GrammarAwareTextCleaner()
     {
-        // Lazy initialization with optional grammar correction
-        _grammarCorrector = CreateGrammarCorrector();
+        GrammarCorrector = CreateGrammarCorrector();
     }
 
     public static async Task<string> CleanWithGrammarAsync(
@@ -23,15 +18,13 @@ public static class GrammarAwareTextCleaner
         if (string.IsNullOrWhiteSpace(text))
             return text;
 
-        // Step 1: Apply existing cleaning logic
         var cleaned = await Task.Run(() => CleanTextBasic(text), ct);
 
-        // Step 2: Apply grammar correction if enabled
-        if (applyAutoCorrection && _grammarCorrector != null)
+        if (applyAutoCorrection && GrammarCorrector != null)
         {
             try
             {
-                var correctionResult = await _grammarCorrector.AutoCorrectAsync(cleaned, languageCode, ct);
+                var correctionResult = await GrammarCorrector.AutoCorrectAsync(cleaned, languageCode, ct);
                 if (correctionResult.AppliedCorrections.Any())
                 {
                     cleaned = correctionResult.CorrectedText;
@@ -39,8 +32,6 @@ public static class GrammarAwareTextCleaner
             }
             catch
             {
-                // Fallback to basic cleaning if grammar service fails
-                // Logging would happen at a higher level
             }
         }
 
@@ -49,7 +40,6 @@ public static class GrammarAwareTextCleaner
 
     private static string CleanTextBasic(string text)
     {
-        // Reuse existing cleaning logic from your codebase
         text = CjkPunctuationStripper.RemoveCjkPunctuation(text);
         text = CjkStripper.RemoveCjk(text);
         text = Regex.Replace(text, @"\s+", " ").Trim();
@@ -60,13 +50,11 @@ public static class GrammarAwareTextCleaner
     {
         try
         {
-            // Could be configured via appsettings
             var languageToolUrl = Environment.GetEnvironmentVariable("LANGUAGETOOL_URL") ?? "http://localhost:2026";
             return new LanguageToolGrammarCorrector(languageToolUrl);
         }
         catch
         {
-            // Return a null object pattern implementation
             return new NoOpGrammarCorrector();
         }
     }
@@ -74,12 +62,12 @@ public static class GrammarAwareTextCleaner
     private sealed class NoOpGrammarCorrector : IGrammarCorrector
     {
         public Task<GrammarCheckResult> CheckAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
-            => Task.FromResult(new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero));
+            => Task.FromResult(new GrammarCheckResult(false, 0, [], TimeSpan.Zero));
 
         public Task<GrammarCorrectionResult> AutoCorrectAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
-            => Task.FromResult(new GrammarCorrectionResult(text, text, Array.Empty<AppliedCorrection>(), Array.Empty<GrammarIssue>()));
+            => Task.FromResult(new GrammarCorrectionResult(text, text, [], []));
 
         public Task<IReadOnlyList<GrammarSuggestion>> SuggestImprovementsAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<GrammarSuggestion>>(Array.Empty<GrammarSuggestion>());
+            => Task.FromResult<IReadOnlyList<GrammarSuggestion>>([]);
     }
 }

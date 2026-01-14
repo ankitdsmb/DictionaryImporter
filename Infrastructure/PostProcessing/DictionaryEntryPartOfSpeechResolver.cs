@@ -1,36 +1,19 @@
 ﻿namespace DictionaryImporter.Infrastructure.PostProcessing;
 
-public sealed class DictionaryEntryPartOfSpeechResolver
+public sealed class DictionaryEntryPartOfSpeechResolver(
+    string connectionString,
+    IPartOfSpeechInfererV2 inferer,
+    ILogger<DictionaryEntryPartOfSpeechResolver> logger)
 {
-    private readonly string _connectionString;
-    private readonly IPartOfSpeechInfererV2 _inferer;
-    private readonly ILogger<DictionaryEntryPartOfSpeechResolver> _logger;
-
-    public DictionaryEntryPartOfSpeechResolver(
-        string connectionString,
-        IPartOfSpeechInfererV2 inferer,
-        ILogger<DictionaryEntryPartOfSpeechResolver> logger)
-    {
-        _connectionString = connectionString;
-        _inferer = inferer;
-        _logger = logger;
-    }
-
     public async Task ExecuteAsync(
         string sourceCode,
         CancellationToken ct)
     {
         await using var conn =
-            new SqlConnection(_connectionString);
+            new SqlConnection(connectionString);
 
         await conn.OpenAsync(ct);
 
-        /* =====================================================
-           SELECT ONE BEST DEFINITION PER ENTRY
-           Priority:
-           1. Headword / root (ParentParsedId IS NULL)
-           2. Main numbered sense
-        ===================================================== */
         const string selectSql = """
                                  WITH RankedDefinitions AS
                                  (
@@ -72,14 +55,11 @@ public sealed class DictionaryEntryPartOfSpeechResolver
             ct.ThrowIfCancellationRequested();
 
             var result =
-                _inferer.InferWithConfidence(row.Definition);
+                inferer.InferWithConfidence(row.Definition);
 
             if (result.Pos == "unk")
                 continue;
 
-            /* =================================================
-               WRITE ONCE — NEVER OVERWRITE
-            ================================================= */
             const string updateSql = """
                                      UPDATE dbo.DictionaryEntry
                                      SET
@@ -103,7 +83,7 @@ public sealed class DictionaryEntryPartOfSpeechResolver
                 updated++;
         }
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "POS resolution completed | Source={SourceCode} | Updated={Count}",
             sourceCode,
             updated);

@@ -1,11 +1,4 @@
-﻿using DictionaryImporter.Core.Grammar;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace DictionaryImporter.Infrastructure.Grammar.Helper
+﻿namespace DictionaryImporter.Infrastructure.Grammar.Helper
 {
     internal static class GrammarIssueHelper
     {
@@ -27,10 +20,10 @@ namespace DictionaryImporter.Infrastructure.Grammar.Helper
                 EndOffset: endOffset,
                 Message: message,
                 ShortMessage: shortMessage,
-                Replacements: replacements?.ToList() ?? new List<string>(),
+                Replacements: replacements?.ToList() ?? [],
                 RuleId: ruleId,
                 RuleDescription: ruleDescription,
-                Tags: tags?.ToList() ?? new List<string> { "default" },
+                Tags: tags?.ToList() ?? ["default"],
                 Context: context ?? string.Empty,
                 ContextOffset: contextOffset ?? Math.Max(0, startOffset - 20),
                 ConfidenceLevel: confidenceLevel

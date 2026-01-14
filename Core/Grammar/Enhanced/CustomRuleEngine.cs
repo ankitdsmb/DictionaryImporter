@@ -1,15 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Text.Json;
-using System.Threading.Tasks;
+﻿using JsonSerializer = System.Text.Json.JsonSerializer;
 
 namespace DictionaryImporter.Core.Grammar.Enhanced
 {
     public sealed class CustomRuleEngine
     {
-        private readonly List<GrammarPatternRule> _rules = new();
+        private readonly List<GrammarPatternRule> _rules = [];
         private readonly string _rulesFilePath;
         private readonly object _lock = new();
 
@@ -38,7 +33,6 @@ namespace DictionaryImporter.Core.Grammar.Enhanced
                 }
                 catch (Exception)
                 {
-                    // If loading fails, use empty rules
                     _rules.Clear();
                 }
             }
@@ -90,12 +84,10 @@ namespace DictionaryImporter.Core.Grammar.Enhanced
 
                     if (feedback.IsFalsePositive)
                     {
-                        // Decrease confidence for false positives
                         rule.Confidence = Math.Max(0, rule.Confidence - 10);
                     }
                     else if (feedback.IsValidCorrection)
                     {
-                        // Increase confidence for valid corrections
                         rule.SuccessCount++;
                         rule.Confidence = Math.Min(100, rule.Confidence + 5);
                     }

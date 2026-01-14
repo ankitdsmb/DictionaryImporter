@@ -1,8 +1,6 @@
-﻿// GenericEtymologyExtractor.cs
+﻿namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
 
-namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
-
-public sealed class GenericEtymologyExtractor : IEtymologyExtractor
+public sealed class GenericEtymologyExtractor(ILogger<GenericEtymologyExtractor> logger) : IEtymologyExtractor
 {
     private static readonly Regex GenericEtymRegex =
         new(@"(?:Etymology|Origin):?\s*(?<etym>[^\n]+)",
@@ -19,12 +17,7 @@ public sealed class GenericEtymologyExtractor : IEtymologyExtractor
             { "middle english", "enm" }
         };
 
-    private readonly ILogger<GenericEtymologyExtractor> _logger;
-
-    public GenericEtymologyExtractor(ILogger<GenericEtymologyExtractor> logger)
-    {
-        _logger = logger;
-    }
+    private readonly ILogger<GenericEtymologyExtractor> _logger = logger;
 
     public string SourceCode => "*";
 
@@ -48,7 +41,6 @@ public sealed class GenericEtymologyExtractor : IEtymologyExtractor
         {
             var etymologyText = etymMatch.Groups["etym"].Value.Trim();
 
-            // Extract language code
             string? languageCode = null;
             foreach (var mapping in GenericLanguageMappings)
                 if (etymologyText.Contains(mapping.Key, StringComparison.OrdinalIgnoreCase))
@@ -57,7 +49,6 @@ public sealed class GenericEtymologyExtractor : IEtymologyExtractor
                     break;
                 }
 
-            // Remove etymology from definition
             var cleanedDefinition = definition
                 .Remove(etymMatch.Index, etymMatch.Length)
                 .Trim();

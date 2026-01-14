@@ -1,16 +1,12 @@
-﻿// EnglishChineseEtymologyExtractor.cs
+﻿namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
 
-namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
-
-public sealed class EnglishChineseEtymologyExtractor : IEtymologyExtractor
+public sealed class EnglishChineseEtymologyExtractor(ILogger<EnglishChineseEtymologyExtractor> logger)
+    : IEtymologyExtractor
 {
-    // English-Chinese data doesn't have explicit etymology markers
-    // but might have language origin hints
     private static readonly Regex LanguageOriginRegex =
         new(@"(?:源自|来自|源于|从…演变而来)\s*(?<language>[^\s，。]+)",
             RegexOptions.Compiled);
 
-    // Language mappings for Chinese
     private static readonly Dictionary<string, string> ChineseLanguageMappings =
         new(StringComparer.OrdinalIgnoreCase)
         {
@@ -31,12 +27,7 @@ public sealed class EnglishChineseEtymologyExtractor : IEtymologyExtractor
             { "梵语", "sa" }
         };
 
-    private readonly ILogger<EnglishChineseEtymologyExtractor> _logger;
-
-    public EnglishChineseEtymologyExtractor(ILogger<EnglishChineseEtymologyExtractor> logger)
-    {
-        _logger = logger;
-    }
+    private readonly ILogger<EnglishChineseEtymologyExtractor> _logger = logger;
 
     public string SourceCode => "ENG_CHN";
 
@@ -45,8 +36,6 @@ public sealed class EnglishChineseEtymologyExtractor : IEtymologyExtractor
         string definition,
         string? rawDefinition = null)
     {
-        // English-Chinese data typically doesn't have etymology in definitions
-        // Most etymology would come from the separate Etymology field
         return new EtymologyExtractionResult
         {
             EtymologyText = null,
@@ -62,7 +51,6 @@ public sealed class EnglishChineseEtymologyExtractor : IEtymologyExtractor
         if (string.IsNullOrWhiteSpace(text))
             return (null, null);
 
-        // Check for Chinese language origin patterns
         var match = LanguageOriginRegex.Match(text);
         if (match.Success)
         {

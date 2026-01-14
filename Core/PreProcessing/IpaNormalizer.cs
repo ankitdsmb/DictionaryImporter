@@ -11,7 +11,6 @@ internal static class IpaNormalizer
         if (string.IsNullOrWhiteSpace(ipa))
             return ipa;
 
-        // 1. Unicode normalization
         ipa = ipa.Normalize(NormalizationForm.FormC);
 
         var sb = new StringBuilder(ipa.Length);
@@ -19,24 +18,19 @@ internal static class IpaNormalizer
         foreach (var ch in ipa)
             switch (ch)
             {
-                // Normalize length
                 case ':':
                     sb.Append('ː');
                     break;
 
-                // Normalize tie bars
-                case '͡': // combining double inverted breve
+                case '͡':
                     sb.Append('͜');
                     break;
 
-                // Remove editorial separators
                 case '.':
                 case ',':
                 case '，':
-                    // skip
                     break;
 
-                // Normalize whitespace
                 case ' ':
                 case '\t':
                 case '\n':
@@ -48,7 +42,6 @@ internal static class IpaNormalizer
                     break;
             }
 
-        // Collapse whitespace
         return sb
             .ToString()
             .Trim()

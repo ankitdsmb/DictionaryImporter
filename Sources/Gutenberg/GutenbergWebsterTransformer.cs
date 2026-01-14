@@ -2,32 +2,21 @@
 
 namespace DictionaryImporter.Sources.Gutenberg;
 
-public sealed class GutenbergWebsterTransformer
+public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransformer> logger)
     : IDataTransformer<GutenbergRawEntry>
 {
-    private readonly ILogger<GutenbergWebsterTransformer> _logger;
-
-    public GutenbergWebsterTransformer(
-        ILogger<GutenbergWebsterTransformer> logger)
-    {
-        _logger = logger;
-    }
-
     public IEnumerable<DictionaryEntry> Transform(
         GutenbergRawEntry raw)
     {
-        _logger.LogDebug(
+        logger.LogDebug(
             "Transforming headword {Word}", raw.Headword);
 
-        // -------------------------------------------------
-        // HEADER POS (EXTRACT ONCE, APPLY TO ALL SENSES)
-        // -------------------------------------------------
         var (headerPos, _) =
             WebsterHeaderPosExtractor.Extract(
                 string.Join(" ", raw.Lines));
 
         if (headerPos != null)
-            _logger.LogDebug(
+            logger.LogDebug(
                 "Header POS resolved | Word={Word} | POS={POS}",
                 raw.Headword,
                 headerPos);
@@ -42,15 +31,12 @@ public sealed class GutenbergWebsterTransformer
             var normalizedDef =
                 NormalizeDefinition(def);
 
-            // ---------------------------------------------
-            // TRANSFORM-LEVEL DEDUPLICATION
-            // ---------------------------------------------
             var dedupKey =
                 $"{raw.Headword.ToLowerInvariant()}|{sense}|{normalizedDef}";
 
             if (!seen.Add(dedupKey))
             {
-                _logger.LogDebug(
+                logger.LogDebug(
                     "Skipped duplicate definition for {Word}, sense {Sense}",
                     raw.Headword,
                     sense);
@@ -65,7 +51,7 @@ public sealed class GutenbergWebsterTransformer
                 Definition = def,
                 SenseNumber = sense,
                 SourceCode = "GUT_WEBSTER",
-                PartOfSpeech = headerPos, // APPLY TO ALL SENSES
+                PartOfSpeech = headerPos,
                 CreatedUtc = DateTime.UtcNow
             };
 
@@ -73,9 +59,6 @@ public sealed class GutenbergWebsterTransformer
         }
     }
 
-    // =====================================================
-    // DEFINITION EXTRACTION
-    // =====================================================
     private static IEnumerable<string> ExtractDefinitions(
         List<string> lines)
     {
@@ -99,9 +82,6 @@ public sealed class GutenbergWebsterTransformer
             yield return string.Join(" ", buffer);
     }
 
-    // =====================================================
-    // NORMALIZATION (DEDUP ONLY)
-    // =====================================================
     private static string NormalizeDefinition(
         string text)
     {

@@ -1,71 +1,48 @@
-﻿using System.Diagnostics;
+﻿namespace DictionaryImporter.Infrastructure.Graph;
 
-namespace DictionaryImporter.Infrastructure.Graph;
-
-public sealed class DictionaryGraphRankCalculator
+public sealed class DictionaryGraphRankCalculator(
+    string connectionString,
+    ILogger<DictionaryGraphRankCalculator> logger)
 {
-    private readonly string _cs;
-    private readonly ILogger<DictionaryGraphRankCalculator> _logger;
-
-    public DictionaryGraphRankCalculator(
-        string connectionString,
-        ILogger<DictionaryGraphRankCalculator> logger)
-    {
-        _cs = connectionString;
-        _logger = logger;
-    }
-
     public async Task CalculateAsync(
         CancellationToken ct)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphRankCalculator started");
 
         var sw = Stopwatch.StartNew();
 
-        await using var conn = new SqlConnection(_cs);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
-        // --------------------------------------------------
-        // 1. CONCEPT RANK
-        // --------------------------------------------------
         var conceptRankRows =
             await CalculateConceptRank(conn, ct);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphRankCalculator | Stage=ConceptRank | AffectedRows={Rows}",
             conceptRankRows);
 
-        // --------------------------------------------------
-        // 2. SENSE RANK
-        // --------------------------------------------------
         var senseRankRows =
             await CalculateSenseRank(conn, ct);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphRankCalculator | Stage=SenseRank | AffectedRows={Rows}",
             senseRankRows);
 
-        // --------------------------------------------------
-        // 3. WORD RANK
-        // --------------------------------------------------
         var wordRankRows =
             await CalculateWordRank(conn, ct);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphRankCalculator | Stage=WordRank | AffectedRows={Rows}",
             wordRankRows);
 
         sw.Stop();
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphRankCalculator completed | DurationMs={Duration}",
             sw.ElapsedMilliseconds);
     }
 
-    // --------------------------------------------------
-    // CONCEPT RANK
-    // --------------------------------------------------
     private async Task<int> CalculateConceptRank(
         SqlConnection conn,
         CancellationToken ct)
@@ -138,9 +115,6 @@ public sealed class DictionaryGraphRankCalculator
                 commandTimeout: 0));
     }
 
-    // --------------------------------------------------
-    // SENSE RANK
-    // --------------------------------------------------
     private async Task<int> CalculateSenseRank(
         SqlConnection conn,
         CancellationToken ct)
@@ -198,9 +172,6 @@ public sealed class DictionaryGraphRankCalculator
                 commandTimeout: 0));
     }
 
-    // --------------------------------------------------
-    // WORD RANK
-    // --------------------------------------------------
     private async Task<int> CalculateWordRank(
         SqlConnection conn,
         CancellationToken ct)

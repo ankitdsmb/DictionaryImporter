@@ -9,7 +9,6 @@ public sealed class CollinsTransformer : IDataTransformer<CollinsRawEntry>
 
         foreach (var sense in raw.Senses)
         {
-            // Build combined definition with examples
             var fullDefinition = BuildFullDefinition(sense);
 
             yield return new DictionaryEntry
@@ -29,14 +28,11 @@ public sealed class CollinsTransformer : IDataTransformer<CollinsRawEntry>
     {
         var parts = new List<string>();
 
-        // Add main definition
         parts.Add(sense.Definition);
 
-        // Add usage note if present
         if (!string.IsNullOrEmpty(sense.UsageNote))
             parts.Add($"【Note】{sense.UsageNote}");
 
-        // Add examples
         if (sense.Examples.Any())
         {
             parts.Add("【Examples】");
@@ -44,7 +40,6 @@ public sealed class CollinsTransformer : IDataTransformer<CollinsRawEntry>
                 parts.Add($"• {example}");
         }
 
-        // Add domain/grammar info
         if (!string.IsNullOrEmpty(sense.DomainLabel))
             parts.Add($"【Domain】{sense.DomainLabel}");
 

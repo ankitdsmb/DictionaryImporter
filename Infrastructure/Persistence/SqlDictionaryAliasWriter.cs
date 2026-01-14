@@ -1,14 +1,7 @@
 ﻿namespace DictionaryImporter.Infrastructure.Persistence;
 
-public sealed class SqlDictionaryAliasWriter
+public sealed class SqlDictionaryAliasWriter(string connectionString)
 {
-    private readonly string _connectionString;
-
-    public SqlDictionaryAliasWriter(string connectionString)
-    {
-        _connectionString = connectionString;
-    }
-
     public async Task WriteAsync(
         long dictionaryEntryParsedId,
         string alias,
@@ -31,7 +24,7 @@ public sealed class SqlDictionaryAliasWriter
             """;
 
         await using var conn =
-            new SqlConnection(_connectionString);
+            new SqlConnection(connectionString);
 
         await conn.ExecuteAsync(
             new CommandDefinition(

@@ -2,6 +2,6 @@
 
 public enum GraphRebuildMode
 {
-    Append, // default, idempotent
-    Rebuild // delete + rebuild (safe)
+    Append,
+    Rebuild
 }

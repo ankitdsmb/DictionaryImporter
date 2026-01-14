@@ -17,7 +17,6 @@ internal static class WebsterHeadwordVariantGenerator
         var lower =
             original.ToLowerInvariant();
 
-        // 1. Hyphen removal: TO-DAY → today
         if (lower.Contains('-'))
         {
             var noHyphen =
@@ -26,7 +25,6 @@ internal static class WebsterHeadwordVariantGenerator
             Add(results, noHyphen, "hyphen");
         }
 
-        // 2. Apostrophe normalization: O'ER → oer
         if (lower.Contains('\''))
         {
             var noApostrophe =
@@ -35,7 +33,6 @@ internal static class WebsterHeadwordVariantGenerator
             Add(results, noApostrophe, "apostrophe");
         }
 
-        // 3. Space collapse: TO DAY → today
         if (lower.Contains(' '))
         {
             var collapsed =
@@ -44,7 +41,6 @@ internal static class WebsterHeadwordVariantGenerator
             Add(results, collapsed, "spacing");
         }
 
-        // 4. Safe archaic normalization (minimal, whitelist)
         if (lower.Contains("ph"))
         {
             var modern =

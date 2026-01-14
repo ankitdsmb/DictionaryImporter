@@ -9,7 +9,6 @@
 /// </summary>
 public static class OrthographicSyllableExtractor
 {
-    // Vowels for English orthography
     private static readonly Regex VowelRegex =
         new(@"[aeiouyAEIOUY]", RegexOptions.Compiled);
 
@@ -28,7 +27,6 @@ public static class OrthographicSyllableExtractor
         var last = 0;
 
         for (var i = 1; i < word.Length - 1; i++)
-            // Split between vowel → consonant + vowel
             if (VowelRegex.IsMatch(word[i - 1].ToString()) &&
                 !VowelRegex.IsMatch(word[i].ToString()) &&
                 VowelRegex.IsMatch(word[i + 1].ToString()))

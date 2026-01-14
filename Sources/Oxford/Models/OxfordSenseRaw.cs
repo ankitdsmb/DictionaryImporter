@@ -3,10 +3,10 @@
 public sealed class OxfordSenseRaw
 {
     public int SenseNumber { get; set; }
-    public string? SenseLabel { get; set; } // e.g., "(informal, chiefly N. Amer.)"
+    public string? SenseLabel { get; set; }
     public string Definition { get; set; } = null!;
-    public string? ChineseTranslation { get; set; } // After "•"
-    public List<string> Examples { get; set; } = new();
+    public string? ChineseTranslation { get; set; }
+    public List<string> Examples { get; set; } = [];
     public string? UsageNote { get; set; }
-    public List<string> CrossReferences { get; set; } = new();
+    public List<string> CrossReferences { get; set; } = [];
 }

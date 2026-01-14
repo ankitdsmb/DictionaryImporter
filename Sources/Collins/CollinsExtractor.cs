@@ -23,7 +23,6 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
             line = line.Trim();
             if (string.IsNullOrWhiteSpace(line))
             {
-                // Empty line might separate senses
                 if (currentSense != null && examplesBuffer.Any())
                 {
                     currentSense.Examples.AddRange(examplesBuffer);
@@ -33,12 +32,10 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
                 continue;
             }
 
-            // Check for entry separator
             if (CollinsParserHelper.IsEntrySeparator(line))
             {
                 if (currentEntry != null)
                 {
-                    // Finalize current sense
                     if (currentSense != null && examplesBuffer.Any())
                     {
                         currentSense.Examples.AddRange(examplesBuffer);
@@ -53,12 +50,10 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
                 continue;
             }
 
-            // Parse headword
             if (CollinsParserHelper.TryParseHeadword(line, out var headword))
             {
                 if (currentEntry != null)
                 {
-                    // Finalize previous entry
                     if (currentSense != null && examplesBuffer.Any())
                     {
                         currentSense.Examples.AddRange(examplesBuffer);
@@ -78,10 +73,8 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
             if (currentEntry == null)
                 continue;
 
-            // Parse sense header
             if (CollinsParserHelper.TryParseSenseHeader(line, out var sense))
             {
-                // Save previous sense if exists
                 if (currentSense != null)
                 {
                     if (examplesBuffer.Any())
@@ -97,14 +90,12 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
                 continue;
             }
 
-            // Parse examples
             if (CollinsParserHelper.TryParseExample(line, out var example))
             {
                 examplesBuffer.Add(example);
                 continue;
             }
 
-            // Parse usage notes
             if (CollinsParserHelper.TryParseUsageNote(line, out var usageNote))
             {
                 noteBuffer.Add(usageNote);
@@ -112,7 +103,6 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
                 continue;
             }
 
-            // Parse domain/grammar labels
             if (CollinsParserHelper.TryParseDomainLabel(line, out var labelInfo))
             {
                 if (currentSense != null)
@@ -127,7 +117,6 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
                 continue;
             }
 
-            // Handle continuation of definition (multi-line definitions)
             if (currentSense != null &&
                 !string.IsNullOrEmpty(currentSense.Definition) &&
                 CollinsParserHelper.IsDefinitionContinuation(line, currentSense.Definition))
@@ -137,7 +126,6 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
             }
         }
 
-        // Yield the last entry
         if (currentEntry != null)
         {
             if (currentSense != null)

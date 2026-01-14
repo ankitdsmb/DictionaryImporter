@@ -1,5 +1,9 @@
-// Global using directives
-
+global using System;
+global using System.Collections.Concurrent;
+global using System.Collections.Generic;
+global using System.Diagnostics;
+global using System.Linq;
+global using System.Net.Http;
 global using Dapper;
 global using DictionaryImporter.Core.Abstractions;
 global using DictionaryImporter.Core.Canonical;
@@ -24,4 +28,14 @@ global using Microsoft.Extensions.DependencyInjection;
 global using Microsoft.Extensions.Logging;
 global using System.Runtime.CompilerServices;
 global using System.Text;
+global using System.Text.Json;
+global using System.Text.Json.Serialization;
 global using System.Text.RegularExpressions;
+global using System.Threading;
+global using System.Threading.Tasks;
+global using DictionaryImporter.AI.Configuration;
+global using DictionaryImporter.AI.Core.Models;
+global using DictionaryImporter.Core.Grammar;
+global using DictionaryImporter.Core.Grammar.Enhanced;
+global using DictionaryImporter.Infrastructure.Grammar;
+global using Microsoft.Extensions.Options;

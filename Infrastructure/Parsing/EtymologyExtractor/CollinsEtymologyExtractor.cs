@@ -1,14 +1,11 @@
 ﻿namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
 
-internal class CollinsEtymologyExtractor : IEtymologyExtractor
+internal class CollinsEtymologyExtractor(ILogger<EnglishChineseEtymologyExtractor> logger) : IEtymologyExtractor
 {
-    // English-Chinese data doesn't have explicit etymology markers
-    // but might have language origin hints
     private static readonly Regex LanguageOriginRegex =
         new(@"(?:源自|来自|源于|从…演变而来)\s*(?<language>[^\s，。]+)",
             RegexOptions.Compiled);
 
-    // Language mappings for Chinese
     private static readonly Dictionary<string, string> ChineseLanguageMappings =
         new(StringComparer.OrdinalIgnoreCase)
         {
@@ -29,12 +26,7 @@ internal class CollinsEtymologyExtractor : IEtymologyExtractor
             { "梵语", "sa" }
         };
 
-    private readonly ILogger<EnglishChineseEtymologyExtractor> _logger;
-
-    public CollinsEtymologyExtractor(ILogger<EnglishChineseEtymologyExtractor> logger)
-    {
-        _logger = logger;
-    }
+    private readonly ILogger<EnglishChineseEtymologyExtractor> _logger = logger;
 
     public string SourceCode => "ENG_COLLINS";
 
@@ -43,8 +35,6 @@ internal class CollinsEtymologyExtractor : IEtymologyExtractor
         string definition,
         string? rawDefinition = null)
     {
-        // English-Chinese data typically doesn't have etymology in definitions
-        // Most etymology would come from the separate Etymology field
         return new EtymologyExtractionResult
         {
             EtymologyText = null,
@@ -60,7 +50,6 @@ internal class CollinsEtymologyExtractor : IEtymologyExtractor
         if (string.IsNullOrWhiteSpace(text))
             return (null, null);
 
-        // Check for Chinese language origin patterns
         var match = LanguageOriginRegex.Match(text);
         if (match.Success)
         {

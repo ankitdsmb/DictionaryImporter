@@ -1,8 +1,4 @@
-﻿// File: DictionaryImporter/Infrastructure/Grammar/Engines/GrammarNetEngine.cs
-using DictionaryImporter.Core.Grammar;
-using DictionaryImporter.Core.Grammar.Enhanced;
-using System.Diagnostics;
-using System.Text.Json;
+﻿using JsonSerializer = System.Text.Json.JsonSerializer;
 
 namespace DictionaryImporter.Infrastructure.Grammar.Engines;
 
@@ -32,23 +28,19 @@ public sealed class GrammarNetEngine : IGrammarEngine
 
     public async Task InitializeAsync()
     {
-        // No initialization needed for HTTP-based service
         await Task.CompletedTask;
     }
 
     public async Task<GrammarCheckResult> CheckAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(text) || string.IsNullOrEmpty(_apiKey))
-            return new GrammarCheckResult(false, 0, Array.Empty<GrammarIssue>(), TimeSpan.Zero);
+            return new GrammarCheckResult(false, 0, [], TimeSpan.Zero);
 
         var sw = Stopwatch.StartNew();
         var issues = new List<GrammarIssue>();
 
         try
         {
-            // This is a placeholder for GrammarNet API integration
-            // In production, you would call the actual GrammarNet API
-
             var requestData = new
             {
                 text = text,
@@ -78,7 +70,7 @@ public sealed class GrammarNetEngine : IGrammarEngine
                             EndOffset: match.Offset + match.Length,
                             Message: match.Message,
                             ShortMessage: match.ShortMessage ?? match.Rule.Category,
-                            Replacements: match.Replacements?.Select(r => r.Value).ToList() ?? new List<string>(),
+                            Replacements: match.Replacements?.Select(r => r.Value).ToList() ?? [],
                             RuleId: $"GRAMMARNET_{match.Rule.Id}",
                             RuleDescription: match.Rule.Description,
                             Tags: new List<string> { match.Rule.Category.ToLowerInvariant() },
@@ -105,7 +97,6 @@ public sealed class GrammarNetEngine : IGrammarEngine
 
     public bool IsSupported(string languageCode)
     {
-        // GrammarNet supports multiple languages
         return languageCode switch
         {
             "en-US" or "en-GB" or "en-CA" or "en-AU" => true,
@@ -118,7 +109,7 @@ public sealed class GrammarNetEngine : IGrammarEngine
 
     private class GrammarNetResponse
     {
-        public List<GrammarNetMatch>? Matches { get; set; }
+        public List<GrammarNetMatch>? Matches { get; init; }
     }
 
     private class GrammarNetMatch

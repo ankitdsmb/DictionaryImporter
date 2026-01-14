@@ -2,7 +2,6 @@
 
 internal static class WebsterSenseRegex
 {
-    // Matches: 1. <text>  2. <text>
     public static readonly Regex NumberedSense =
         new(
             @"(?<!\w)(?<num>\d+)\.\s+(?<body>[^0-9]+)",

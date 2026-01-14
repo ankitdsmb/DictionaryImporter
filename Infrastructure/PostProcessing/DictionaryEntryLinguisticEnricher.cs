@@ -2,34 +2,20 @@
 
 namespace DictionaryImporter.Infrastructure.PostProcessing;
 
-public sealed class DictionaryEntryLinguisticEnricher
+public sealed class DictionaryEntryLinguisticEnricher(
+    string connectionString,
+    IPartOfSpeechInfererV2 posInferer,
+    ILogger<DictionaryEntryLinguisticEnricher> logger)
 {
-    private readonly string _connectionString;
-    private readonly ILogger<DictionaryEntryLinguisticEnricher> _logger;
-    private readonly IPartOfSpeechInfererV2 _posInferer;
-
-    public DictionaryEntryLinguisticEnricher(
-        string connectionString,
-        IPartOfSpeechInfererV2 posInferer,
-        ILogger<DictionaryEntryLinguisticEnricher> logger)
-    {
-        _connectionString = connectionString;
-        _posInferer = posInferer;
-        _logger = logger;
-    }
-
-    // =====================================================
-    // ENTRY POINT
-    // =====================================================
     public async Task ExecuteAsync(
         string sourceCode,
         CancellationToken ct)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "Linguistic enrichment started | Source={SourceCode}",
             sourceCode);
 
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
         await InferAndPersistPartOfSpeech(conn, sourceCode, ct);
@@ -40,23 +26,19 @@ public sealed class DictionaryEntryLinguisticEnricher
 
         await ExtractSynonymsFromCrossReferences(conn, sourceCode, ct);
 
-        // ✅ SINGLE SOURCE OF TRUTH FOR IPA
         await EnrichCanonicalWordIpaFromDefinition(conn, sourceCode, ct);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Linguistic enrichment completed | Source={SourceCode}",
             sourceCode);
     }
 
-    // =====================================================
-    // 1. PART OF SPEECH INFERENCE
-    // =====================================================
     private async Task InferAndPersistPartOfSpeech(
         SqlConnection conn,
         string sourceCode,
         CancellationToken ct)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "POS inference started | Source={SourceCode}",
             sourceCode);
 
@@ -101,7 +83,7 @@ public sealed class DictionaryEntryLinguisticEnricher
             ct.ThrowIfCancellationRequested();
 
             var result =
-                _posInferer.InferWithConfidence(row.Definition);
+                posInferer.InferWithConfidence(row.Definition);
 
             if (result.Pos == "unk")
                 continue;
@@ -129,15 +111,12 @@ public sealed class DictionaryEntryLinguisticEnricher
                 updated++;
         }
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "POS inference completed | Source={SourceCode} | Updated={Count}",
             sourceCode,
             updated);
     }
 
-    // =====================================================
-    // 1.5 EXPLICIT POS CONFIDENCE BACKFILL
-    // =====================================================
     private async Task BackfillExplicitPartOfSpeechConfidence(
         SqlConnection conn,
         string sourceCode,
@@ -158,15 +137,12 @@ public sealed class DictionaryEntryLinguisticEnricher
                     new { SourceCode = sourceCode },
                     cancellationToken: ct));
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "POS confidence backfilled | Source={SourceCode} | Rows={Rows}",
             sourceCode,
             rows);
     }
 
-    // =====================================================
-    // 2. POS HISTORY / CONFIDENCE PERSISTENCE
-    // =====================================================
     private async Task PersistPartOfSpeechHistory(
         SqlConnection conn,
         string sourceCode,
@@ -202,15 +178,12 @@ public sealed class DictionaryEntryLinguisticEnricher
         var rows =
             await conn.ExecuteAsync(sql, new { SourceCode = sourceCode });
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "POS history persisted | Source={SourceCode} | Rows={Rows}",
             sourceCode,
             rows);
     }
 
-    // =====================================================
-    // 3. SYNONYM EXTRACTION
-    // =====================================================
     private async Task ExtractSynonymsFromCrossReferences(
         SqlConnection conn,
         string sourceCode,
@@ -248,18 +221,15 @@ public sealed class DictionaryEntryLinguisticEnricher
         var rows =
             await conn.ExecuteAsync(sql, new { SourceCode = sourceCode });
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Synonyms extracted | Source={SourceCode} | Rows={Rows}",
             sourceCode,
             rows);
     }
 
-    // =====================================================
-    // 4. IPA ENRICHMENT (SINGLE SOURCE OF TRUTH)
-    // =====================================================
     private async Task EnrichCanonicalWordIpaFromDefinition(SqlConnection conn, string sourceCode, CancellationToken ct)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "IPA enrichment started | Source={SourceCode}",
             sourceCode);
 
@@ -360,7 +330,7 @@ public sealed class DictionaryEntryLinguisticEnricher
             }
         }
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "IPA enrichment completed | Source={SourceCode} | Candidates={Candidates} | Inserted={Inserted} | Skipped={Skipped}",
             sourceCode,
             candidates,

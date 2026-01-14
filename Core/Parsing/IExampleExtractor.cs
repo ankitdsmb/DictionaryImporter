@@ -1,6 +1,4 @@
-﻿// Add in DictionaryImporter.Core.Parsing namespace
-
-namespace DictionaryImporter.Core.Parsing;
+﻿namespace DictionaryImporter.Core.Parsing;
 
 public interface IExampleExtractor
 {

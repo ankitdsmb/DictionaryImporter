@@ -1,25 +1,15 @@
 ﻿using DictionaryImporter.Sources.Kaikki.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace DictionaryImporter.Sources.Kaikki.Parsing;
 
-public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
+public sealed class KaikkiDefinitionParser(ILogger<KaikkiDefinitionParser> logger) : IDictionaryDefinitionParser
 {
-    private readonly ILogger<KaikkiDefinitionParser> _logger;
-
-    public KaikkiDefinitionParser(ILogger<KaikkiDefinitionParser> logger)
-    {
-        _logger = logger;
-    }
-
     public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
     {
         if (string.IsNullOrWhiteSpace(entry.RawFragment))
         {
-            // Fallback to basic parsing
             return ParseFromDefinition(entry);
         }
 
@@ -29,7 +19,7 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to parse Kaikki raw fragment for: {Word}", entry.Word);
+            logger.LogError(ex, "Failed to parse Kaikki raw fragment for: {Word}", entry.Word);
             return ParseFromDefinition(entry);
         }
     }
@@ -39,7 +29,7 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
         var parsingData = JsonConvert.DeserializeObject<JObject>(entry.RawFragment);
         if (parsingData == null)
         {
-            _logger.LogWarning("Failed to deserialize Kaikki raw fragment for: {Word}", entry.Word);
+            logger.LogWarning("Failed to deserialize Kaikki raw fragment for: {Word}", entry.Word);
             return ParseFromDefinition(entry);
         }
 
@@ -59,16 +49,12 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
             return ParseFromDefinition(entry);
         }
 
-        // Extract synonyms
         var synonyms = ExtractSynonyms(parsingData);
 
-        // Extract cross-references (from derived words)
         var crossRefs = ExtractCrossReferences(parsingData);
 
-        // Extract examples
         var examples = ExtractExamples(sense);
 
-        // Build definition
         var definition = sense.Glosses != null && sense.Glosses.Count > 0
             ? string.Join("; ", sense.Glosses.Select(CleanGloss))
             : entry.Definition;
@@ -86,12 +72,10 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
             Alias = ExtractAlias(parsingData)
         };
 
-        // Add examples to the ParsedDefinition
         if (examples.Count > 0)
         {
             parsedDefinition.Examples = examples;
 
-            // Also include in definition for compatibility
             if (!string.IsNullOrWhiteSpace(parsedDefinition.Definition))
             {
                 parsedDefinition.Definition += "\n【Examples】";
@@ -102,7 +86,6 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
             }
         }
 
-        // Add part of speech if available
         if (!string.IsNullOrWhiteSpace(partOfSpeech))
         {
             parsedDefinition.PartOfSpeech = NormalizePartOfSpeech(partOfSpeech);
@@ -113,7 +96,6 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
 
     private IEnumerable<ParsedDefinition> ParseFromDefinition(DictionaryEntry entry)
     {
-        // Fallback parser that extracts information from the formatted definition text
         var parsed = new ParsedDefinition
         {
             MeaningTitle = entry.Word ?? "unnamed sense",
@@ -127,7 +109,6 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
             Alias = null
         };
 
-        // Try to extract examples from the definition
         var examples = ExtractExamplesFromText(entry.Definition);
         if (examples.Count > 0)
         {
@@ -166,7 +147,6 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
         if (string.IsNullOrWhiteSpace(definition))
             return examples;
 
-        // Look for lines starting with • in the Examples section
         var lines = definition.Split('\n');
         var inExamplesSection = false;
 
@@ -231,7 +211,6 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
 
         var synonyms = new List<string>();
 
-        // Look for 【Synonyms】 section
         var lines = definition.Split('\n');
         foreach (var line in lines)
         {
@@ -291,7 +270,6 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
         if (string.IsNullOrWhiteSpace(definition))
             return crossRefs;
 
-        // Look for 【Derived】 section
         var lines = definition.Split('\n');
         foreach (var line in lines)
         {
@@ -325,7 +303,6 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
     {
         if (sense.Categories != null && sense.Categories.Count > 0)
         {
-            // Try to find a main category
             foreach (var category in sense.Categories)
             {
                 if (!string.IsNullOrWhiteSpace(category))
@@ -347,7 +324,6 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
         if (string.IsNullOrWhiteSpace(definition))
             return null;
 
-        // Look for 【Categories】 or 【Topics】 sections
         var lines = definition.Split('\n');
         foreach (var line in lines)
         {
@@ -378,7 +354,6 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
     {
         if (sense.Tags != null && sense.Tags.Count > 0)
         {
-            // Try to find usage labels in tags
             foreach (var tag in sense.Tags)
             {
                 if (!string.IsNullOrWhiteSpace(tag))
@@ -402,7 +377,6 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
         if (string.IsNullOrWhiteSpace(definition))
             return null;
 
-        // Look for 【Tags】 section
         var lines = definition.Split('\n');
         foreach (var line in lines)
         {
@@ -432,7 +406,6 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
 
     private string? ExtractAlias(JObject parsingData)
     {
-        // Kaikki data doesn't typically have aliases in this sense
         return null;
     }
 
@@ -441,13 +414,11 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
         if (string.IsNullOrWhiteSpace(gloss))
             return string.Empty;
 
-        // Remove any remaining Wiki markup
         gloss = Regex.Replace(gloss, @"\{\{.*?\}\}", string.Empty);
         gloss = Regex.Replace(gloss, @"\[\[.*?\]\]", string.Empty);
         gloss = Regex.Replace(gloss, @"'''(.*?)'''", "$1");
         gloss = Regex.Replace(gloss, @"''(.*?)''", "$1");
 
-        // Remove any HTML entities
         gloss = gloss.Replace("&lt;", "<")
                     .Replace("&gt;", ">")
                     .Replace("&amp;", "&")
@@ -463,14 +434,12 @@ public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
 
         text = CleanGloss(text);
 
-        // Ensure proper punctuation
         text = text.Trim();
         if (!text.EndsWith(".") && !text.EndsWith("!") && !text.EndsWith("?"))
         {
             text += ".";
         }
 
-        // Capitalize first letter
         if (text.Length > 0 && char.IsLower(text[0]))
         {
             text = char.ToUpper(text[0]) + text.Substring(1);

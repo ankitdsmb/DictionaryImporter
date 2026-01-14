@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Grammar;
-using DictionaryImporter.Core.Grammar.Simple;
-using DictionaryImporter.Infrastructure.Grammar;
+﻿using DictionaryImporter.Core.Grammar.Simple;
 using DictionaryImporter.Infrastructure.Parsing;
 
 namespace DictionaryImporter.Bootstrap.Exensions;
@@ -27,7 +25,6 @@ internal static class GrammarRegistrationExtensions
                 return new HybridGrammarCorrector(languageDetector, languageToolCorrector, logger);
             });
 
-            // Decorate parsers as before
             services.Decorate<IDictionaryDefinitionParser>(
                 (inner, sp) => new GrammarAwareDefinitionParser(
                     inner,
@@ -47,11 +44,9 @@ internal static class GrammarRegistrationExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // Get the connection string
         var connectionString = configuration.GetConnectionString("DictionaryImporter")
                                ?? throw new InvalidOperationException("Connection string 'DictionaryImporter' not configured");
 
-        // Register GrammarCorrectionStep
         services.AddSingleton<GrammarCorrectionStep>(sp =>
         {
             var grammarCorrector = sp.GetRequiredService<IGrammarCorrector>();
@@ -70,10 +65,7 @@ internal static class GrammarRegistrationExtensions
         return services;
     }
 
-    // Helper method for service decoration (requires Scrutor or similar)
     private static void Decorate<TService>(this IServiceCollection services, Func<TService, IServiceProvider, TService> decorator)
     {
-        // Implementation depends on your DI container
-        // This is a simplified version
     }
 }

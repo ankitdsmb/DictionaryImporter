@@ -1,7 +1,4 @@
-﻿// SynonymExtractorRegistry.cs
-
-using System.Collections.Concurrent;
-using DictionaryImporter.Infrastructure.Parsing.SynonymExtractor;
+﻿using DictionaryImporter.Infrastructure.Parsing.SynonymExtractor;
 
 namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
 
@@ -20,7 +17,6 @@ public sealed class SynonymExtractorRegistry : ISynonymExtractorRegistry
         _genericExtractor = genericExtractor;
         _logger = logger;
 
-        // Auto-register all extractors from DI
         foreach (var extractor in extractors)
             if (extractor.SourceCode != "*")
                 Register(extractor);

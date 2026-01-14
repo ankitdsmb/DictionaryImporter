@@ -4,12 +4,10 @@ public sealed class CollinsRawEntry
 {
     public string Headword { get; set; } = null!;
 
-    // Captured raw IPA lines
-    public List<string> RawIpaLines { get; set; } = new();
+    public List<string> RawIpaLines { get; set; } = [];
 
-    // NEW: parsed IPA results
-    public List<ParsedIpa> ParsedIpa { get; set; } = new();
+    public List<ParsedIpa> ParsedIpa { get; set; } = [];
 
-    public List<CollinsSenseRaw> Senses { get; set; } = new();
+    public List<CollinsSenseRaw> Senses { get; set; } = [];
     public string? Etymology { get; set; }
 }

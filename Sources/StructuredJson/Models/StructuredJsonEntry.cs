@@ -1,6 +1,4 @@
-﻿using System.Text.Json.Serialization;
-
-namespace DictionaryImporter.Sources.StructuredJson.Models;
+﻿namespace DictionaryImporter.Sources.StructuredJson.Models;
 
 internal sealed class StructuredJsonEntry
 {
@@ -10,5 +8,5 @@ internal sealed class StructuredJsonEntry
     [JsonPropertyName("transliterated_word")]
     public string TransliteratedWord { get; set; } = null!;
 
-    [JsonPropertyName("definitions")] public List<StructuredJsonDefinition> Definitions { get; set; } = new();
+    [JsonPropertyName("definitions")] public List<StructuredJsonDefinition> Definitions { get; set; } = [];
 }

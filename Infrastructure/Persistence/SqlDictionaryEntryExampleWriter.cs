@@ -1,20 +1,10 @@
-﻿// Add this file as SqlDictionaryEntryExampleWriter.cs
+﻿namespace DictionaryImporter.Infrastructure.Persistence;
 
-namespace DictionaryImporter.Infrastructure.Persistence;
-
-public sealed class SqlDictionaryEntryExampleWriter : IDictionaryEntryExampleWriter
+public sealed class SqlDictionaryEntryExampleWriter(
+    string connectionString,
+    ILogger<SqlDictionaryEntryExampleWriter> logger)
+    : IDictionaryEntryExampleWriter
 {
-    private readonly string _connectionString;
-    private readonly ILogger<SqlDictionaryEntryExampleWriter> _logger;
-
-    public SqlDictionaryEntryExampleWriter(
-        string connectionString,
-        ILogger<SqlDictionaryEntryExampleWriter> logger)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-    }
-
     public async Task WriteAsync(
         long parsedDefinitionId,
         string exampleText,
@@ -38,7 +28,7 @@ public sealed class SqlDictionaryEntryExampleWriter : IDictionaryEntryExampleWri
                            );
                            """;
 
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
 
         var rows = await conn.ExecuteAsync(
             new CommandDefinition(
@@ -52,7 +42,7 @@ public sealed class SqlDictionaryEntryExampleWriter : IDictionaryEntryExampleWri
                 cancellationToken: ct));
 
         if (rows > 0)
-            _logger.LogDebug(
+            logger.LogDebug(
                 "Example inserted | ParsedId={ParsedId} | Source={Source}",
                 parsedDefinitionId,
                 sourceCode);

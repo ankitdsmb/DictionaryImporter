@@ -1,32 +1,20 @@
 ﻿namespace DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
 
-public sealed class CanonicalWordIpaEnricher
+public sealed class CanonicalWordIpaEnricher(
+    string connectionString,
+    SqlCanonicalWordPronunciationWriter writer,
+    ILogger<CanonicalWordIpaEnricher> logger)
 {
-    private readonly string _connectionString;
-    private readonly ILogger<CanonicalWordIpaEnricher> _logger;
-    private readonly SqlCanonicalWordPronunciationWriter _writer;
-
-    public CanonicalWordIpaEnricher(
-        string connectionString,
-        SqlCanonicalWordPronunciationWriter writer,
-        ILogger<CanonicalWordIpaEnricher> logger)
-    {
-        _connectionString = connectionString;
-        _writer = writer;
-        _logger = logger;
-    }
-
     public async Task ExecuteAsync(
         string localeCode,
         string ipaFilePath,
         CancellationToken ct)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "Canonical IPA enrichment started | Locale={Locale} | File={File}",
             localeCode,
             ipaFilePath);
 
-        // 1. Load IPA file
         var ipaEntries =
             IpaFileLoader.Load(ipaFilePath)
                 .Where(x =>
@@ -39,14 +27,13 @@ public sealed class CanonicalWordIpaEnricher
                 })
                 .ToList();
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "IPA file loaded | Entries={Count}",
             ipaEntries.Count);
 
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
-        // 2. Load canonical words
         var canonicalWords =
             (await conn.QueryAsync<(long Id, string NormalizedWord)>(
                 """
@@ -58,7 +45,7 @@ public sealed class CanonicalWordIpaEnricher
                 x => x.Id,
                 StringComparer.OrdinalIgnoreCase);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Canonical words loaded | Count={Count}",
             canonicalWords.Count);
 
@@ -66,7 +53,6 @@ public sealed class CanonicalWordIpaEnricher
         var skipped = 0;
         var matchedWords = 0;
 
-        // 3. Group IPA by normalized word
         foreach (var group in ipaEntries.GroupBy(x => x.Word))
         {
             ct.ThrowIfCancellationRequested();
@@ -75,7 +61,7 @@ public sealed class CanonicalWordIpaEnricher
             {
                 skipped += group.Count();
 
-                _logger.LogDebug(
+                logger.LogDebug(
                     "No canonical match for IPA word | Word={Word} | Count={Count}",
                     group.Key,
                     group.Count());
@@ -89,7 +75,7 @@ public sealed class CanonicalWordIpaEnricher
             {
                 ct.ThrowIfCancellationRequested();
 
-                await _writer.WriteIfNotExistsAsync(
+                await writer.WriteIfNotExistsAsync(
                     canonicalWordId,
                     localeCode,
                     entry.Ipa,
@@ -99,7 +85,7 @@ public sealed class CanonicalWordIpaEnricher
             }
         }
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Canonical IPA enrichment completed | Locale={Locale} | File={File} | Loaded={Loaded} | MatchedWords={Matched} | Inserted={Inserted} | Skipped={Skipped}",
             localeCode,
             ipaFilePath,
@@ -109,7 +95,6 @@ public sealed class CanonicalWordIpaEnricher
             skipped);
     }
 
-    // Must match CanonicalWord normalization rules
     private static string Normalize(string word)
     {
         if (string.IsNullOrWhiteSpace(word))

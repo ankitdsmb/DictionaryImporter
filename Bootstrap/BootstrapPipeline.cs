@@ -1,5 +1,4 @@
-﻿using DictionaryImporter.Infrastructure.Grammar;
-using DictionaryImporter.Infrastructure.Merge;
+﻿using DictionaryImporter.Infrastructure.Merge;
 using DictionaryImporter.Infrastructure.OneTimeTasks;
 using DictionaryImporter.Infrastructure.Parsing;
 using DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
@@ -11,7 +10,6 @@ using DictionaryImporter.Infrastructure.Qa;
 using DictionaryImporter.Infrastructure.Verification;
 using DictionaryImporter.Sources.Century21.Models;
 using DictionaryImporter.Sources.Kaikki.Models;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace DictionaryImporter.Bootstrap;
 
@@ -25,14 +23,10 @@ public static class BootstrapPipeline
             configuration.GetConnectionString("DictionaryImporter")
             ?? throw new InvalidOperationException(
                 "Connection string 'DictionaryImporter' not configured");
-        // Kaikki import engine
         services.AddSingleton<ImportEngineFactory<KaikkiRawEntry>>();
         services.AddSingleton<Func<ImportEngineFactory<KaikkiRawEntry>>>(sp =>
             () => sp.GetRequiredService<ImportEngineFactory<KaikkiRawEntry>>());
 
-        // =====================================================
-        // IMPORT ENGINES
-        // =====================================================
         services.AddSingleton<ImportEngineFactory<GutenbergRawEntry>>();
         services.AddSingleton<ImportEngineFactory<StructuredJsonRawEntry>>();
         services.AddSingleton<ImportEngineFactory<EnglishChineseRawEntry>>();
@@ -61,14 +55,10 @@ public static class BootstrapPipeline
 
         services.AddSingleton<IImportEngineRegistry, ImportEngineRegistry>();
 
-        // Oxford-specific extractors
         services.AddSingleton<IEtymologyExtractor, OxfordEtymologyExtractor>();
         services.AddSingleton<IExampleExtractor, OxfordExampleExtractor>();
         services.AddSingleton<ISynonymExtractor, OxfordSynonymExtractor>();
 
-        // =====================================================
-        // POST-PROCESSING / ENRICHMENT
-        // =====================================================
         services.AddSingleton<DictionaryEntryLinguisticEnricher>(sp =>
             new DictionaryEntryLinguisticEnricher(
                 connectionString,
@@ -86,10 +76,6 @@ public static class BootstrapPipeline
                 connectionString,
                 sp.GetRequiredService<ILogger<CanonicalWordSyllableEnricher>>()));
 
-        // =====================================================
-        // VERIFICATION
-        // =====================================================
-
         services.AddSingleton<IDataMergeExecutor>(sp =>
             new SqlDictionaryEntryMergeExecutor(
                 connectionString,
@@ -100,22 +86,13 @@ public static class BootstrapPipeline
                 connectionString,
                 sp.GetRequiredService<ILogger<IpaVerificationReporter>>()));
 
-        // =====================================================
-        // ORTHOGRAPHIC SYLLABLES (NEW)
-        // =====================================================
-
-        // Rule engine (pure, stateless)
         services.AddSingleton<OrthographicSyllableRuleResolver>();
 
-        // Enricher (needs connection string + rules)
         services.AddSingleton<CanonicalWordOrthographicSyllableEnricher>(sp =>
             new CanonicalWordOrthographicSyllableEnricher(
                 connectionString,
                 sp.GetRequiredService<ILogger<CanonicalWordOrthographicSyllableEnricher>>()));
 
-        // =====================================================
-        // ONE-TIME DATABASE TASKS (MANUAL EXECUTION ONLY)
-        // =====================================================
         services.AddSingleton<IOneTimeDatabaseTask>(
             new EditorialIpaMigrationTask(connectionString));
 
@@ -124,24 +101,16 @@ public static class BootstrapPipeline
 
         services.AddSingleton<OneTimeTaskRunner>();
 
-        // Add to BootstrapPipeline.Register method
         services.AddSingleton<ImportEngineFactory<OxfordRawEntry>>();
         services.AddSingleton<Func<ImportEngineFactory<OxfordRawEntry>>>(sp =>
             () => sp.GetRequiredService<ImportEngineFactory<OxfordRawEntry>>());
 
-        // =====================================================
-        // QA (READ-ONLY VERIFICATION)
-        // =====================================================
         foreach (var qa in KnownQaChecks.CreateAll(connectionString)) services.AddSingleton<IQaCheck>(qa);
 
         services.AddSingleton<QaRunner>();
 
-        // =====================================================
-        // ORCHESTRATOR
-        // =====================================================
         services.AddSingleton<ImportOrchestrator>(sp =>
         {
-            // Ensure all required services are available
             return new ImportOrchestrator(
                 sp.GetRequiredService<Func<IDictionaryEntryValidator>>(),
                 sp.GetRequiredService<Func<IDataMergeExecutor>>(),
@@ -161,9 +130,7 @@ public static class BootstrapPipeline
                 sp.GetRequiredService<CanonicalWordIpaEnricher>(),
                 sp.GetRequiredService<CanonicalWordSyllableEnricher>(),
                 sp.GetRequiredService<IpaVerificationReporter>(),
-                sp.GetRequiredService<IReadOnlyList<IpaSourceConfig>>(),
-                // ADD GrammarCorrectionStep here - position 20
-                sp.GetRequiredService<GrammarCorrectionStep>(),
+                sp.GetRequiredService<IReadOnlyList<IpaSourceConfig>>(), sp.GetRequiredService<GrammarCorrectionStep>(),
                 sp.GetRequiredService<ILogger<ImportOrchestrator>>(),
                 sp.GetRequiredService<QaRunner>()
             );

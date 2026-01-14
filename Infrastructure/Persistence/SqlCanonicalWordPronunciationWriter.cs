@@ -1,14 +1,7 @@
 ﻿namespace DictionaryImporter.Infrastructure.Persistence;
 
-public sealed class SqlCanonicalWordPronunciationWriter
+public sealed class SqlCanonicalWordPronunciationWriter(string connectionString)
 {
-    private readonly string _connectionString;
-
-    public SqlCanonicalWordPronunciationWriter(string connectionString)
-    {
-        _connectionString = connectionString;
-    }
-
     public async Task WriteIfNotExistsAsync(long canonicalWordId, string localeCode, string ipa, CancellationToken ct)
     {
         const string sql = """
@@ -34,7 +27,7 @@ public sealed class SqlCanonicalWordPronunciationWriter
                            END
                            """;
 
-        using var conn = new SqlConnection(_connectionString);
+        using var conn = new SqlConnection(connectionString);
 
         await conn.ExecuteAsync(
             new CommandDefinition(

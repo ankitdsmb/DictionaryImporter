@@ -1,39 +1,34 @@
 ﻿namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor;
 
-public sealed class OxfordSynonymExtractor : ISynonymExtractor
+public sealed class OxfordSynonymExtractor(ILogger<OxfordSynonymExtractor> logger) : ISynonymExtractor
 {
     private static readonly Regex[] HighConfidencePatterns =
-    {
+    [
         new(@"^\s*(?<word1>\w+)\s+means\s+(?<word2>\w+)\s*$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled),
         new(@"^\s*(?<word1>\w+)\s+is\s+(?<word2>\w+)\s*$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled),
         new(@"^\s*(?<word1>\w+)\s+is\s+the\s+same\s+as\s+(?<word2>\w+)\s*$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled)
-    };
+    ];
 
     private static readonly Regex[] MediumConfidencePatterns =
-    {
+    [
         new(@"^\s*(?<word1>\w+)\s*,\s*or\s+(?<word2>\w+)\s*,",
             RegexOptions.IgnoreCase | RegexOptions.Compiled),
         new(@"^\s*(?<word1>\w+)\s*\(\s*also\s+(?<word2>\w+)\s*\)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled)
-    };
+    ];
 
     private static readonly Regex[] DefinitionReplacementPatterns =
-    {
+    [
         new(@"^If you (?<word1>\w+) [^,]+, you (?<word2>\w+) (?:it|something|one)\.?$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled),
         new(@"^To (?<word1>\w+) means to (?<word2>\w+)(?:\.|$)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled)
-    };
+    ];
 
-    private readonly ILogger<OxfordSynonymExtractor> _logger;
-
-    public OxfordSynonymExtractor(ILogger<OxfordSynonymExtractor> logger)
-    {
-        _logger = logger;
-    }
+    private readonly ILogger<OxfordSynonymExtractor> _logger = logger;
 
     public string SourceCode => "ENG_OXFORD";
 
@@ -50,7 +45,6 @@ public sealed class OxfordSynonymExtractor : ISynonymExtractor
         var cleanedHeadword = CleanHeadword(headword);
         var cleanedDefinition = PreprocessDefinition(definition);
 
-        // PHASE 1: High-confidence patterns
         foreach (var pattern in HighConfidencePatterns)
         {
             var match = pattern.Match(cleanedDefinition);
@@ -70,7 +64,6 @@ public sealed class OxfordSynonymExtractor : ISynonymExtractor
             }
         }
 
-        // PHASE 2: Definition replacement patterns
         foreach (var pattern in DefinitionReplacementPatterns)
         {
             var match = pattern.Match(cleanedDefinition);
@@ -90,7 +83,6 @@ public sealed class OxfordSynonymExtractor : ISynonymExtractor
             }
         }
 
-        // PHASE 3: Medium-confidence patterns
         foreach (var pattern in MediumConfidencePatterns)
         {
             var match = pattern.Match(cleanedDefinition);
@@ -110,7 +102,6 @@ public sealed class OxfordSynonymExtractor : ISynonymExtractor
             }
         }
 
-        // Deduplicate results
         var deduplicated = results
             .GroupBy(r => r.TargetHeadword)
             .Select(g => g.OrderByDescending(r => GetConfidenceScore(r.ConfidenceLevel)).First())

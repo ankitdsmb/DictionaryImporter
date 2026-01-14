@@ -1,11 +1,7 @@
 ﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing;
 
-public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
+public sealed class WebsterSubEntryParser(ILogger<WebsterSubEntryParser> logger) : IDictionaryDefinitionParser
 {
-    // ============================================================
-    // REGEX
-    // ============================================================
-
     private static readonly Regex NumberedSenseRegex =
         new(
             @"(?<!\w)(?<num>\d+)\.\s+(?<body>.*?)(?=(\s+\d+\.\s+|$))",
@@ -36,54 +32,36 @@ public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
             @"\b(?<type>See also|See|Cf\.)\s+(?<target>[A-Z][A-Za-z\s\-']+)\.?",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    private readonly ILogger<WebsterSubEntryParser> _logger;
-
-    public WebsterSubEntryParser(
-        ILogger<WebsterSubEntryParser> logger)
-    {
-        _logger = logger;
-    }
-
-    // ============================================================
-    // ENTRY POINT
-    // ============================================================
-
     public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
     {
         if (string.IsNullOrWhiteSpace(entry.Definition))
             yield break;
 
-        _logger.LogDebug(
+        logger.LogDebug(
             "Parsing Webster entry | Word={Word} | EntryId={Id}",
             entry.Word,
             entry.DictionaryEntryId);
 
         var definition = entry.Definition.Trim();
 
-        // --------------------------------------------------------
-        // ROOT NODE (STRUCTURAL ONLY)
-        // --------------------------------------------------------
         yield return new ParsedDefinition
         {
             MeaningTitle = entry.Word,
             SenseNumber = null,
-            Definition = string.Empty, // IMPORTANT
+            Definition = string.Empty,
             RawFragment = definition,
             ParentKey = "headword"
         };
 
-        _logger.LogDebug(
+        logger.LogDebug(
             "Root parsed | Word={Word}",
             entry.Word);
 
         var numbered = NumberedSenseRegex.Matches(definition);
 
-        // --------------------------------------------------------
-        // NUMBERED SENSES
-        // --------------------------------------------------------
         if (numbered.Count > 0)
         {
-            _logger.LogDebug(
+            logger.LogDebug(
                 "Numbered senses detected | Word={Word} | Count={Count}",
                 entry.Word,
                 numbered.Count);
@@ -99,7 +77,6 @@ public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
                 var senseKey =
                     $"sense:{senseNumber}";
 
-                // MAIN NUMBERED SENSE
                 yield return BuildParsed(
                     entry.Word,
                     senseNumber,
@@ -108,7 +85,6 @@ public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
                     "headword",
                     senseKey);
 
-                // LETTERED SUB-SENSES (ONLY IF PRESENT)
                 foreach (var sub in ParseLetteredSubSenses(
                              entry.Word,
                              body,
@@ -117,15 +93,12 @@ public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
                     yield return sub;
             }
 
-            yield break; // IMPORTANT: do NOT fall through
+            yield break;
         }
 
-        // --------------------------------------------------------
-        // SINGLE (UNNUMBERED) SENSE
-        // --------------------------------------------------------
         if (IsValidMeaningTitle(entry.Word))
         {
-            _logger.LogDebug(
+            logger.LogDebug(
                 "Single unnumbered sense | Word={Word}",
                 entry.Word);
 
@@ -138,16 +111,9 @@ public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
                 null);
         }
 
-        // --------------------------------------------------------
-        // IDIOMS
-        // --------------------------------------------------------
         foreach (var idiom in ParseIdioms(entry))
             yield return idiom;
     }
-
-    // ============================================================
-    // LETTERED SUB-SENSES
-    // ============================================================
 
     private IEnumerable<ParsedDefinition> ParseLetteredSubSenses(
         string word,
@@ -161,7 +127,7 @@ public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
         if (subs.Count == 0)
             yield break;
 
-        _logger.LogDebug(
+        logger.LogDebug(
             "Lettered sub-senses detected | Word={Word} | Sense={Sense} | Count={Count}",
             word,
             senseNumber,
@@ -176,10 +142,6 @@ public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
                 parentKey,
                 null);
     }
-
-    // ============================================================
-    // IDIOMS
-    // ============================================================
 
     private IEnumerable<ParsedDefinition> ParseIdioms(
         DictionaryEntry entry)
@@ -210,7 +172,7 @@ public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
             var def =
                 parsed.Groups["def"].Value.Trim();
 
-            _logger.LogDebug(
+            logger.LogDebug(
                 "Idiom parsed | Word={Word} | Idiom={Idiom}",
                 entry.Word,
                 title);
@@ -224,10 +186,6 @@ public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
                 null);
         }
     }
-
-    // ============================================================
-    // BUILDER
-    // ============================================================
 
     private ParsedDefinition BuildParsed(
         string title,
@@ -269,10 +227,6 @@ public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
         };
     }
 
-    // ============================================================
-    // CROSS REFERENCES
-    // ============================================================
-
     private static IReadOnlyList<CrossReference> ExtractCrossReferences(
         string text)
     {
@@ -289,10 +243,6 @@ public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
 
         return list;
     }
-
-    // ============================================================
-    // GUARDS
-    // ============================================================
 
     private static bool IsValidMeaningTitle(string title)
     {

@@ -1,40 +1,26 @@
 ﻿namespace DictionaryImporter.Infrastructure.PostProcessing;
 
-public sealed class DictionaryPostProcessor
+public sealed class DictionaryPostProcessor(
+    string connectionString,
+    IPartOfSpeechInfererV2 posInferer,
+    ILogger<DictionaryPostProcessor> logger)
 {
-    private readonly string _connectionString;
-    private readonly ILogger<DictionaryPostProcessor> _logger;
-    private readonly IPartOfSpeechInfererV2 _posInferer;
-
-    public DictionaryPostProcessor(
-        string connectionString,
-        IPartOfSpeechInfererV2 posInferer,
-        ILogger<DictionaryPostProcessor> logger)
-    {
-        _connectionString = connectionString;
-        _posInferer = posInferer;
-        _logger = logger;
-    }
-
     public async Task ExecuteAsync(
         string sourceCode,
         CancellationToken ct)
     {
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
         await InferPartOfSpeech(conn, sourceCode, ct);
         await PersistPartOfSpeechHistory(conn, sourceCode, ct);
         await ExtractSynonymsFromCrossReferences(conn, sourceCode, ct);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Post-processing completed | Source={SourceCode}",
             sourceCode);
     }
 
-    // --------------------------------------------------
-    // 1. PART OF SPEECH INFERENCE
-    // --------------------------------------------------
     private async Task InferPartOfSpeech(
         SqlConnection conn,
         string sourceCode,
@@ -80,7 +66,7 @@ public sealed class DictionaryPostProcessor
         {
             ct.ThrowIfCancellationRequested();
 
-            var result = _posInferer.InferWithConfidence(row.Definition);
+            var result = posInferer.InferWithConfidence(row.Definition);
             if (result.Pos == "unk")
                 continue;
 
@@ -105,15 +91,12 @@ public sealed class DictionaryPostProcessor
                 updated++;
         }
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "POS inferred | Source={SourceCode} | Updated={Updated}",
             sourceCode,
             updated);
     }
 
-    // --------------------------------------------------
-    // 2. POS HISTORY (Source column is CORRECT)
-    // --------------------------------------------------
     private async Task PersistPartOfSpeechHistory(
         SqlConnection conn,
         string sourceCode,
@@ -149,15 +132,12 @@ public sealed class DictionaryPostProcessor
                 """,
                 new { SourceCode = sourceCode });
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "POS history persisted | Source={SourceCode} | Rows={Rows}",
             sourceCode,
             rows);
     }
 
-    // --------------------------------------------------
-    // 3. SYNONYMS (Source column is CORRECT)
-    // --------------------------------------------------
     private async Task ExtractSynonymsFromCrossReferences(
         SqlConnection conn,
         string sourceCode,
@@ -195,7 +175,7 @@ public sealed class DictionaryPostProcessor
                 """,
                 new { SourceCode = sourceCode });
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Synonyms extracted | Source={SourceCode} | Rows={Rows}",
             sourceCode,
             rows);

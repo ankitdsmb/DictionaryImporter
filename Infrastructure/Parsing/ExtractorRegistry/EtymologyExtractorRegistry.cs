@@ -1,7 +1,4 @@
-﻿// EtymologyExtractorRegistry.cs
-
-using System.Collections.Concurrent;
-using DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
+﻿using DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
 
 namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
 
@@ -20,7 +17,6 @@ public sealed class EtymologyExtractorRegistry : IEtymologyExtractorRegistry
         _genericExtractor = genericExtractor;
         _logger = logger;
 
-        // Auto-register all extractors from DI
         foreach (var extractor in extractors)
             if (extractor.SourceCode != "*")
                 Register(extractor);

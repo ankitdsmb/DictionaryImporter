@@ -1,15 +1,7 @@
 ﻿namespace DictionaryImporter.Infrastructure.Persistence;
 
-public sealed class SqlDictionaryEntryEtymologyWriter
-    : IEntryEtymologyWriter
+public sealed class SqlDictionaryEntryEtymologyWriter(string connectionString) : IEntryEtymologyWriter
 {
-    private readonly string _connectionString;
-
-    public SqlDictionaryEntryEtymologyWriter(string connectionString)
-    {
-        _connectionString = connectionString;
-    }
-
     public async Task WriteAsync(
         DictionaryEntryEtymology etymology,
         CancellationToken ct)
@@ -28,7 +20,7 @@ public sealed class SqlDictionaryEntryEtymologyWriter
             """;
 
         await using var conn =
-            new SqlConnection(_connectionString);
+            new SqlConnection(connectionString);
 
         await conn.ExecuteAsync(
             new CommandDefinition(

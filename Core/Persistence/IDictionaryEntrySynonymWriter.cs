@@ -1,6 +1,4 @@
-﻿// IDictionaryEntrySynonymWriter.cs
-
-namespace DictionaryImporter.Core.Persistence;
+﻿namespace DictionaryImporter.Core.Persistence;
 
 public interface IDictionaryEntrySynonymWriter
 {

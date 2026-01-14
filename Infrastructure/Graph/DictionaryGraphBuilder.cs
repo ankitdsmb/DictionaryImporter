@@ -2,24 +2,15 @@
 
 namespace DictionaryImporter.Infrastructure.Graph;
 
-public sealed class DictionaryGraphBuilder : IGraphBuilder
+public sealed class DictionaryGraphBuilder(
+    string connectionString,
+    ILogger<DictionaryGraphBuilder> logger)
+    : IGraphBuilder
 {
-    private readonly string _connectionString;
-    private readonly ILogger<DictionaryGraphBuilder> _logger;
-
-    public DictionaryGraphBuilder(
-        string connectionString,
-        ILogger<DictionaryGraphBuilder> logger)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-    }
-
     public Task BuildAsync(
         string sourceCode,
         CancellationToken ct)
     {
-        // Default behavior for legacy callers
         return BuildAsync(
             sourceCode,
             GraphRebuildMode.Append,
@@ -31,18 +22,15 @@ public sealed class DictionaryGraphBuilder : IGraphBuilder
         GraphRebuildMode rebuildMode,
         CancellationToken ct)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphBuilder started | Source={Source} | Mode={Mode}",
             sourceCode,
             rebuildMode);
 
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
 
-        // ==================================================
-        // 1. WORD → SENSE
-        // ==================================================
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphBuilder | WORD→SENSE started | Source={Source}",
             sourceCode);
 
@@ -76,14 +64,11 @@ public sealed class DictionaryGraphBuilder : IGraphBuilder
                 cancellationToken: ct,
                 commandTimeout: 0));
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphBuilder | WORD→SENSE completed | Source={Source}",
             sourceCode);
 
-        // ==================================================
-        // 2. SENSE → SENSE (HIERARCHY)
-        // ==================================================
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphBuilder | SENSE→SENSE started | Source={Source}",
             sourceCode);
 
@@ -118,14 +103,11 @@ public sealed class DictionaryGraphBuilder : IGraphBuilder
                 cancellationToken: ct,
                 commandTimeout: 0));
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphBuilder | SENSE→SENSE completed | Source={Source}",
             sourceCode);
 
-        // ==================================================
-        // 3. SENSE → DOMAIN
-        // ==================================================
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphBuilder | SENSE→DOMAIN started | Source={Source}",
             sourceCode);
 
@@ -160,14 +142,11 @@ public sealed class DictionaryGraphBuilder : IGraphBuilder
                 cancellationToken: ct,
                 commandTimeout: 0));
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphBuilder | SENSE→DOMAIN completed | Source={Source}",
             sourceCode);
 
-        // ==================================================
-        // 4. SENSE → LANGUAGE (ETYMOLOGY)
-        // ==================================================
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphBuilder | SENSE→LANGUAGE started | Source={Source}",
             sourceCode);
 
@@ -204,14 +183,11 @@ public sealed class DictionaryGraphBuilder : IGraphBuilder
                 cancellationToken: ct,
                 commandTimeout: 0));
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphBuilder | SENSE→LANGUAGE completed | Source={Source}",
             sourceCode);
 
-        // ==================================================
-        // 5. CROSS REFERENCES
-        // ==================================================
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphBuilder | CROSS-REFERENCES started | Source={Source}",
             sourceCode);
 
@@ -221,11 +197,11 @@ public sealed class DictionaryGraphBuilder : IGraphBuilder
             rebuildMode,
             ct);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphBuilder | CROSS-REFERENCES completed | Source={Source}",
             sourceCode);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "GraphBuilder completed | Source={Source} | Mode={Mode}",
             sourceCode,
             rebuildMode);

@@ -2,11 +2,9 @@
 
 internal static class IpaLocaleDetector
 {
-    // Strong American indicators
     private static readonly Regex AmericanMarkers =
         new(@"[ɹɑɚɝoʊ]", RegexOptions.Compiled);
 
-    // Strong British indicators
     private static readonly Regex BritishMarkers =
         new(@"[ɒəʊː]", RegexOptions.Compiled);
 
@@ -22,14 +20,12 @@ internal static class IpaLocaleDetector
         var usScore = 0;
         var gbScore = 0;
 
-        // Core markers
         if (AmericanMarkers.IsMatch(ipa))
             usScore++;
 
         if (BritishMarkers.IsMatch(ipa))
             gbScore++;
 
-        // High-confidence markers
         if (ipa.Contains("ɚ") || ipa.Contains("ɝ"))
             usScore += 2;
 
@@ -42,7 +38,7 @@ internal static class IpaLocaleDetector
         if (gbScore > usScore)
             return "en-GB";
 
-        return "en"; // neutral fallback
+        return "en";
     }
 
     /// <summary>
@@ -52,7 +48,7 @@ internal static class IpaLocaleDetector
     {
         return detectedLocale switch
         {
-            "en-GB" => "en-UK", // legacy compatibility
+            "en-GB" => "en-UK",
             _ => detectedLocale
         };
     }

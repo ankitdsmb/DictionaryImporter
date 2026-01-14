@@ -1,7 +1,4 @@
-﻿// File: DictionaryImporter.Infrastructure/Grammar/GrammarAwareTransformer.cs
-using DictionaryImporter.Core.Grammar;
-
-namespace DictionaryImporter.Infrastructure.Grammar;
+﻿namespace DictionaryImporter.Infrastructure.Grammar;
 
 public sealed class GrammarAwareTransformer<T>(
     IDataTransformer<T> innerTransformer,
@@ -24,7 +21,6 @@ public sealed class GrammarAwareTransformer<T>(
 
     private async Task<DictionaryEntry> ApplyGrammarCorrection(DictionaryEntry entry)
     {
-        // Skip if definition is too short
         if (string.IsNullOrWhiteSpace(entry.Definition) ||
             entry.Definition.Length < _settings.MinDefinitionLength)
         {
@@ -38,7 +34,6 @@ public sealed class GrammarAwareTransformer<T>(
                 "definition",
                 entry.SourceCode);
 
-            // Return entry with corrected definition
             return new DictionaryEntry
             {
                 Word = entry.Word,
@@ -56,7 +51,7 @@ public sealed class GrammarAwareTransformer<T>(
             logger.LogWarning(ex,
                 "Grammar correction failed for word '{Word}' from source {Source}",
                 entry.Word, entry.SourceCode);
-            return entry; // Return original on failure
+            return entry;
         }
     }
 
@@ -79,27 +74,5 @@ public sealed class GrammarAwareTransformer<T>(
         }
 
         return correctionResult.CorrectedText;
-    }
-}
-
-public sealed class GrammarCorrectionSetting
-{
-    public bool Enabled { get; set; } = true;
-    public int MinDefinitionLength { get; set; } = 20;
-    public Dictionary<string, bool> SourceSettings { get; set; } = new();
-    public Dictionary<string, string> LanguageMappings { get; set; } = new();
-    public string LanguageToolUrl { get; internal set; }
-
-    public bool EnabledForSource(string sourceCode)
-    {
-        return Enabled &&
-               (!SourceSettings.TryGetValue(sourceCode, out var enabled) || enabled);
-    }
-
-    public string GetLanguageCode(string sourceCode)
-    {
-        return LanguageMappings.TryGetValue(sourceCode, out var lang)
-            ? lang
-            : "en-US";
     }
 }

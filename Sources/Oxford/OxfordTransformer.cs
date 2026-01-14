@@ -11,7 +11,6 @@ public sealed class OxfordTransformer : IDataTransformer<OxfordRawEntry>
 
         foreach (var sense in raw.Senses)
         {
-            // Build full definition with all components
             var fullDefinition = BuildFullDefinition(raw, sense);
 
             yield return new DictionaryEntry
@@ -31,26 +30,20 @@ public sealed class OxfordTransformer : IDataTransformer<OxfordRawEntry>
     {
         var parts = new List<string>();
 
-        // Add pronunciation if available
         if (!string.IsNullOrEmpty(entry.Pronunciation))
             parts.Add($"【Pronunciation】{entry.Pronunciation}");
 
-        // Add variant forms if available
         if (!string.IsNullOrEmpty(entry.VariantForms))
             parts.Add($"【Variants】{entry.VariantForms}");
 
-        // Add sense label if available
         if (!string.IsNullOrEmpty(sense.SenseLabel))
             parts.Add($"【Label】{sense.SenseLabel}");
 
-        // Add main definition
         parts.Add(sense.Definition);
 
-        // Add Chinese translation if available
         if (!string.IsNullOrEmpty(sense.ChineseTranslation))
             parts.Add($"【Chinese】{sense.ChineseTranslation}");
 
-        // Add examples
         if (sense.Examples.Any())
         {
             parts.Add("【Examples】");
@@ -58,11 +51,9 @@ public sealed class OxfordTransformer : IDataTransformer<OxfordRawEntry>
                 parts.Add($"» {example}");
         }
 
-        // Add usage note if available
         if (!string.IsNullOrEmpty(sense.UsageNote))
             parts.Add($"【Usage】{sense.UsageNote}");
 
-        // Add cross-references if available
         if (sense.CrossReferences.Any())
         {
             parts.Add("【SeeAlso】");
@@ -77,7 +68,6 @@ public sealed class OxfordTransformer : IDataTransformer<OxfordRawEntry>
         if (string.IsNullOrWhiteSpace(word))
             return word;
 
-        // Remove any decorative characters
         word = word.Replace("★", "")
             .Replace("☆", "")
             .Replace("●", "")
@@ -85,13 +75,10 @@ public sealed class OxfordTransformer : IDataTransformer<OxfordRawEntry>
             .Replace("▶", "")
             .Trim();
 
-        // Convert to lowercase
         word = word.ToLowerInvariant();
 
-        // Remove any non-alphabetic characters (keeping hyphens for compound words)
         word = Regex.Replace(word, @"[^\p{L}\-']", " ");
 
-        // Normalize whitespace
         word = Regex.Replace(word, @"\s+", " ").Trim();
 
         return word;
