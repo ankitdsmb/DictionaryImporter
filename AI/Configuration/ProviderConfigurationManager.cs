@@ -1,7 +1,6 @@
 ﻿using DictionaryImporter.AI.Core.Contracts;
 using DictionaryImporter.AI.Orchestration.Providers;
 using System.ComponentModel.DataAnnotations;
-using ValidationResult = System.ComponentModel.DataAnnotations.ValidationResult;
 
 namespace DictionaryImporter.AI.Configuration
 {
@@ -105,18 +104,21 @@ namespace DictionaryImporter.AI.Configuration
 
         private void ValidateConfiguration(ProviderConfiguration config)
         {
-            var context = new ValidationContext(config);
-            var results = new List<ValidationResult>();
+            var context = new System.ComponentModel.DataAnnotations.ValidationContext(config);
+            var results = new List<System.ComponentModel.DataAnnotations.ValidationResult>();
 
-            if (!Validator.TryValidateObject(config, context, results, true))
+            if (!System.ComponentModel.DataAnnotations.Validator.TryValidateObject(
+                    config, context, results, true))
             {
                 var errors = string.Join(", ", results.Select(r => r.ErrorMessage));
-                throw new ValidationException($"Invalid configuration: {errors}");
+                throw new System.ComponentModel.DataAnnotations.ValidationException(
+                    $"Invalid configuration: {errors}");
             }
 
             if (config.IsEnabled && string.IsNullOrEmpty(config.ApiKey))
             {
-                throw new ValidationException($"API key is required for enabled provider");
+                throw new System.ComponentModel.DataAnnotations.ValidationException(
+                    $"API key is required for enabled provider");
             }
         }
 

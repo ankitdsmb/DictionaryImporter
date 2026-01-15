@@ -103,4 +103,16 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="AI\Core\Abstractions\" />
+    <Folder Include="AI\Infrastructure\Http\" />
+    <Folder Include="AI\Infrastructure\Caching\" />
+    <Folder Include="AI\Infrastructure\Serialization\" />
+    <Folder Include="AI\Orchestration\Middleware\" />
+    <Folder Include="AI\Orchestration\Providers\Refactored\" />
+    <Folder Include="AI\Orchestration\Strategies\" />
+    <Folder Include="AI\Orchestration\Providers\Implementations\" />
+    <Folder Include="AI\Orchestration\Providers\Templates\" />
+  </ItemGroup>
+
 </Project>

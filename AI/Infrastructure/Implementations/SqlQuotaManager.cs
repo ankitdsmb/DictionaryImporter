@@ -53,76 +53,65 @@ public class SqlQuotaManager : IQuotaManager, IDisposable
     }
 
     public async Task<QuotaCheckResult> CheckQuotaAsync(
-    string providerName,
-    string userId = null,
-    int estimatedTokens = 0,
-    decimal estimatedCost = 0)
+            string providerName,
+            string userId = null,
+            int estimatedTokens = 0,
+            decimal estimatedCost = 0,
+            CancellationToken cancellationToken = default)
     {
         try
         {
             await using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken);
 
             var sql = @"
-            SELECT
-                pq.ProviderName,
-                pq.UserId,
-                pq.PeriodType,
-                pq.PeriodStart,
-                pq.RequestLimit,
-                pq.TokenLimit,
-                pq.CostLimit,
-                pq.RequestsUsed,
-                pq.TokensUsed,
-                pq.CostUsed,
-                pq.IsActive,
-                CASE
-                    WHEN pq.PeriodType = 'Minute' THEN DATEADD(MINUTE, 1, pq.PeriodStart)
-                    WHEN pq.PeriodType = 'Hour' THEN DATEADD(HOUR, 1, pq.PeriodStart)
-                    WHEN pq.PeriodType = 'Day' THEN DATEADD(DAY, 1, pq.PeriodStart)
-                    WHEN pq.PeriodType = 'Month' THEN DATEADD(MONTH, 1, pq.PeriodStart)
-                END as PeriodEnd
-            FROM ProviderQuotas pq
-            WHERE pq.ProviderName = @ProviderName
-                AND pq.UserId = ISNULL(@UserId, '')
-                AND pq.IsActive = 1
-                AND pq.PeriodStart <= GETUTCDATE()
-                AND (
-                    pq.PeriodType = 'Minute' AND pq.PeriodStart >= DATEADD(MINUTE, -1, GETUTCDATE())
-                    OR pq.PeriodType = 'Hour' AND pq.PeriodStart >= DATEADD(HOUR, -1, GETUTCDATE())
-                    OR pq.PeriodType = 'Day' AND pq.PeriodStart >= DATEADD(DAY, -1, GETUTCDATE())
-                    OR pq.PeriodType = 'Month' AND pq.PeriodStart >= DATEADD(MONTH, -1, GETUTCDATE())
-                )
-            ORDER BY
-                CASE pq.PeriodType
-                    WHEN 'Minute' THEN 1
-                    WHEN 'Hour' THEN 2
-                    WHEN 'Day' THEN 3
-                    WHEN 'Month' THEN 4
-                END;
-        ";
+                    SELECT pq.ProviderName, pq.UserId, pq.PeriodType, pq.PeriodStart,
+                           CASE
+                               WHEN pq.PeriodType = 'Minute' THEN DATEADD(MINUTE, 1, pq.PeriodStart)
+                               WHEN pq.PeriodType = 'Hour' THEN DATEADD(HOUR, 1, pq.PeriodStart)
+                               WHEN pq.PeriodType = 'Day' THEN DATEADD(DAY, 1, pq.PeriodStart)
+                               WHEN pq.PeriodType = 'Month' THEN DATEADD(MONTH, 1, pq.PeriodStart)
+                           END as PeriodEnd,
+                           pq.RequestLimit, pq.TokenLimit, pq.CostLimit,
+                           pq.RequestsUsed, pq.TokensUsed, pq.CostUsed, pq.IsActive
+                    FROM ProviderQuotas pq
+                    WHERE pq.ProviderName = @ProviderName
+                      AND pq.UserId = ISNULL(@UserId, '')
+                      AND pq.IsActive = 1
+                      AND pq.PeriodStart <= GETUTCDATE()
+                      AND (
+                          (pq.PeriodType = 'Minute' AND pq.PeriodStart >= DATEADD(MINUTE, -1, GETUTCDATE()))
+                          OR (pq.PeriodType = 'Hour' AND pq.PeriodStart >= DATEADD(HOUR, -1, GETUTCDATE()))
+                          OR (pq.PeriodType = 'Day' AND pq.PeriodStart >= DATEADD(DAY, -1, GETUTCDATE()))
+                          OR (pq.PeriodType = 'Month' AND pq.PeriodStart >= DATEADD(MONTH, -1, GETUTCDATE()))
+                      )
+                    ORDER BY CASE pq.PeriodType
+                        WHEN 'Minute' THEN 1
+                        WHEN 'Hour' THEN 2
+                        WHEN 'Day' THEN 3
+                        WHEN 'Month' THEN 4
+                    END;";
 
-            var quotas = await connection.QueryAsync<QuotaRecord>(sql, new
-            {
-                ProviderName = providerName,
-                UserId = userId
-            });
+            var quotas = await connection.QueryAsync<QuotaRecord>(
+                sql,
+                new { ProviderName = providerName, UserId = userId });
 
             var currentQuota = quotas.FirstOrDefault();
             if (currentQuota == null)
             {
                 await EnsureQuotaEntriesExistAsync(providerName, userId);
-                return await CheckQuotaAsync(providerName, userId, estimatedTokens, estimatedCost);
+                return await CheckQuotaAsync(providerName, userId, estimatedTokens, estimatedCost, cancellationToken);
             }
 
-            var canProceed = currentQuota.RequestsUsed + 1 <= currentQuota.RequestLimit &&
-                            currentQuota.TokensUsed + estimatedTokens <= currentQuota.TokenLimit &&
-                            (currentQuota.CostLimit == null ||
-                             currentQuota.CostUsed + estimatedCost <= currentQuota.CostLimit.Value);
+            var canProceed = currentQuota.RequestsUsed + 1 <= currentQuota.RequestLimit
+                && currentQuota.TokensUsed + estimatedTokens <= currentQuota.TokenLimit
+                && (currentQuota.CostLimit == null || currentQuota.CostUsed + estimatedCost <= currentQuota.CostLimit.Value);
 
             var remainingRequests = Math.Max(0, currentQuota.RequestLimit - currentQuota.RequestsUsed);
             var remainingTokens = Math.Max(0, currentQuota.TokenLimit - currentQuota.TokensUsed);
-            var remainingCost = currentQuota.CostLimit.HasValue ?
-                Math.Max(0, currentQuota.CostLimit.Value - currentQuota.CostUsed) : decimal.MaxValue;
+            var remainingCost = currentQuota.CostLimit.HasValue
+                ? Math.Max(0, currentQuota.CostLimit.Value - currentQuota.CostUsed)
+                : decimal.MaxValue;
 
             return new QuotaCheckResult
             {
@@ -165,49 +154,47 @@ public class SqlQuotaManager : IQuotaManager, IDisposable
     }
 
     public async Task<QuotaUsageResult> RecordUsageAsync(
-         string providerName,
-         string userId = null,
-         int tokensUsed = 0,
-         decimal costUsed = 0,
-         bool success = true)
+    string providerName,
+    string userId = null,
+    int tokensUsed = 0,
+    decimal costUsed = 0,
+    bool success = true,
+    CancellationToken cancellationToken = default)
     {
         try
         {
             await using var connection = new SqlConnection(_connectionString);
-            await connection.OpenAsync();
+            await connection.OpenAsync(cancellationToken);
 
-            await using var transaction = await connection.BeginTransactionAsync() as SqlTransaction;
+            await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync();
 
             try
             {
                 var periodStart = GetCurrentPeriodStart("Minute");
-
                 var updateSql = @"
-                    UPDATE ProviderQuotas
-                    SET RequestsUsed = RequestsUsed + 1,
-                        TokensUsed = TokensUsed + @TokensUsed,
-                        CostUsed = CostUsed + @CostUsed,
-                        UpdatedAt = GETUTCDATE()
-                    WHERE ProviderName = @ProviderName
-                        AND UserId = ISNULL(@UserId, '')
-                        AND PeriodStart = @PeriodStart
-                        AND PeriodType = 'Minute'
-                        AND IsActive = 1;
+                UPDATE ProviderQuotas
+                SET RequestsUsed = RequestsUsed + 1,
+                    TokensUsed = TokensUsed + @TokensUsed,
+                    CostUsed = CostUsed + @CostUsed,
+                    UpdatedAt = GETUTCDATE()
+                WHERE ProviderName = @ProviderName
+                  AND UserId = ISNULL(@UserId, '')
+                  AND PeriodStart = @PeriodStart
+                  AND PeriodType = 'Minute'
+                  AND IsActive = 1;
 
-                    IF @@ROWCOUNT = 0
-                    BEGIN
-                        INSERT INTO ProviderQuotas (
-                            ProviderName, UserId, PeriodType, PeriodStart,
-                            RequestLimit, TokenLimit, CostLimit,
-                            RequestsUsed, TokensUsed, CostUsed
-                        )
-                        VALUES (
-                            @ProviderName, ISNULL(@UserId, ''), 'Minute', @PeriodStart,
-                            @DefaultRequestLimit, @DefaultTokenLimit, NULL,
-                            1, @TokensUsed, @CostUsed
-                        );
-                    END
-                ";
+                IF @@ROWCOUNT = 0
+                BEGIN
+                    INSERT INTO ProviderQuotas (
+                        ProviderName, UserId, PeriodType, PeriodStart,
+                        RequestLimit, TokenLimit, CostLimit,
+                        RequestsUsed, TokensUsed, CostUsed
+                    ) VALUES (
+                        @ProviderName, ISNULL(@UserId, ''), 'Minute', @PeriodStart,
+                        @DefaultRequestLimit, @DefaultTokenLimit, NULL,
+                        1, @TokensUsed, @CostUsed
+                    );
+                END";
 
                 var parameters = new
                 {
@@ -303,38 +290,32 @@ public class SqlQuotaManager : IQuotaManager, IDisposable
         }
     }
 
-    public async Task<IEnumerable<QuotaStatus>> GetProviderQuotasAsync(string providerName)
+    public async Task<IEnumerable<QuotaStatus>> GetProviderQuotasAsync(
+            string providerName,
+            CancellationToken cancellationToken = default)
     {
         try
         {
             using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken);
 
             var sql = @"
-            SELECT
-                ProviderName,
-                UserId,
-                PeriodType,
-                PeriodStart,
-                CASE
-                    WHEN PeriodType = 'Minute' THEN DATEADD(MINUTE, 1, PeriodStart)
-                    WHEN PeriodType = 'Hour' THEN DATEADD(HOUR, 1, PeriodStart)
-                    WHEN PeriodType = 'Day' THEN DATEADD(DAY, 1, PeriodStart)
-                    WHEN PeriodType = 'Month' THEN DATEADD(MONTH, 1, PeriodStart)
-                END as PeriodEnd,
-                RequestLimit,
-                TokenLimit,
-                CostLimit,
-                RequestsUsed,
-                TokensUsed,
-                CostUsed,
-                IsActive
-            FROM ProviderQuotas
-            WHERE ProviderName = @ProviderName
-                AND IsActive = 1
-            ORDER BY PeriodStart DESC;
-        ";
+                    SELECT ProviderName, UserId, PeriodType, PeriodStart,
+                           CASE
+                               WHEN PeriodType = 'Minute' THEN DATEADD(MINUTE, 1, PeriodStart)
+                               WHEN PeriodType = 'Hour' THEN DATEADD(HOUR, 1, PeriodStart)
+                               WHEN PeriodType = 'Day' THEN DATEADD(DAY, 1, PeriodStart)
+                               WHEN PeriodType = 'Month' THEN DATEADD(MONTH, 1, PeriodStart)
+                           END as PeriodEnd,
+                           RequestLimit, TokenLimit, CostLimit,
+                           RequestsUsed, TokensUsed, CostUsed, IsActive
+                    FROM ProviderQuotas
+                    WHERE ProviderName = @ProviderName AND IsActive = 1
+                    ORDER BY PeriodStart DESC;";
 
-            var records = await connection.QueryAsync<QuotaRecord>(sql, new { ProviderName = providerName });
+            var records = await connection.QueryAsync<QuotaRecord>(
+                sql,
+                new { ProviderName = providerName });
 
             return records.Select(r => new QuotaStatus
             {
@@ -358,38 +339,32 @@ public class SqlQuotaManager : IQuotaManager, IDisposable
         }
     }
 
-    public async Task<IEnumerable<QuotaStatus>> GetUserQuotasAsync(string userId)
+    public async Task<IEnumerable<QuotaStatus>> GetUserQuotasAsync(
+            string userId,
+            CancellationToken cancellationToken = default)
     {
         try
         {
             using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken);
 
             var sql = @"
-            SELECT
-                ProviderName,
-                UserId,
-                PeriodType,
-                PeriodStart,
-                CASE
-                    WHEN PeriodType = 'Minute' THEN DATEADD(MINUTE, 1, PeriodStart)
-                    WHEN PeriodType = 'Hour' THEN DATEADD(HOUR, 1, PeriodStart)
-                    WHEN PeriodType = 'Day' THEN DATEADD(DAY, 1, PeriodStart)
-                    WHEN PeriodType = 'Month' THEN DATEADD(MONTH, 1, PeriodStart)
-                END as PeriodEnd,
-                RequestLimit,
-                TokenLimit,
-                CostLimit,
-                RequestsUsed,
-                TokensUsed,
-                CostUsed,
-                IsActive
-            FROM ProviderQuotas
-            WHERE UserId = @UserId
-                AND IsActive = 1
-            ORDER BY ProviderName, PeriodStart DESC;
-        ";
+                    SELECT ProviderName, UserId, PeriodType, PeriodStart,
+                           CASE
+                               WHEN PeriodType = 'Minute' THEN DATEADD(MINUTE, 1, PeriodStart)
+                               WHEN PeriodType = 'Hour' THEN DATEADD(HOUR, 1, PeriodStart)
+                               WHEN PeriodType = 'Day' THEN DATEADD(DAY, 1, PeriodStart)
+                               WHEN PeriodType = 'Month' THEN DATEADD(MONTH, 1, PeriodStart)
+                           END as PeriodEnd,
+                           RequestLimit, TokenLimit, CostLimit,
+                           RequestsUsed, TokensUsed, CostUsed, IsActive
+                    FROM ProviderQuotas
+                    WHERE UserId = @UserId AND IsActive = 1
+                    ORDER BY ProviderName, PeriodStart DESC;";
 
-            var records = await connection.QueryAsync<QuotaRecord>(sql, new { UserId = userId });
+            var records = await connection.QueryAsync<QuotaRecord>(
+                sql,
+                new { UserId = userId });
 
             return records.Select(r => new QuotaStatus
             {
@@ -504,48 +479,23 @@ public class SqlQuotaManager : IQuotaManager, IDisposable
         };
     }
 
-    public async Task ResetExpiredQuotasAsync()
+    public async Task ResetExpiredQuotasAsync(CancellationToken cancellationToken = default)
     {
         try
         {
             using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken);
 
             var sql = @"
-                -- Deactivate expired quotas
-                UPDATE ProviderQuotas
-                SET IsActive = 0,
-                    UpdatedAt = GETUTCDATE()
-                WHERE IsActive = 1
-                    AND PeriodEnd < GETUTCDATE();
-
-                -- Create new quotas for current period
-                INSERT INTO ProviderQuotas (ProviderName, UserId, PeriodType, PeriodStart,
-                                            RequestLimit, TokenLimit, CostLimit,
-                                            RequestsUsed, TokensUsed, CostUsed, IsActive)
-                SELECT DISTINCT
-                    ProviderName,
-                    UserId,
-                    PeriodType,
-                    CASE PeriodType
-                        WHEN 'Minute' THEN DATEADD(MINUTE, DATEDIFF(MINUTE, 0, GETUTCDATE()), 0)
-                        WHEN 'Hour' THEN DATEADD(HOUR, DATEDIFF(HOUR, 0, GETUTCDATE()), 0)
-                        WHEN 'Day' THEN CAST(GETUTCDATE() AS DATE)
-                        WHEN 'Month' THEN DATEFROMPARTS(YEAR(GETUTCDATE()), MONTH(GETUTCDATE()), 1)
-                    END as PeriodStart,
-                    RequestLimit,
-                    TokenLimit,
-                    CostLimit,
-                    0, 0, 0, 1
-                FROM ProviderQuotas
-                WHERE IsActive = 0
-                    AND NOT EXISTS (
-                        SELECT 1 FROM ProviderQuotas pq2
-                        WHERE pq2.ProviderName = ProviderQuotas.ProviderName
-                            AND pq2.UserId = ProviderQuotas.UserId
-                            AND pq2.PeriodType = ProviderQuotas.PeriodType
-                            AND pq2.IsActive = 1
-                    );
-            ";
+                    UPDATE ProviderQuotas
+                    SET IsActive = 0
+                    WHERE IsActive = 1
+                      AND (
+                          (PeriodType = 'Minute' AND PeriodStart < DATEADD(MINUTE, -1, GETUTCDATE()))
+                          OR (PeriodType = 'Hour' AND PeriodStart < DATEADD(HOUR, -1, GETUTCDATE()))
+                          OR (PeriodType = 'Day' AND PeriodStart < DATEADD(DAY, -1, GETUTCDATE()))
+                          OR (PeriodType = 'Month' AND PeriodStart < DATEADD(MONTH, -1, GETUTCDATE()))
+                      );";
 
             var affected = await connection.ExecuteAsync(sql);
             _logger.LogInformation("Reset {Count} expired quotas", affected);

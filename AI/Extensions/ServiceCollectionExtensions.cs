@@ -1,363 +1,325 @@
-﻿using DictionaryImporter.AI.Configuration;
-using DictionaryImporter.AI.Core.Contracts;
+﻿using DictionaryImporter.AI.Core.Contracts;
 using DictionaryImporter.AI.Infrastructure;
 using DictionaryImporter.AI.Infrastructure.Implementations;
-using DictionaryImporter.AI.Infrastructure.Telemetry;
 using DictionaryImporter.AI.Orchestration;
 using DictionaryImporter.AI.Orchestration.Providers;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Polly;
-using Polly.Extensions.Http;
 
-namespace DictionaryImporter.AI.Extensions;
-
-public static class ServiceCollectionExtensions
+namespace DictionaryImporter.AI.Extensions
 {
-    public static IServiceCollection AddAiOrchestrationWithInfrastructure(
-        this IServiceCollection services,
-        IConfiguration configuration,
-        Action<AiOrchestrationConfiguration> configure = null)
+    public static class ServiceCollectionExtensions
     {
-        if (services == null)
-            throw new ArgumentNullException(nameof(services));
-        if (configuration == null)
-            throw new ArgumentNullException(nameof(configuration));
-
-        var aiConfig = LoadConfiguration(configuration, configure);
-        services.AddSingleton(aiConfig);
-
-        var dbConfig = configuration.GetSection("Database").Get<DatabaseConfiguration>();
-        services.AddSingleton(dbConfig);
-
-        var cacheConfig = configuration.GetSection("Cache").Get<CacheConfiguration>();
-        services.AddSingleton(cacheConfig);
-
-        var telemetryConfig = configuration.GetSection("Telemetry").Get<TelemetryConfiguration>();
-        services.AddSingleton(telemetryConfig);
-
-        var securityConfig = configuration.GetSection("Security").Get<SecurityConfiguration>();
-        services.AddSingleton(securityConfig);
-
-        RegisterInfrastructureServices(services, aiConfig);
-
-        RegisterHttpClients(services, aiConfig);
-
-        RegisterProviders(services);
-
-        services.AddSingleton<ICompletionOrchestrator, IntelligentOrchestrator>();
-
-        RegisterHealthChecks(services);
-
-        return services;
-    }
-
-    private static AiOrchestrationConfiguration LoadConfiguration(
-        IConfiguration configuration,
-        Action<AiOrchestrationConfiguration> configure)
-    {
-        var aiConfig = new AiOrchestrationConfiguration();
-
-        configuration.GetSection("AI:Orchestration").Bind(aiConfig);
-
-        var providersSection = configuration.GetSection("AI:Providers");
-        if (providersSection.Exists())
+        public static IServiceCollection AddRefactoredAiOrchestration(
+            this IServiceCollection services,
+            IConfiguration configuration,
+            Action<AiOrchestrationConfiguration> configure = null)
         {
-            var providers = providersSection.Get<Dictionary<string, ProviderConfiguration>>();
-            if (providers != null)
+            if (services == null)
+                throw new ArgumentNullException(nameof(services));
+
+            if (configuration == null)
+                throw new ArgumentNullException(nameof(configuration));
+
+            var aiConfig = LoadConfiguration(configuration, configure);
+            services.AddSingleton(aiConfig);
+
+            services.TryAddSingleton<IProviderFactory, CompleteProviderFactory>();
+            services.TryAddSingleton<ICompletionOrchestrator, IntelligentOrchestrator>();
+
+            RegisterHttpClients(services, aiConfig);
+
+            RegisterAllProviders(services);
+
+            RegisterInfrastructure(services, aiConfig);
+
+            return services;
+        }
+
+        private static AiOrchestrationConfiguration LoadConfiguration(
+            IConfiguration configuration,
+            Action<AiOrchestrationConfiguration> configure)
+        {
+            var aiConfig = new AiOrchestrationConfiguration();
+            configuration.GetSection("AI:Orchestration").Bind(aiConfig);
+
+            var providersSection = configuration.GetSection("AI:Providers");
+            if (providersSection.Exists())
             {
-                foreach (var kvp in providers)
+                foreach (var providerSection in providersSection.GetChildren())
                 {
-                    kvp.Value.Name = kvp.Key;
-                    aiConfig.Providers[kvp.Key] = kvp.Value;
+                    var providerConfig = new ProviderConfiguration();
+                    providerSection.Bind(providerConfig);
+                    providerConfig.Name = providerSection.Key;
+
+                    if (providerConfig.Capabilities == null)
+                    {
+                        providerConfig.Capabilities = new ProviderCapabilitiesConfiguration
+                        {
+                            TextCompletion = true,
+                            SupportedLanguages = new List<string> { "en" },
+                            MaxTokensLimit = 4000
+                        };
+                    }
+
+                    aiConfig.Providers[providerSection.Key] = providerConfig;
                 }
             }
-        }
 
-        configure?.Invoke(aiConfig);
-
-        return aiConfig;
-    }
-
-    private static void RegisterInfrastructureServices(
-        IServiceCollection services,
-        AiOrchestrationConfiguration aiConfig)
-    {
-        services.AddSingleton<SqlConnectionFactory, SqlConnectionFactory>();
-
-        if (aiConfig.EnableQuotaManagement)
-        {
-            services.AddSingleton<IQuotaManager, SqlQuotaManager>();
-        }
-        else
-        {
-            services.AddSingleton<IQuotaManager, NullQuotaManager>();
-        }
-
-        if (aiConfig.EnableAuditLogging)
-        {
-            services.AddSingleton<IAuditLogger, SqlAuditLogger>();
-        }
-        else
-        {
-            services.AddSingleton<IAuditLogger, NullAuditLogger>();
-        }
-
-        if (aiConfig.EnableCaching)
-        {
-            services.AddSingleton<IResponseCache, DistributedResponseCache>();
-        }
-        else
-        {
-            services.AddSingleton<IResponseCache, NullResponseCache>();
-        }
-
-        if (aiConfig.EnableMetricsCollection)
-        {
-            services.AddSingleton<IPerformanceMetricsCollector, SqlMetricsCollector>();
-        }
-        else
-        {
-            services.AddSingleton<IPerformanceMetricsCollector, NullMetricsCollector>();
-        }
-
-        services.AddSingleton<IApiKeyManager, ConfigurationApiKeyManager>();
-
-        services.AddSingleton<IProviderFactory, EnhancedProviderFactory>();
-
-        if (aiConfig.EnableMetricsCollection)
-        {
-            services.AddSingleton<ITelemetryService, ApplicationInsightsTelemetry>();
-        }
-        else
-        {
-            services.AddSingleton<ITelemetryService, NullTelemetryService>();
-        }
-    }
-
-    private static void RegisterHttpClients(
-        IServiceCollection services,
-        AiOrchestrationConfiguration aiConfig)
-    {
-        foreach (var providerConfig in aiConfig.Providers.Values.Where(p => p.IsEnabled))
-        {
-            services.AddHttpClient(providerConfig.Name, client =>
+            if (aiConfig.FallbackOrder == null || !aiConfig.FallbackOrder.Any())
             {
-                client.Timeout = TimeSpan.FromSeconds(providerConfig.TimeoutSeconds + 5);
-                client.DefaultRequestHeaders.Add("User-Agent", "DictionaryImporter/2.0");
-                client.DefaultRequestHeaders.Add("Accept", "application/json");
-                client.DefaultRequestHeaders.Add("Accept-Encoding", "gzip, deflate");
-
-                if (!string.IsNullOrEmpty(providerConfig.BaseUrl))
+                aiConfig.FallbackOrder = new List<string>
                 {
-                    try
+                    "OpenRouter",
+                    "Gemini",
+                    "Anthropic",
+                    "TogetherAI",
+                    "Cohere",
+                    "AI21",
+                    "TextCortex",
+                    "Perplexity",
+                    "NLPCloud",
+                    "HuggingFace",
+                    "DeepAI",
+                    "Watson",
+                    "AlephAlpha",
+                    "AlephAlphaVision",
+                    "Replicate",
+                    "Ollama",
+                    "StabilityAI",
+                    "ElevenLabs",
+                    "AssemblyAI"
+                };
+            }
+
+            configure?.Invoke(aiConfig);
+            return aiConfig;
+        }
+
+        private static void RegisterHttpClients(
+            IServiceCollection services,
+            AiOrchestrationConfiguration aiConfig)
+        {
+            foreach (var providerConfig in aiConfig.Providers.Values.Where(p => p.IsEnabled))
+            {
+                services.AddHttpClient(providerConfig.Name, client =>
+                {
+                    var timeoutSeconds = providerConfig.TimeoutSeconds > 0
+                        ? providerConfig.TimeoutSeconds + 5
+                        : 35;
+                    client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+
+                    client.DefaultRequestHeaders.Clear();
+                    client.DefaultRequestHeaders.Add("User-Agent", "DictionaryImporter/2.0");
+                    client.DefaultRequestHeaders.Add("Accept", "application/json");
+                    client.DefaultRequestHeaders.Add("Accept-Encoding", "gzip, deflate");
+
+                    if (!string.IsNullOrEmpty(providerConfig.BaseUrl))
                     {
-                        client.BaseAddress = new Uri(providerConfig.BaseUrl);
+                        try
+                        {
+                            client.BaseAddress = new Uri(providerConfig.BaseUrl);
+                        }
+                        catch (UriFormatException ex)
+                        {
+                        }
                     }
-                    catch (UriFormatException)
-                    {
-                    }
-                }
-            })
+                })
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
                 {
                     AutomaticDecompression = System.Net.DecompressionMethods.GZip |
                                            System.Net.DecompressionMethods.Deflate,
-                    UseProxy = true,
-                    Proxy = null,
                     UseCookies = false,
-                    MaxConnectionsPerServer = 100
+                    AllowAutoRedirect = false,
+                    ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
                 })
-                .AddPolicyHandler((serviceProvider, request) =>
+                .SetHandlerLifetime(TimeSpan.FromMinutes(5));
+
+                switch (providerConfig.Name)
                 {
-                    var logger = serviceProvider.GetRequiredService<ILogger<HttpClient>>();
+                    case "OpenRouter":
+                        services.AddHttpClient<OpenRouterProvider>(client =>
+                        {
+                            ConfigureOpenRouterClient(client, providerConfig);
+                        })
+                        .ConfigurePrimaryHttpMessageHandler(CreateDefaultHandler)
+                        .SetHandlerLifetime(TimeSpan.FromMinutes(5));
+                        break;
 
-                    return HttpPolicyExtensions
-                        .HandleTransientHttpError()
-                        .OrResult(msg => (int)msg.StatusCode >= 500)
-                        .WaitAndRetryAsync(
-                            providerConfig.MaxRetries,
-                            retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
-                            onRetry: (outcome, timespan, retryCount, context) =>
-                            {
-                                logger.LogWarning(
-                                    "Retry {RetryCount}/{MaxRetries} for {Provider}. Waiting {Delay}ms. Status: {Status}",
-                                    retryCount, providerConfig.MaxRetries, providerConfig.Name,
-                                    timespan.TotalMilliseconds,
-                                    outcome.Result?.StatusCode.ToString() ?? outcome.Exception?.Message);
-                            });
-                })
-                .AddPolicyHandler(Policy.TimeoutAsync<HttpResponseMessage>(
-                    TimeSpan.FromSeconds(providerConfig.TimeoutSeconds)));
-        }
-    }
+                    case "Anthropic":
+                        services.AddHttpClient<AnthropicProvider>(client =>
+                        {
+                            ConfigureAnthropicClient(client, providerConfig);
+                        })
+                        .ConfigurePrimaryHttpMessageHandler(CreateDefaultHandler)
+                        .SetHandlerLifetime(TimeSpan.FromMinutes(5));
+                        break;
 
-    private static void RegisterProviders(IServiceCollection services)
-    {
-        var providerTypes = new[]
-        {
-            typeof(OpenRouterProvider),
-            typeof(AnthropicProvider),
-            typeof(GeminiProvider),
-            typeof(TogetherAiProvider),
-            typeof(CohereProvider),
-            typeof(Ai21Provider),
-            typeof(TextCortexProvider),
-            typeof(PerplexityProvider),
-            typeof(NlpCloudProvider),
-            typeof(HuggingFaceProvider),
-            typeof(DeepAiProvider),
-            typeof(WatsonProvider),
-            typeof(AlephAlphaProvider),
-            typeof(AlephAlphaVisionProvider),
-            typeof(ReplicateProvider),
-            typeof(OllamaProvider),
-            typeof(StabilityAiProvider),
-            typeof(ElevenLabsProvider),
-            typeof(AssemblyAiProvider)
-        };
-
-        foreach (var providerType in providerTypes)
-        {
-            services.TryAddTransient(providerType);
-        }
-    }
-
-    private static void RegisterHealthChecks(IServiceCollection services)
-    {
-        services.AddHealthChecks()
-            .AddCheck<AiOrchestrationHealthCheck>(
-                "ai_orchestration",
-                failureStatus: HealthStatus.Degraded,
-                tags: new[] { "ai", "orchestration", "providers" });
-
-        services.AddHealthChecks()
-            .AddMemoryHealthCheck(
-                name: "memory",
-                maximumMemoryBytes: 1024 * 1024 * 1024, failureStatus: HealthStatus.Degraded,
-                tags: new[] { "infrastructure", "memory" });
-
-        var serviceProvider = services.BuildServiceProvider();
-
-        var dbConfig = serviceProvider.GetService<DatabaseConfiguration>();
-        if (!string.IsNullOrEmpty(dbConfig?.ConnectionString))
-        {
-            var loggerFactory = serviceProvider.GetService<ILoggerFactory>();
-            var dbLogger = loggerFactory.CreateLogger<DictionaryImporter.AI.Infrastructure.HealthChecks.DatabaseHealthCheck>();
-
-            services.AddHealthChecks()
-                .Add(new HealthCheckRegistration(
-                    "ai_database",
-                    sp => new DictionaryImporter.AI.Infrastructure.HealthChecks.DatabaseHealthCheck(
-                        dbConfig.ConnectionString, dbLogger),
-                    failureStatus: HealthStatus.Degraded,
-                    tags: new[] { "database", "infrastructure" }));
+                    case "Gemini":
+                        services.AddHttpClient<GeminiProvider>(client =>
+                        {
+                            ConfigureGeminiClient(client, providerConfig);
+                        })
+                        .ConfigurePrimaryHttpMessageHandler(CreateDefaultHandler)
+                        .SetHandlerLifetime(TimeSpan.FromMinutes(5));
+                        break;
+                }
+            }
         }
 
-        var loggerFactory2 = serviceProvider.GetService<ILoggerFactory>();
-        if (loggerFactory2 != null)
+        private static void ConfigureOpenRouterClient(HttpClient client, ProviderConfiguration config)
         {
-            var urlLogger = loggerFactory2.CreateLogger<DictionaryImporter.AI.Infrastructure.HealthChecks.UrlHealthCheck>();
+            var timeoutSeconds = config.TimeoutSeconds > 0 ? config.TimeoutSeconds + 5 : 35;
+            client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+            client.DefaultRequestHeaders.Add("User-Agent", "DictionaryImporter/2.0");
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
 
-            services.AddHealthChecks()
-                .Add(new HealthCheckRegistration(
-                    "openrouter_api",
-                    sp => new DictionaryImporter.AI.Infrastructure.HealthChecks.UrlHealthCheck(
-                        new Uri("https://api.openrouter.ai/api/v1/models"),
-                        TimeSpan.FromSeconds(10),
-                        urlLogger),
-                    failureStatus: HealthStatus.Degraded,
-                    tags: new[] { "api", "external", "openrouter" }));
+            if (!string.IsNullOrEmpty(config.BaseUrl))
+            {
+                try
+                {
+                    client.BaseAddress = new Uri(config.BaseUrl);
+                }
+                catch (UriFormatException) { }
+            }
+        }
 
-            services.AddHealthChecks()
-                .Add(new HealthCheckRegistration(
-                    "gemini_api",
-                    sp => new DictionaryImporter.AI.Infrastructure.HealthChecks.UrlHealthCheck(
-                        new Uri("https://generativelanguage.googleapis.com/v1beta/models"),
-                        TimeSpan.FromSeconds(10),
-                        urlLogger),
-                    failureStatus: HealthStatus.Degraded,
-                    tags: new[] { "api", "external", "gemini" }));
+        private static void ConfigureAnthropicClient(HttpClient client, ProviderConfiguration config)
+        {
+            var timeoutSeconds = config.TimeoutSeconds > 0 ? config.TimeoutSeconds + 5 : 35;
+            client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+            client.DefaultRequestHeaders.Add("User-Agent", "DictionaryImporter/2.0");
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
+            client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+
+            if (!string.IsNullOrEmpty(config.BaseUrl))
+            {
+                try
+                {
+                    client.BaseAddress = new Uri(config.BaseUrl);
+                }
+                catch (UriFormatException) { }
+            }
+        }
+
+        private static void ConfigureGeminiClient(HttpClient client, ProviderConfiguration config)
+        {
+            var timeoutSeconds = config.TimeoutSeconds > 0 ? config.TimeoutSeconds + 5 : 35;
+            client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+            client.DefaultRequestHeaders.Add("User-Agent", "DictionaryImporter/2.0");
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
+
+            if (!string.IsNullOrEmpty(config.BaseUrl))
+            {
+                try
+                {
+                    client.BaseAddress = new Uri(config.BaseUrl);
+                }
+                catch (UriFormatException) { }
+            }
+        }
+
+        private static HttpMessageHandler CreateDefaultHandler()
+        {
+            return new HttpClientHandler
+            {
+                AutomaticDecompression = System.Net.DecompressionMethods.GZip |
+                                       System.Net.DecompressionMethods.Deflate,
+                UseCookies = false,
+                AllowAutoRedirect = false,
+                MaxConnectionsPerServer = 50,
+                ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
+                    errors == System.Net.Security.SslPolicyErrors.None
+            };
+        }
+
+        private static void RegisterAllProviders(IServiceCollection services)
+        {
+            services.TryAddTransient<Ai21Provider>();
+            services.TryAddTransient<CohereProvider>();
+            services.TryAddTransient<DeepAiProvider>();
+            services.TryAddTransient<HuggingFaceProvider>();
+            services.TryAddTransient<NlpCloudProvider>();
+            services.TryAddTransient<OllamaProvider>();
+            services.TryAddTransient<ReplicateProvider>();
+
+            services.TryAddTransient<OpenRouterProvider>();
+            services.TryAddTransient<AnthropicProvider>();
+            services.TryAddTransient<GeminiProvider>();
+            services.TryAddTransient<PerplexityProvider>();
+            services.TryAddTransient<TextCortexProvider>();
+            services.TryAddTransient<TogetherAiProvider>();
+            services.TryAddTransient<WatsonProvider>();
+
+            services.TryAddTransient<AlephAlphaProvider>();
+            services.TryAddTransient<AlephAlphaVisionProvider>();
+
+            services.TryAddTransient<AssemblyAiProvider>();
+            services.TryAddTransient<ElevenLabsProvider>();
+
+            services.TryAddTransient<StabilityAiProvider>();
+        }
+
+        private static void RegisterInfrastructure(
+            IServiceCollection services,
+            AiOrchestrationConfiguration aiConfig)
+        {
+            if (aiConfig.EnableQuotaManagement)
+            {
+                services.TryAddSingleton<IQuotaManager, SqlQuotaManager>();
+            }
+            else
+            {
+                services.TryAddSingleton<IQuotaManager, NullQuotaManager>();
+            }
+
+            if (aiConfig.EnableAuditLogging)
+            {
+                services.TryAddSingleton<IAuditLogger, SqlAuditLogger>();
+            }
+            else
+            {
+                services.TryAddSingleton<IAuditLogger, NullAuditLogger>();
+            }
+
+            if (aiConfig.EnableCaching)
+            {
+                services.TryAddSingleton<IResponseCache, DistributedResponseCache>();
+            }
+            else
+            {
+                services.TryAddSingleton<IResponseCache, NullResponseCache>();
+            }
+
+            if (aiConfig.EnableMetricsCollection)
+            {
+                services.TryAddSingleton<IPerformanceMetricsCollector, SqlMetricsCollector>();
+            }
+            else
+            {
+                services.TryAddSingleton<IPerformanceMetricsCollector, NullMetricsCollector>();
+            }
+
+            services.TryAddSingleton<ConfigurationValidator>();
+
+            services.TryAddSingleton<IApiKeyManager, ConfigurationApiKeyManager>();
+        }
+
+        public static IServiceCollection ReplaceAiOrchestration(
+            this IServiceCollection services,
+            IConfiguration configuration)
+        {
+            var serviceDescriptors = services.Where(s =>
+                s.ServiceType == typeof(IProviderFactory) ||
+                s.ServiceType == typeof(ICompletionOrchestrator) ||
+                s.ServiceType.Name.Contains("Provider") ||
+                s.ServiceType.Name.Contains("Orchestrator")).ToList();
+
+            foreach (var descriptor in serviceDescriptors)
+            {
+                services.Remove(descriptor);
+            }
+
+            return services.AddRefactoredAiOrchestration(configuration);
         }
     }
-
-    public static class HealthCheckBuilderExtensions
-    {
-        public static IHealthChecksBuilder AddMemoryHealthCheck(
-            IHealthChecksBuilder builder,
-            string name,
-            long maximumMemoryBytes,
-            HealthStatus? failureStatus = null,
-            IEnumerable<string> tags = null)
-        {
-            return builder.Add(new HealthCheckRegistration(
-                name,
-                sp => new MemoryHealthCheck(maximumMemoryBytes),
-                failureStatus,
-                tags));
-        }
-    }
-}
-
-public class NullQuotaManager : IQuotaManager
-{
-    public Task<QuotaCheckResult> CheckQuotaAsync(string providerName, string userId = null,
-        int estimatedTokens = 0, decimal estimatedCost = 0)
-    {
-        return Task.FromResult(new QuotaCheckResult { CanProceed = true });
-    }
-
-    public Task<QuotaUsageResult> RecordUsageAsync(string providerName, string userId = null,
-        int tokensUsed = 0, decimal costUsed = 0, bool success = true)
-    {
-        return Task.FromResult(new QuotaUsageResult());
-    }
-
-    public Task<IEnumerable<QuotaStatus>> GetProviderQuotasAsync(string providerName) =>
-        Task.FromResult(Enumerable.Empty<QuotaStatus>());
-
-    public Task<IEnumerable<QuotaStatus>> GetUserQuotasAsync(string userId) =>
-        Task.FromResult(Enumerable.Empty<QuotaStatus>());
-
-    public Task ResetExpiredQuotasAsync() => Task.CompletedTask;
-}
-
-public class NullAuditLogger : IAuditLogger
-{
-    public Task LogRequestAsync(AuditLogEntry entry) => Task.CompletedTask;
-
-    public Task<IEnumerable<AuditLogEntry>> GetRecentRequestsAsync(
-        string providerName = null, string userId = null, int limit = 100) =>
-        Task.FromResult(Enumerable.Empty<AuditLogEntry>());
-
-    public Task<IEnumerable<AuditSummary>> GetAuditSummaryAsync(DateTime from, DateTime to) =>
-        Task.FromResult(Enumerable.Empty<AuditSummary>());
-}
-
-public class NullResponseCache : IResponseCache
-{
-    public Task<CachedResponse> GetCachedResponseAsync(string cacheKey) =>
-        Task.FromResult<CachedResponse>(null);
-
-    public Task SetCachedResponseAsync(string cacheKey, CachedResponse response, TimeSpan ttl) =>
-        Task.CompletedTask;
-
-    public Task RemoveCachedResponseAsync(string cacheKey) => Task.CompletedTask;
-
-    public Task CleanExpiredCacheAsync() => Task.CompletedTask;
-}
-
-public class NullMetricsCollector : IPerformanceMetricsCollector
-{
-    public Task RecordMetricsAsync(ProviderMetrics metrics) => Task.CompletedTask;
-
-    public Task<ProviderPerformance> GetProviderPerformanceAsync(
-        string providerName, DateTime from, DateTime to) =>
-        Task.FromResult(new ProviderPerformance());
-
-    public Task<IEnumerable<ProviderPerformance>> GetAllProvidersPerformanceAsync(
-        DateTime from, DateTime to) =>
-        Task.FromResult(Enumerable.Empty<ProviderPerformance>());
 }
