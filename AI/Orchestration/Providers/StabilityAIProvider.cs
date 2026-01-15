@@ -1,23 +1,23 @@
 ﻿using DictionaryImporter.AI.Core.Exceptions;
-using DictionaryImporter.AI.Orchestration.Providers;
-using Microsoft.Extensions.Configuration;
+using DictionaryImporter.AI.Core.Models;
+using DictionaryImporter.AI.Infrastructure;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using System.Text;
+using System.Text.Json;
 
-public class StabilityAiProvider : BaseCompletionProvider
+namespace DictionaryImporter.AI.Orchestration.Providers;
+
+[Provider("StabilityAI", Priority = 14, SupportsCaching = true)]
+public class StabilityAiProvider : EnhancedBaseProvider
 {
     private const string DefaultModel = "stable-diffusion-xl-1024-v1-0";
-    private const int FreeTierMaxImages = 100;
-    private const int FreeTierImageSize = 512;
-
-    private static long _monthlyImageCount = 0;
-    private static DateTime _lastResetMonth = new(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
-    private static readonly object MonthlyCounterLock = new();
+    private const string BaseUrl = "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image";
 
     public override string ProviderName => "StabilityAI";
     public override int Priority => 14;
     public override ProviderType Type => ProviderType.ImageGeneration;
-
     public override bool SupportsAudio => false;
-
     public override bool SupportsVision => false;
     public override bool SupportsImages => true;
     public override bool SupportsTextToSpeech => false;
@@ -27,30 +27,36 @@ public class StabilityAiProvider : BaseCompletionProvider
     public StabilityAiProvider(
         HttpClient httpClient,
         ILogger<StabilityAiProvider> logger,
-        IOptions<ProviderConfiguration> configuration)
-        : base(httpClient, logger, configuration)
+        IOptions<ProviderConfiguration> configuration,
+        IQuotaManager quotaManager = null,
+        IAuditLogger auditLogger = null,
+        IResponseCache responseCache = null,
+        IPerformanceMetricsCollector metricsCollector = null,
+        IApiKeyManager apiKeyManager = null)
+        : base(httpClient, logger, configuration, quotaManager, auditLogger, responseCache, metricsCollector, apiKeyManager)
     {
         if (string.IsNullOrEmpty(Configuration.ApiKey))
         {
             Logger.LogWarning("Stability AI API key not configured. Provider will be disabled.");
+            Configuration.IsEnabled = false;
             return;
         }
-        ConfigureAuthentication();
     }
 
     protected override void ConfigureCapabilities()
     {
         base.ConfigureCapabilities();
         Capabilities.ImageGeneration = true;
-        Capabilities.MaxImageSize = FreeTierImageSize;
-        Capabilities.SupportedImageFormats.Add("png");
-        Capabilities.SupportedImageFormats.Add("jpeg");
+        Capabilities.MaxTokensLimit = 1000;
+        Capabilities.SupportedImageFormats.AddRange(new[] { "png", "jpg", "jpeg", "webp" });
+        Capabilities.SupportedLanguages.Add("en");
     }
 
     protected override void ConfigureAuthentication()
     {
+        var apiKey = GetApiKey();
         HttpClient.DefaultRequestHeaders.Clear();
-        HttpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {Configuration.ApiKey}");
+        HttpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
         HttpClient.DefaultRequestHeaders.Add("Accept", "application/json");
         HttpClient.DefaultRequestHeaders.Add("User-Agent", "DictionaryImporter/2.0");
     }
@@ -63,187 +69,257 @@ public class StabilityAiProvider : BaseCompletionProvider
 
         try
         {
-            if (string.IsNullOrEmpty(Configuration.ApiKey))
+            if (!Configuration.IsEnabled)
             {
-                throw new InvalidOperationException("Stability AI API key not configured");
+                throw new InvalidOperationException("Stability AI provider is disabled");
             }
 
-            if (!CheckMonthlyLimit())
+            var quotaCheck = await CheckQuotaAsync(request, request.Context?.UserId);
+            if (!quotaCheck.CanProceed)
             {
-                throw new StabilityAiQuotaExceededException(
-                    $"Stability AI free tier monthly limit reached: {FreeTierMaxImages} images/month");
+                throw new ProviderQuotaExceededException(ProviderName,
+                    $"Quota exceeded. Remaining: {quotaCheck.RemainingRequests} requests, " +
+                    $"{quotaCheck.RemainingTokens} tokens. Resets in {quotaCheck.TimeUntilReset.TotalMinutes:F0} minutes.");
             }
 
-            ValidateImageRequest(request);
-            IncrementMonthlyCount();
+            if (Configuration.EnableCaching)
+            {
+                var cachedResponse = await TryGetCachedResponseAsync(request);
+                if (cachedResponse != null)
+                {
+                    return cachedResponse;
+                }
+            }
 
-            var imageData = await GenerateImageAsync(request, cancellationToken);
+            ValidateRequest(request);
 
+            var payload = CreateRequestPayload(request);
+            var httpRequest = CreateHttpRequest(payload);
+            var model = string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model;
+
+            Logger.LogDebug("Sending image generation request to Stability AI with model {Model}", model);
+
+            var response = await SendWithResilienceAsync(
+                () => HttpClient.SendAsync(httpRequest, cancellationToken),
+                cancellationToken);
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            var imageData = ParseResponse(content);
             stopwatch.Stop();
 
-            return new AiResponse
+            var aiResponse = new AiResponse
             {
                 Content = Convert.ToBase64String(imageData),
                 Provider = ProviderName,
+                Model = model,
                 TokensUsed = EstimateTokenUsage(request.Prompt),
                 ProcessingTime = stopwatch.Elapsed,
                 IsSuccess = true,
+                EstimatedCost = EstimateCost(EstimateTokenUsage(request.Prompt), 0),
                 ImageData = imageData,
                 ImageFormat = "png",
                 Metadata = new Dictionary<string, object>
-                    {
-                        { "model", string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model },
-                        { "free_tier", true },
-                        { "monthly_images_generated", GetMonthlyImageCount() },
-                        { "monthly_images_remaining", FreeTierMaxImages - GetMonthlyImageCount() },
-                        { "image_size", FreeTierImageSize },
-                        { "image_format", "png" },
-                        { "content_type", "image/png" }
-                    }
+                {
+                    ["model"] = model,
+                    ["tokens_used"] = EstimateTokenUsage(request.Prompt),
+                    ["estimated_cost"] = EstimateCost(EstimateTokenUsage(request.Prompt), 0),
+                    ["stability_ai"] = true,
+                    ["image_generation"] = true,
+                    ["image_format"] = "png",
+                    ["image_size"] = imageData.Length,
+                    ["generation_steps"] = 30
+                }
             };
-        }
-        catch (StabilityAiQuotaExceededException ex)
-        {
-            stopwatch.Stop();
-            Logger.LogWarning(ex.Message);
-            throw;
+
+            await RecordUsageAsync(request, aiResponse, stopwatch.Elapsed, request.Context?.UserId);
+
+            if (Configuration.EnableCaching && Configuration.CacheDurationMinutes > 0)
+            {
+                await CacheResponseAsync(
+                    request,
+                    aiResponse,
+                    TimeSpan.FromMinutes(Configuration.CacheDurationMinutes));
+            }
+
+            return aiResponse;
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
-            Logger.LogError(ex, "Stability AI provider failed");
-            if (ShouldFallback(ex)) throw;
+            Logger.LogError(ex, "Stability AI provider failed for request {RequestId}", request.Context?.RequestId);
 
-            return new AiResponse
+            if (ShouldFallback(ex))
+            {
+                throw;
+            }
+
+            var errorResponse = new AiResponse
             {
                 Content = string.Empty,
                 Provider = ProviderName,
+                Model = Configuration.Model ?? DefaultModel,
                 ProcessingTime = stopwatch.Elapsed,
                 IsSuccess = false,
+                ErrorCode = GetErrorCode(ex),
                 ErrorMessage = ex.Message,
                 Metadata = new Dictionary<string, object>
-                    {
-                        { "model", string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model },
-                        { "error_type", ex.GetType().Name }
-                    }
+                {
+                    ["model"] = Configuration.Model ?? DefaultModel,
+                    ["error_type"] = ex.GetType().Name,
+                    ["stack_trace"] = ex.StackTrace
+                }
             };
-        }
-    }
 
-    private bool CheckMonthlyLimit()
-    {
-        lock (MonthlyCounterLock)
-        {
-            var currentMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
-            if (currentMonth > _lastResetMonth)
+            if (AuditLogger != null)
             {
-                _monthlyImageCount = 0;
-                _lastResetMonth = currentMonth;
+                var auditEntry = CreateAuditEntry(request, errorResponse, stopwatch.Elapsed, request.Context?.UserId);
+                auditEntry.ErrorCode = errorResponse.ErrorCode;
+                auditEntry.ErrorMessage = errorResponse.ErrorMessage;
+                await AuditLogger.LogRequestAsync(auditEntry);
             }
-            return _monthlyImageCount < FreeTierMaxImages;
+
+            return errorResponse;
         }
     }
 
-    private void IncrementMonthlyCount()
-    {
-        lock (MonthlyCounterLock)
-        {
-            _monthlyImageCount++;
-        }
-    }
-
-    private long GetMonthlyImageCount()
-    {
-        lock (MonthlyCounterLock)
-        {
-            var currentMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
-            if (currentMonth > _lastResetMonth)
-            {
-                _monthlyImageCount = 0;
-                _lastResetMonth = currentMonth;
-            }
-            return _monthlyImageCount;
-        }
-    }
-
-    private void ValidateImageRequest(AiRequest request)
+    private void ValidateRequest(AiRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Prompt))
-            throw new ArgumentException("Image prompt cannot be empty");
+            throw new ArgumentException("Prompt cannot be empty for image generation");
 
         if (request.Prompt.Length > 1000)
-            throw new ArgumentException("Image prompt too long (max 1000 characters)");
+        {
+            Logger.LogWarning("Prompt length {Length} exceeds recommended limit for image generation", request.Prompt.Length);
+        }
     }
 
-    private async Task<byte[]> GenerateImageAsync(AiRequest request, CancellationToken cancellationToken)
+    private object CreateRequestPayload(AiRequest request)
     {
-        var payload = new
+        return new
         {
             text_prompts = new[]
             {
-                    new { text = request.Prompt, weight = 1.0 }
-                },
-            cfg_scale = 7,
-            height = FreeTierImageSize,
-            width = FreeTierImageSize,
+                new
+                {
+                    text = request.Prompt,
+                    weight = 1.0
+                }
+            },
+            cfg_scale = 7.0,
+            height = 1024,
+            width = 1024,
             samples = 1,
-            steps = 30
+            steps = 30,
+            style_preset = "photographic"
         };
+    }
 
-        var model = string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model;
-        var baseUrl = string.IsNullOrEmpty(Configuration.BaseUrl) ?
-            $"https://api.stability.ai/v1/generation/{model}/text-to-image" : Configuration.BaseUrl;
+    private HttpRequestMessage CreateHttpRequest(object payload)
+    {
+        var url = Configuration.BaseUrl ?? BaseUrl;
 
-        var httpRequest = new HttpRequestMessage(HttpMethod.Post, baseUrl)
+        return new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = new StringContent(
-                JsonSerializer.Serialize(payload, new JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-                }),
+                JsonSerializer.Serialize(payload, JsonSerializerOptions),
                 Encoding.UTF8,
                 "application/json")
         };
-
-        var response = await SendWithResilienceAsync(
-            () => HttpClient.SendAsync(httpRequest, cancellationToken),
-            cancellationToken);
-
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        using var jsonDoc = JsonDocument.Parse(content);
-
-        if (jsonDoc.RootElement.TryGetProperty("artifacts", out var artifacts))
-        {
-            var firstImage = artifacts.EnumerateArray().FirstOrDefault();
-            if (firstImage.TryGetProperty("base64", out var base64Element))
-            {
-                return Convert.FromBase64String(base64Element.GetString() ?? string.Empty);
-            }
-        }
-
-        throw new InvalidOperationException("No image generated");
     }
 
-    private long EstimateTokenUsage(string prompt)
+    private byte[] ParseResponse(string jsonResponse)
     {
-        return prompt.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+        try
+        {
+            using var jsonDoc = JsonDocument.Parse(jsonResponse);
+            var root = jsonDoc.RootElement;
+
+            if (root.TryGetProperty("message", out var messageElement))
+            {
+                var errorMessage = messageElement.GetString() ?? "Unknown error";
+                if (errorMessage.Contains("quota") || errorMessage.Contains("limit") || errorMessage.Contains("credits"))
+                {
+                    throw new ProviderQuotaExceededException(ProviderName, $"Stability AI error: {errorMessage}");
+                }
+                throw new HttpRequestException($"Stability AI API error: {errorMessage}");
+            }
+
+            if (root.TryGetProperty("artifacts", out var artifacts))
+            {
+                var firstArtifact = artifacts.EnumerateArray().FirstOrDefault();
+                if (firstArtifact.TryGetProperty("base64", out var base64Element))
+                {
+                    var base64String = base64Element.GetString();
+                    if (!string.IsNullOrEmpty(base64String))
+                    {
+                        return Convert.FromBase64String(base64String);
+                    }
+                }
+            }
+
+            throw new FormatException("Could not find image data in Stability AI response");
+        }
+        catch (JsonException ex)
+        {
+            Logger.LogError(ex, "Failed to parse Stability AI JSON response");
+            throw new FormatException("Invalid Stability AI response format");
+        }
+    }
+
+    private string GetErrorCode(Exception ex)
+    {
+        return ex switch
+        {
+            ProviderQuotaExceededException => "QUOTA_EXCEEDED",
+            RateLimitExceededException => "RATE_LIMIT_EXCEEDED",
+            HttpRequestException httpEx => httpEx.StatusCode.HasValue ? $"HTTP_{httpEx.StatusCode.Value}" : "HTTP_ERROR",
+            TimeoutException => "TIMEOUT",
+            JsonException => "INVALID_RESPONSE",
+            FormatException => "INVALID_RESPONSE",
+            ArgumentException => "INVALID_REQUEST",
+            _ => "UNKNOWN_ERROR"
+        };
+    }
+
+    protected override decimal EstimateCost(long inputTokens, long outputTokens)
+    {
+        var model = Configuration.Model ?? DefaultModel;
+
+        if (model.Contains("stable-diffusion-xl"))
+        {
+            return 0.004m;
+        }
+        else if (model.Contains("stable-diffusion"))
+        {
+            return 0.002m;
+        }
+        else
+        {
+            return 0.003m;
+        }
     }
 
     public override bool ShouldFallback(Exception exception)
     {
-        if (exception is StabilityAiQuotaExceededException)
+        if (exception is ProviderQuotaExceededException || exception is RateLimitExceededException)
             return true;
 
         if (exception is HttpRequestException httpEx)
         {
             var message = httpEx.Message.ToLowerInvariant();
             return message.Contains("429") ||
+                   message.Contains("401") ||
+                   message.Contains("403") ||
+                   message.Contains("503") ||
                    message.Contains("quota") ||
                    message.Contains("limit") ||
-                   message.Contains("monthly") ||
-                   message.Contains("free tier");
+                   message.Contains("rate limit") ||
+                   message.Contains("insufficient_credits");
         }
+
+        if (exception is TimeoutException || exception is TaskCanceledException)
+            return true;
 
         return base.ShouldFallback(exception);
     }

@@ -1,28 +1,27 @@
-﻿using DictionaryImporter.AI.Orchestration.Providers;
-using Microsoft.Extensions.Configuration;
+﻿using Azure.Core;
+using DictionaryImporter.AI.Core.Exceptions;
+using DictionaryImporter.AI.Core.Models;
+using DictionaryImporter.AI.Infrastructure;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using System.Text;
+using System.Text.Json;
 
-public class WatsonProvider : BaseCompletionProvider
+namespace DictionaryImporter.AI.Orchestration.Providers;
+
+[Provider("Watson", Priority = 13, SupportsCaching = true)]
+public class WatsonProvider : EnhancedBaseProvider
 {
     private const string DefaultModel = "ibm/granite-13b-chat-v2";
-    private const string DefaultRegion = "us-south";
-    private const int FreeTierMaxTokens = 1000;
-    private const int FreeTierRequestsPerMinute = 100;
-    private const int FreeTierRequestsPerDay = 1000;
+    private const string BaseUrl = "https://us-south.ml.cloud.ibm.com/ml/v1/text/generation?version=2023-05-29";
 
-    private readonly string _iamApiKey;
-    private string? _accessToken;
-    private DateTime _tokenExpiry;
-    private readonly SemaphoreSlim _tokenLock = new(1, 1);
-    private static long _dailyRequestCount = 0;
-    private static DateTime _lastResetDate = DateTime.UtcNow.Date;
-    private static readonly object DailyCounterLock = new();
+    // Store the current request for token estimation
+    private AiRequest _currentRequest;
 
     public override string ProviderName => "Watson";
-    public override int Priority => 5;
+    public override int Priority => 13;
     public override ProviderType Type => ProviderType.TextCompletion;
-
     public override bool SupportsAudio => false;
-
     public override bool SupportsVision => false;
     public override bool SupportsImages => false;
     public override bool SupportsTextToSpeech => false;
@@ -32,31 +31,35 @@ public class WatsonProvider : BaseCompletionProvider
     public WatsonProvider(
         HttpClient httpClient,
         ILogger<WatsonProvider> logger,
-        IOptions<ProviderConfiguration> configuration)
-        : base(httpClient, logger, configuration)
+        IOptions<ProviderConfiguration> configuration,
+        IQuotaManager quotaManager = null,
+        IAuditLogger auditLogger = null,
+        IResponseCache responseCache = null,
+        IPerformanceMetricsCollector metricsCollector = null,
+        IApiKeyManager apiKeyManager = null)
+        : base(httpClient, logger, configuration, quotaManager, auditLogger, responseCache, metricsCollector, apiKeyManager)
     {
-        _iamApiKey = Configuration.ApiKey;
-
-        if (string.IsNullOrEmpty(_iamApiKey))
+        if (string.IsNullOrEmpty(Configuration.ApiKey))
         {
-            Logger.LogWarning("Watson API key not configured. Provider will be disabled.");
+            Logger.LogWarning("Watson (IBM) API key not configured. Provider will be disabled.");
+            Configuration.IsEnabled = false;
             return;
         }
-
-        ConfigureAuthentication();
     }
 
     protected override void ConfigureCapabilities()
     {
         base.ConfigureCapabilities();
         Capabilities.TextCompletion = true;
-        Capabilities.MaxTokensLimit = FreeTierMaxTokens;
-        Capabilities.SupportedLanguages.Add("en");
+        Capabilities.MaxTokensLimit = 4096;
+        Capabilities.SupportedLanguages.AddRange(new[] { "en", "es", "fr", "de", "it", "pt", "nl", "ja", "ko", "zh" });
     }
 
     protected override void ConfigureAuthentication()
     {
+        var apiKey = GetApiKey();
         HttpClient.DefaultRequestHeaders.Clear();
+        HttpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
         HttpClient.DefaultRequestHeaders.Add("Accept", "application/json");
         HttpClient.DefaultRequestHeaders.Add("User-Agent", "DictionaryImporter/2.0");
     }
@@ -69,120 +72,120 @@ public class WatsonProvider : BaseCompletionProvider
 
         try
         {
-            if (string.IsNullOrEmpty(_iamApiKey))
+            // Store the current request for token estimation
+            _currentRequest = request;
+
+            if (!Configuration.IsEnabled)
             {
-                throw new InvalidOperationException("Watson API key not configured");
+                throw new InvalidOperationException("Watson provider is disabled");
             }
 
-            if (!CheckDailyLimit())
+            var quotaCheck = await CheckQuotaAsync(request, request.Context?.UserId);
+            if (!quotaCheck.CanProceed)
             {
-                throw new WatsonQuotaExceededException(
-                    $"Watson free tier daily limit reached: {FreeTierRequestsPerDay} requests/day");
+                throw new ProviderQuotaExceededException(ProviderName,
+                    $"Quota exceeded. Remaining: {quotaCheck.RemainingRequests} requests, " +
+                    $"{quotaCheck.RemainingTokens} tokens. Resets in {quotaCheck.TimeUntilReset.TotalMinutes:F0} minutes.");
+            }
+
+            if (Configuration.EnableCaching)
+            {
+                var cachedResponse = await TryGetCachedResponseAsync(request);
+                if (cachedResponse != null)
+                {
+                    return cachedResponse;
+                }
             }
 
             ValidateRequest(request);
-            IncrementDailyCount();
 
-            var token = await GetOrRefreshTokenAsync(cancellationToken);
             var payload = CreateRequestPayload(request);
-            var httpRequest = CreateHttpRequest(token, payload);
+            var httpRequest = CreateHttpRequest(payload);
             var model = string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model;
 
-            Logger.LogDebug("Sending request to Watson with model {Model}", model);
+            Logger.LogDebug("Sending request to Watson (IBM) with model {Model}", model);
 
             var response = await SendWithResilienceAsync(
                 () => HttpClient.SendAsync(httpRequest, cancellationToken),
                 cancellationToken);
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            var result = ParseResponse(content);
 
+            var result = ParseResponse(content, out var tokenUsage);
             stopwatch.Stop();
 
-            return new AiResponse
+            var aiResponse = new AiResponse
             {
                 Content = result.Trim(),
                 Provider = ProviderName,
                 Model = model,
-                TokensUsed = CalculateTokenUsage(request.Prompt, result),
+                TokensUsed = tokenUsage,
                 ProcessingTime = stopwatch.Elapsed,
                 IsSuccess = true,
+                EstimatedCost = EstimateCost(tokenUsage, 0),
                 Metadata = new Dictionary<string, object>
-                    {
-                        { "model", model },
-                        { "free_tier", true },
-                        { "daily_requests_used", GetDailyRequestCount() },
-                        { "daily_requests_remaining", FreeTierRequestsPerDay - GetDailyRequestCount() },
-                        { "region", DefaultRegion }
-                    }
+                {
+                    ["model"] = model,
+                    ["tokens_used"] = tokenUsage,
+                    ["estimated_cost"] = EstimateCost(tokenUsage, 0),
+                    ["ibm_watson"] = true,
+                    ["enterprise_grade"] = true
+                }
             };
-        }
-        catch (WatsonQuotaExceededException ex)
-        {
-            stopwatch.Stop();
-            Logger.LogWarning(ex.Message);
-            throw;
-        }
-        catch (WatsonAuthorizationException ex)
-        {
-            stopwatch.Stop();
-            Logger.LogError(ex, "Watson authorization failed");
-            await ClearTokenAsync();
-            throw;
+
+            await RecordUsageAsync(request, aiResponse, stopwatch.Elapsed, request.Context?.UserId);
+
+            if (Configuration.EnableCaching && Configuration.CacheDurationMinutes > 0)
+            {
+                await CacheResponseAsync(
+                    request,
+                    aiResponse,
+                    TimeSpan.FromMinutes(Configuration.CacheDurationMinutes));
+            }
+
+            return aiResponse;
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
-            Logger.LogError(ex, "Watson provider failed");
-            if (ShouldFallback(ex)) throw;
+            Logger.LogError(ex, "Watson provider failed for request {RequestId}", request.Context?.RequestId);
 
-            return new AiResponse
+            if (ShouldFallback(ex))
+            {
+                throw;
+            }
+
+            var errorResponse = new AiResponse
             {
                 Content = string.Empty,
                 Provider = ProviderName,
+                Model = Configuration.Model ?? DefaultModel,
                 ProcessingTime = stopwatch.Elapsed,
                 IsSuccess = false,
+                ErrorCode = GetErrorCode(ex),
                 ErrorMessage = ex.Message,
                 Metadata = new Dictionary<string, object>
-                    {
-                        { "model", string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model },
-                        { "error_type", ex.GetType().Name }
-                    }
+                {
+                    ["model"] = Configuration.Model ?? DefaultModel,
+                    ["error_type"] = ex.GetType().Name,
+                    ["stack_trace"] = ex.StackTrace
+                }
             };
-        }
-    }
 
-    private bool CheckDailyLimit()
-    {
-        lock (DailyCounterLock)
-        {
-            if (DateTime.UtcNow.Date > _lastResetDate)
+            if (AuditLogger != null)
             {
-                _dailyRequestCount = 0;
-                _lastResetDate = DateTime.UtcNow.Date;
+                var auditEntry = CreateAuditEntry(request, errorResponse, stopwatch.Elapsed, request.Context?.UserId);
+                auditEntry.ErrorCode = errorResponse.ErrorCode;
+                auditEntry.ErrorMessage = errorResponse.ErrorMessage;
+                await AuditLogger.LogRequestAsync(auditEntry);
             }
-            return _dailyRequestCount < FreeTierRequestsPerDay;
-        }
-    }
 
-    private void IncrementDailyCount()
-    {
-        lock (DailyCounterLock)
-        {
-            _dailyRequestCount++;
+            return errorResponse;
         }
-    }
-
-    private long GetDailyRequestCount()
-    {
-        lock (DailyCounterLock)
+        finally
         {
-            if (DateTime.UtcNow.Date > _lastResetDate)
-            {
-                _dailyRequestCount = 0;
-                _lastResetDate = DateTime.UtcNow.Date;
-            }
-            return _dailyRequestCount;
+            // Clear the stored request
+            _currentRequest = null;
         }
     }
 
@@ -191,189 +194,176 @@ public class WatsonProvider : BaseCompletionProvider
         if (string.IsNullOrWhiteSpace(request.Prompt))
             throw new ArgumentException("Prompt cannot be empty");
 
-        if (request.Prompt.Length > 20000)
-            throw new ArgumentException($"Prompt exceeds Watson limit of 20,000 characters. Length: {request.Prompt.Length}");
-
-        if (request.MaxTokens > FreeTierMaxTokens)
+        if (request.MaxTokens > Capabilities.MaxTokensLimit)
         {
             Logger.LogWarning(
-                "Requested {Requested} tokens exceeds Watson free tier limit of {Limit}. Using {Limit} instead.",
-                request.MaxTokens, FreeTierMaxTokens, FreeTierMaxTokens);
-        }
-    }
-
-    private async Task<string> GetOrRefreshTokenAsync(CancellationToken cancellationToken)
-    {
-        if (!string.IsNullOrEmpty(_accessToken) && _tokenExpiry > DateTime.UtcNow.AddMinutes(5))
-            return _accessToken;
-
-        await _tokenLock.WaitAsync(cancellationToken);
-
-        try
-        {
-            if (!string.IsNullOrEmpty(_accessToken) && _tokenExpiry > DateTime.UtcNow.AddMinutes(5))
-                return _accessToken;
-
-            Logger.LogDebug("Refreshing IBM IAM token");
-
-            var tokenRequest = new HttpRequestMessage(HttpMethod.Post, "https://iam.cloud.ibm.com/identity/token")
-            {
-                Content = new FormUrlEncodedContent(new[]
-                {
-                        new KeyValuePair<string, string>("grant_type", "urn:ibm:params:oauth:grant-type:apikey"),
-                        new KeyValuePair<string, string>("apikey", _iamApiKey)
-                    })
-            };
-
-            tokenRequest.Headers.Add("Accept", "application/json");
-            tokenRequest.Headers.Add("Authorization", "Basic Yng6Yng=");
-
-            var response = await HttpClient.SendAsync(tokenRequest, cancellationToken);
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                Logger.LogError("IBM IAM token request failed: {StatusCode} - {Content}", response.StatusCode, content);
-                throw new WatsonAuthorizationException($"Failed to obtain IAM token: {response.StatusCode}");
-            }
-
-            using var jsonDoc = JsonDocument.Parse(content);
-            _accessToken = jsonDoc.RootElement.GetProperty("access_token").GetString();
-            var expiresIn = jsonDoc.RootElement.GetProperty("expires_in").GetInt32();
-            _tokenExpiry = DateTime.UtcNow.AddSeconds(expiresIn);
-
-            Logger.LogDebug("IBM IAM token obtained, expires in {ExpiresIn} seconds", expiresIn);
-            return _accessToken;
-        }
-        finally
-        {
-            _tokenLock.Release();
+                "Requested {Requested} tokens exceeds Watson limit of {Limit}. Using {Limit} instead.",
+                request.MaxTokens, Capabilities.MaxTokensLimit, Capabilities.MaxTokensLimit);
         }
     }
 
     private object CreateRequestPayload(AiRequest request)
     {
+        var messages = new List<object>();
+
+        if (!string.IsNullOrEmpty(request.SystemPrompt))
+        {
+            messages.Add(new { role = "system", content = request.SystemPrompt });
+        }
+
+        messages.Add(new { role = "user", content = request.Prompt });
+
         return new
         {
             model_id = string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model,
             input = request.Prompt,
             parameters = new
             {
-                decoding_method = "greedy",
-                max_new_tokens = Math.Min(request.MaxTokens, FreeTierMaxTokens),
-                min_new_tokens = 1,
-                repetition_penalty = 1.0,
-                temperature = Math.Clamp(request.Temperature, 0.1, 2.0),
+                max_new_tokens = Math.Min(request.MaxTokens, Capabilities.MaxTokensLimit),
+                temperature = Math.Clamp(request.Temperature, 0.0, 1.0),
+                top_p = 0.9,
                 top_k = 50,
-                top_p = 1.0,
-                random_seed = DateTime.UtcNow.Millisecond
+                repetition_penalty = 1.0,
+                min_new_tokens = 1,
+                random_seed = new Random().Next()
             },
-            project_id = Environment.GetEnvironmentVariable("WATSON_PROJECT_ID") ?? ""
+            moderations = new
+            {
+                hap = new { input = true, output = true },
+                custom = new { input = true, output = true }
+            }
         };
     }
 
-    private HttpRequestMessage CreateHttpRequest(string token, object payload)
+    private HttpRequestMessage CreateHttpRequest(object payload)
     {
-        var baseUrl = string.IsNullOrEmpty(Configuration.BaseUrl) ?
-            $"https://{DefaultRegion}.ml.cloud.ibm.com/ml/v1/text/generation?version=2023-05-29" : Configuration.BaseUrl;
+        var url = Configuration.BaseUrl ?? BaseUrl;
 
-        var request = new HttpRequestMessage(HttpMethod.Post, baseUrl)
+        return new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = new StringContent(
-                JsonSerializer.Serialize(payload, new JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-                }),
+                JsonSerializer.Serialize(payload, JsonSerializerOptions),
                 Encoding.UTF8,
                 "application/json")
         };
-
-        request.Headers.Add("Authorization", $"Bearer {token}");
-
-        var projectId = Environment.GetEnvironmentVariable("WATSON_PROJECT_ID");
-        if (!string.IsNullOrEmpty(projectId))
-            request.Headers.Add("ML-Instance-ID", projectId);
-
-        return request;
     }
 
-    private string ParseResponse(string jsonResponse)
+    private string ParseResponse(string jsonResponse, out long tokenUsage)
     {
+        tokenUsage = 0;
+
         try
         {
             using var jsonDoc = JsonDocument.Parse(jsonResponse);
+            var root = jsonDoc.RootElement;
 
-            if (jsonDoc.RootElement.TryGetProperty("errors", out var errorsElement))
+            // Check for errors
+            if (root.TryGetProperty("errors", out var errorsElement))
             {
-                var error = errorsElement.EnumerateArray().FirstOrDefault();
-                var errorMessage = error.GetProperty("message").GetString() ?? "Unknown error";
-
-                if (errorMessage.Contains("quota") || errorMessage.Contains("limit") || errorMessage.Contains("exceeded"))
-                    throw new WatsonQuotaExceededException($"Watson quota exceeded: {errorMessage}");
-
-                throw new HttpRequestException($"Watson API error: {errorMessage}");
-            }
-
-            if (jsonDoc.RootElement.TryGetProperty("results", out var resultsElement))
-            {
-                var firstResult = resultsElement.EnumerateArray().FirstOrDefault();
-                if (firstResult.TryGetProperty("generated_text", out var generatedTextElement))
+                var errorArray = errorsElement.EnumerateArray();
+                if (errorArray.Any())
                 {
-                    return generatedTextElement.GetString() ?? string.Empty;
+                    var firstError = errorArray.First();
+                    var errorMessage = firstError.GetProperty("message").GetString() ?? "Unknown error";
+
+                    if (errorMessage.Contains("quota") || errorMessage.Contains("limit") ||
+                        errorMessage.Contains("exceeded") || errorMessage.Contains("insufficient"))
+                    {
+                        throw new ProviderQuotaExceededException(ProviderName, $"Watson error: {errorMessage}");
+                    }
+                    throw new HttpRequestException($"Watson API error: {errorMessage}");
                 }
             }
 
-            if (jsonDoc.RootElement.TryGetProperty("generated_text", out var generatedText))
+            // Extract response content
+            if (root.TryGetProperty("results", out var results))
             {
-                return generatedText.GetString() ?? string.Empty;
+                var firstResult = results.EnumerateArray().FirstOrDefault();
+                if (firstResult.TryGetProperty("generated_text", out var generatedText))
+                {
+                    var resultText = generatedText.GetString() ?? string.Empty;
+
+                    // Estimate token usage using the stored request
+                    if (_currentRequest != null)
+                    {
+                        tokenUsage = EstimateTokenUsage(_currentRequest.Prompt) + EstimateTokenUsage(resultText);
+                    }
+                    else
+                    {
+                        tokenUsage = EstimateTokenUsage(resultText);
+                    }
+
+                    return resultText;
+                }
             }
 
-            throw new FormatException("Could not find generated_text in Watson response");
+            throw new FormatException("Could not find results in Watson response");
         }
-        catch (WatsonQuotaExceededException)
+        catch (JsonException ex)
         {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to parse Watson response");
+            Logger.LogError(ex, "Failed to parse Watson JSON response");
             throw new FormatException("Invalid Watson response format");
         }
     }
 
-    private static long CalculateTokenUsage(string prompt, string response)
+    private string GetErrorCode(Exception ex)
     {
-        return (prompt.Length + response.Length) / 4;
+        return ex switch
+        {
+            ProviderQuotaExceededException => "QUOTA_EXCEEDED",
+            RateLimitExceededException => "RATE_LIMIT_EXCEEDED",
+            HttpRequestException httpEx => httpEx.StatusCode.HasValue ? $"HTTP_{httpEx.StatusCode.Value}" : "HTTP_ERROR",
+            TimeoutException => "TIMEOUT",
+            JsonException => "INVALID_RESPONSE",
+            FormatException => "INVALID_RESPONSE",
+            ArgumentException => "INVALID_REQUEST",
+            _ => "UNKNOWN_ERROR"
+        };
     }
 
-    private async Task ClearTokenAsync()
+    protected override decimal EstimateCost(long inputTokens, long outputTokens)
     {
-        await _tokenLock.WaitAsync();
-        try
+        var model = Configuration.Model ?? DefaultModel;
+
+        if (model.Contains("granite-13b") || model.Contains("granite-20b"))
         {
-            _accessToken = null;
-            _tokenExpiry = DateTime.MinValue;
+            var costPerToken = 0.0000015m;
+            return (inputTokens + outputTokens) * costPerToken;
         }
-        finally
+        else if (model.Contains("llama") || model.Contains("mistral"))
         {
-            _tokenLock.Release();
+            var costPerToken = 0.000001m;
+            return (inputTokens + outputTokens) * costPerToken;
+        }
+        else
+        {
+            var costPerToken = 0.000002m;
+            return (inputTokens + outputTokens) * costPerToken;
         }
     }
 
     public override bool ShouldFallback(Exception exception)
     {
-        if (exception is WatsonQuotaExceededException) return true;
-        if (exception is WatsonAuthorizationException)
+        if (exception is ProviderQuotaExceededException || exception is RateLimitExceededException)
             return true;
 
-        if (exception is not HttpRequestException httpEx) return base.ShouldFallback(exception);
-        var message = httpEx.Message.ToLowerInvariant();
-        return message.Contains("429") ||
-               message.Contains("quota") ||
-               message.Contains("limit") ||
-               message.Contains("exceeded") ||
-               message.Contains("insufficient capacity") ||
-               message.Contains("plan limits");
+        if (exception is HttpRequestException httpEx)
+        {
+            var message = httpEx.Message.ToLowerInvariant();
+            return message.Contains("429") ||
+                   message.Contains("401") ||
+                   message.Contains("403") ||
+                   message.Contains("503") ||
+                   message.Contains("quota") ||
+                   message.Contains("limit") ||
+                   message.Contains("rate limit") ||
+                   message.Contains("insufficient_credits") ||
+                   message.Contains("exceeded_capacity");
+        }
+
+        if (exception is TimeoutException || exception is TaskCanceledException)
+            return true;
+
+        return base.ShouldFallback(exception);
     }
 }

@@ -10,12 +10,9 @@ public class ProviderPerformance
     public double AverageResponseTimeMs { get; set; }
     public DateTime LastUsed { get; set; }
     public Dictionary<string, int> ErrorCounts { get; set; } = new();
-
-    public double SuccessRate
-    {
-        get
-        {
-            return TotalRequests > 0 ? (SuccessfulRequests * 100.0) / TotalRequests : 0;
-        }
-    }
+    public double SuccessRate => TotalRequests > 0 ? (SuccessfulRequests * 100.0) / TotalRequests : 0;
+    public long TotalTokens { get; set; }
+    public decimal TotalCost { get; set; }
+    public DateTime PeriodFrom { get; set; }
+    public DateTime PeriodTo { get; set; }
 }
