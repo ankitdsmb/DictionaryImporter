@@ -1,380 +1,198 @@
-﻿// TogetherAiProvider.cs (Enhanced version - Fixed)
+﻿using DictionaryImporter.AI.Core.Attributes;
 using DictionaryImporter.AI.Core.Exceptions;
-using DictionaryImporter.AI.Core.Models;
 using DictionaryImporter.AI.Infrastructure;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using System.Text;
-using System.Text.Json;
+using DictionaryImporter.AI.Orchestration.Providers.Base;
 
-namespace DictionaryImporter.AI.Orchestration.Providers;
-
-[Provider("TogetherAI", Priority = 5, SupportsCaching = true)]
-public class TogetherAiProvider : EnhancedBaseProvider
+namespace DictionaryImporter.AI.Orchestration.Providers
 {
-    private const string DefaultModel = "mistralai/Mixtral-8x7B-Instruct-v0.1";
-    private const string BaseUrl = "https://api.together.xyz/v1/chat/completions";
-
-    // Store the current request for token estimation
-    private AiRequest _currentRequest;
-
-    public override string ProviderName => "TogetherAI";
-    public override int Priority => 5;
-    public override ProviderType Type => ProviderType.TextCompletion;
-    public override bool SupportsAudio => false;
-    public override bool SupportsVision => false;
-    public override bool SupportsImages => false;
-    public override bool SupportsTextToSpeech => false;
-    public override bool SupportsTranscription => false;
-    public override bool IsLocal => false;
-
-    public TogetherAiProvider(
-        HttpClient httpClient,
-        ILogger<TogetherAiProvider> logger,
-        IOptions<ProviderConfiguration> configuration,
-        IQuotaManager quotaManager = null,
-        IAuditLogger auditLogger = null,
-        IResponseCache responseCache = null,
-        IPerformanceMetricsCollector metricsCollector = null,
-        IApiKeyManager apiKeyManager = null)
-        : base(httpClient, logger, configuration, quotaManager, auditLogger, responseCache, metricsCollector, apiKeyManager)
+    [Provider("TogetherAI", Priority = 10, SupportsCaching = true)]
+    public class TogetherAiProvider : ChatCompletionProviderBase
     {
-        if (string.IsNullOrEmpty(Configuration.ApiKey))
+        private const string DefaultModel = "mistralai/Mixtral-8x7B-Instruct-v0.1";
+        private const string DefaultBaseUrl = "https://api.together.xyz/v1/chat/completions";
+
+        public override string ProviderName => "TogetherAI";
+        public override int Priority => 10;
+
+        public TogetherAiProvider(
+            HttpClient httpClient,
+            ILogger<TogetherAiProvider> logger,
+            IOptions<ProviderConfiguration> configuration,
+            IQuotaManager quotaManager = null,
+            IAuditLogger auditLogger = null,
+            IResponseCache responseCache = null,
+            IPerformanceMetricsCollector metricsCollector = null,
+            IApiKeyManager apiKeyManager = null)
+            : base(httpClient, logger, configuration, quotaManager, auditLogger,
+                  responseCache, metricsCollector, apiKeyManager)
         {
-            Logger.LogWarning("TogetherAI API key not configured. Provider will be disabled.");
-            Configuration.IsEnabled = false;
-            return;
+            if (string.IsNullOrEmpty(Configuration.ApiKey))
+            {
+                Logger.LogWarning("TogetherAI API key not configured. Provider will be disabled.");
+                Configuration.IsEnabled = false;
+                return;
+            }
         }
-    }
 
-    protected override void ConfigureCapabilities()
-    {
-        base.ConfigureCapabilities();
-        Capabilities.TextCompletion = true;
-        Capabilities.ChatCompletion = true;
-        Capabilities.MaxTokensLimit = 8192;
-        Capabilities.SupportedLanguages.AddRange(new[] { "en", "es", "fr", "de", "it", "ja", "ko", "zh" });
-    }
-
-    protected override void ConfigureAuthentication()
-    {
-        var apiKey = GetApiKey();
-        HttpClient.DefaultRequestHeaders.Clear();
-        HttpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
-        HttpClient.DefaultRequestHeaders.Add("Accept", "application/json");
-        HttpClient.DefaultRequestHeaders.Add("User-Agent", "DictionaryImporter/2.0");
-    }
-
-    public override async Task<AiResponse> GetCompletionAsync(
-        AiRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
-        try
+        protected override void ConfigureCapabilities()
         {
-            // Store the current request for token estimation
-            _currentRequest = request;
+            base.ConfigureCapabilities();
+            Capabilities.ChatCompletion = true;
+            Capabilities.MaxTokensLimit = 8192;
+            Capabilities.SupportedLanguages.AddRange(new[] { "en", "es", "fr", "de", "it", "nl", "pt", "ru", "zh", "ja", "ko" });
+        }
 
-            // Check if provider is enabled
-            if (!Configuration.IsEnabled)
+        protected override void ConfigureAuthentication()
+        {
+            HttpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetApiKey()}");
+        }
+
+        protected override string GetDefaultBaseUrl() => DefaultBaseUrl;
+
+        protected override string GetDefaultModel() => DefaultModel;
+
+        protected override object CreateRequestPayload(AiRequest request)
+        {
+            var messages = new List<object>();
+
+            if (!string.IsNullOrEmpty(request.SystemPrompt))
             {
-                throw new InvalidOperationException("TogetherAI provider is disabled");
+                messages.Add(new { role = "system", content = request.SystemPrompt });
             }
 
-            // Check quota
-            var quotaCheck = await CheckQuotaAsync(request, request.Context?.UserId);
-            if (!quotaCheck.CanProceed)
+            messages.Add(new { role = "user", content = request.Prompt });
+
+            return new
             {
-                throw new ProviderQuotaExceededException(ProviderName,
-                    $"Quota exceeded. Remaining: {quotaCheck.RemainingRequests} requests, " +
-                    $"{quotaCheck.RemainingTokens} tokens. Resets in {quotaCheck.TimeUntilReset.TotalMinutes:F0} minutes.");
-            }
-
-            // Check cache
-            if (Configuration.EnableCaching)
-            {
-                var cachedResponse = await TryGetCachedResponseAsync(request);
-                if (cachedResponse != null)
-                {
-                    return cachedResponse;
-                }
-            }
-
-            // Validate request
-            ValidateRequest(request);
-
-            // Create payload
-            var payload = CreateRequestPayload(request);
-            var httpRequest = CreateHttpRequest(payload);
-            var model = string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model;
-
-            Logger.LogDebug("Sending request to TogetherAI with model {Model}", model);
-
-            // Send request with resilience
-            var response = await SendWithResilienceAsync(
-                () => HttpClient.SendAsync(httpRequest, cancellationToken),
-                cancellationToken);
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-
-            // Parse response
-            var result = ParseResponse(content, out var tokenUsage);
-            stopwatch.Stop();
-
-            // Create response
-            var aiResponse = new AiResponse
-            {
-                Content = result.Trim(),
-                Provider = ProviderName,
-                Model = model,
-                TokensUsed = tokenUsage,
-                ProcessingTime = stopwatch.Elapsed,
-                IsSuccess = true,
-                EstimatedCost = EstimateCost(tokenUsage, 0),
-                Metadata = new Dictionary<string, object>
-                {
-                    ["model"] = model,
-                    ["tokens_used"] = tokenUsage,
-                    ["estimated_cost"] = EstimateCost(tokenUsage, 0),
-                    ["together_ai"] = true,
-                    ["open_source_models"] = true
-                }
+                model = Configuration.Model ?? DefaultModel,
+                messages,
+                max_tokens = Math.Min(request.MaxTokens, Capabilities.MaxTokensLimit),
+                temperature = Math.Clamp(request.Temperature, 0.0, 2.0),
+                top_p = 0.9,
+                top_k = 50,
+                repetition_penalty = 1.0,
+                stop = Array.Empty<string>(),
+                stream = false
             };
-
-            // Record usage
-            await RecordUsageAsync(request, aiResponse, stopwatch.Elapsed, request.Context?.UserId);
-
-            // Cache response
-            if (Configuration.EnableCaching && Configuration.CacheDurationMinutes > 0)
-            {
-                await CacheResponseAsync(
-                    request,
-                    aiResponse,
-                    TimeSpan.FromMinutes(Configuration.CacheDurationMinutes));
-            }
-
-            return aiResponse;
-        }
-        catch (Exception ex)
-        {
-            stopwatch.Stop();
-            Logger.LogError(ex, "TogetherAI provider failed for request {RequestId}", request.Context?.RequestId);
-
-            if (ShouldFallback(ex))
-            {
-                throw;
-            }
-
-            var errorResponse = new AiResponse
-            {
-                Content = string.Empty,
-                Provider = ProviderName,
-                Model = Configuration.Model ?? DefaultModel,
-                ProcessingTime = stopwatch.Elapsed,
-                IsSuccess = false,
-                ErrorCode = GetErrorCode(ex),
-                ErrorMessage = ex.Message,
-                Metadata = new Dictionary<string, object>
-                {
-                    ["model"] = Configuration.Model ?? DefaultModel,
-                    ["error_type"] = ex.GetType().Name,
-                    ["stack_trace"] = ex.StackTrace
-                }
-            };
-
-            // Record failed usage
-            if (AuditLogger != null)
-            {
-                var auditEntry = CreateAuditEntry(request, errorResponse, stopwatch.Elapsed, request.Context?.UserId);
-                auditEntry.ErrorCode = errorResponse.ErrorCode;
-                auditEntry.ErrorMessage = errorResponse.ErrorMessage;
-                await AuditLogger.LogRequestAsync(auditEntry);
-            }
-
-            return errorResponse;
-        }
-        finally
-        {
-            // Clear the stored request
-            _currentRequest = null;
-        }
-    }
-
-    private void ValidateRequest(AiRequest request)
-    {
-        if (string.IsNullOrWhiteSpace(request.Prompt))
-            throw new ArgumentException("Prompt cannot be empty");
-
-        if (request.MaxTokens > Capabilities.MaxTokensLimit)
-        {
-            Logger.LogWarning(
-                "Requested {Requested} tokens exceeds TogetherAI limit of {Limit}. Using {Limit} instead.",
-                request.MaxTokens, Capabilities.MaxTokensLimit, Capabilities.MaxTokensLimit);
-        }
-    }
-
-    private object CreateRequestPayload(AiRequest request)
-    {
-        var messages = new List<object>();
-
-        if (!string.IsNullOrEmpty(request.SystemPrompt))
-        {
-            messages.Add(new { role = "system", content = request.SystemPrompt });
         }
 
-        messages.Add(new { role = "user", content = request.Prompt });
-
-        return new
+        protected override string ExtractCompletionText(JsonElement rootElement)
         {
-            model = string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model,
-            messages = messages,
-            max_tokens = Math.Min(request.MaxTokens, Capabilities.MaxTokensLimit),
-            temperature = Math.Clamp(request.Temperature, 0.0, 1.0),
-            top_p = 0.9,
-            stream = false,
-            stop = Array.Empty<string>()
-        };
-    }
-
-    private HttpRequestMessage CreateHttpRequest(object payload)
-    {
-        var url = Configuration.BaseUrl ?? BaseUrl;
-
-        return new HttpRequestMessage(HttpMethod.Post, url)
-        {
-            Content = new StringContent(
-                JsonSerializer.Serialize(payload, JsonSerializerOptions),
-                Encoding.UTF8,
-                "application/json")
-        };
-    }
-
-    private string ParseResponse(string jsonResponse, out long tokenUsage)
-    {
-        tokenUsage = 0;
-
-        try
-        {
-            using var jsonDoc = JsonDocument.Parse(jsonResponse);
-            var root = jsonDoc.RootElement;
-
-            // Check for errors
-            if (root.TryGetProperty("error", out var errorElement))
-            {
-                var errorMessage = errorElement.GetProperty("message").GetString() ?? "Unknown error";
-                if (errorMessage.Contains("quota") || errorMessage.Contains("limit"))
-                {
-                    throw new ProviderQuotaExceededException(ProviderName, $"TogetherAI error: {errorMessage}");
-                }
-                throw new HttpRequestException($"TogetherAI API error: {errorMessage}");
-            }
-
-            // Extract token usage
-            if (root.TryGetProperty("usage", out var usage))
-            {
-                tokenUsage = usage.GetProperty("total_tokens").GetInt64();
-            }
-            else
-            {
-                // Estimate token usage if not provided
-                if (_currentRequest != null)
-                {
-                    tokenUsage = EstimateTokenUsage(_currentRequest.Prompt);
-                }
-            }
-
-            // Extract response content
-            if (root.TryGetProperty("choices", out var choices))
+            if (rootElement.TryGetProperty("choices", out var choices))
             {
                 var firstChoice = choices.EnumerateArray().FirstOrDefault();
                 if (firstChoice.TryGetProperty("message", out var message))
                 {
-                    var resultText = message.GetProperty("content").GetString() ?? string.Empty;
-
-                    // Update token usage estimate if needed
-                    if (tokenUsage == 0 && _currentRequest != null)
+                    if (message.TryGetProperty("content", out var content))
                     {
-                        tokenUsage = EstimateTokenUsage(_currentRequest.Prompt) + EstimateTokenUsage(resultText);
+                        return content.GetString() ?? string.Empty;
                     }
+                }
 
-                    return resultText;
+                if (firstChoice.TryGetProperty("text", out var text))
+                {
+                    return text.GetString() ?? string.Empty;
                 }
             }
 
             throw new FormatException("Could not find choices in TogetherAI response");
         }
-        catch (JsonException ex)
-        {
-            Logger.LogError(ex, "Failed to parse TogetherAI JSON response");
-            throw new FormatException("Invalid TogetherAI response format");
-        }
-    }
 
-    private string GetErrorCode(Exception ex)
-    {
-        return ex switch
+        protected override long EstimateTokenUsageFromResponse(JsonElement rootElement)
         {
-            ProviderQuotaExceededException => "QUOTA_EXCEEDED",
-            RateLimitExceededException => "RATE_LIMIT_EXCEEDED",
-            HttpRequestException httpEx => httpEx.StatusCode.HasValue ? $"HTTP_{httpEx.StatusCode.Value}" : "HTTP_ERROR",
-            TimeoutException => "TIMEOUT",
-            JsonException => "INVALID_RESPONSE",
-            FormatException => "INVALID_RESPONSE",
-            ArgumentException => "INVALID_REQUEST",
-            _ => "UNKNOWN_ERROR"
-        };
-    }
+            if (rootElement.TryGetProperty("usage", out var usage))
+            {
+                long totalTokens = 0;
 
-    protected override decimal EstimateCost(long inputTokens, long outputTokens)
-    {
-        // Together AI pricing (approximate, should be updated with actual rates)
-        var model = Configuration.Model ?? DefaultModel;
+                if (usage.TryGetProperty("prompt_tokens", out var promptTokens))
+                    totalTokens += promptTokens.GetInt64();
 
-        if (model.Contains("llama-2-70b") || model.Contains("mixtral-8x7b"))
-        {
-            // Premium models pricing
-            var inputCostPerToken = 0.0000009m;   // $0.90 per 1M tokens
-            var outputCostPerToken = 0.0000009m;  // $0.90 per 1M tokens
-            return (inputTokens * inputCostPerToken) + (outputTokens * outputCostPerToken);
-        }
-        else if (model.Contains("codellama") || model.Contains("mistral"))
-        {
-            // Mid-tier models pricing
-            var inputCostPerToken = 0.0000003m;   // $0.30 per 1M tokens
-            var outputCostPerToken = 0.0000003m;  // $0.30 per 1M tokens
-            return (inputTokens * inputCostPerToken) + (outputTokens * outputCostPerToken);
-        }
-        else
-        {
-            // Default estimation
-            var inputCostPerToken = 0.0000002m;   // $0.20 per 1M tokens
-            var outputCostPerToken = 0.0000002m;  // $0.20 per 1M tokens
-            return (inputTokens * inputCostPerToken) + (outputTokens * outputCostPerToken);
-        }
-    }
+                if (usage.TryGetProperty("completion_tokens", out var completionTokens))
+                    totalTokens += completionTokens.GetInt64();
 
-    public override bool ShouldFallback(Exception exception)
-    {
-        if (exception is ProviderQuotaExceededException || exception is RateLimitExceededException)
-            return true;
+                if (usage.TryGetProperty("total_tokens", out var total))
+                    return total.GetInt64();
 
-        if (exception is HttpRequestException httpEx)
-        {
-            var message = httpEx.Message.ToLowerInvariant();
-            return message.Contains("429") ||
-                   message.Contains("401") ||
-                   message.Contains("403") ||
-                   message.Contains("503") ||
-                   message.Contains("quota") ||
-                   message.Contains("limit") ||
-                   message.Contains("rate limit") ||
-                   message.Contains("insufficient_credits");
+                return totalTokens;
+            }
+
+            return base.EstimateTokenUsageFromResponse(rootElement);
         }
 
-        if (exception is TimeoutException || exception is TaskCanceledException)
-            return true;
+        protected override decimal EstimateCost(long inputTokens, long outputTokens)
+        {
+            var model = Configuration.Model ?? DefaultModel;
 
-        return base.ShouldFallback(exception);
+            if (model.Contains("mixtral-8x7b") || model.Contains("Mixtral-8x7B"))
+            {
+                var costPerMillionTokens = 0.60m;
+                var totalTokens = inputTokens + outputTokens;
+                return totalTokens / 1_000_000m * costPerMillionTokens;
+            }
+            else if (model.Contains("llama-2-70b") || model.Contains("Llama-2-70b"))
+            {
+                var costPerMillionTokens = 0.90m;
+                var totalTokens = inputTokens + outputTokens;
+                return totalTokens / 1_000_000m * costPerMillionTokens;
+            }
+            else if (model.Contains("codellama") || model.Contains("CodeLlama"))
+            {
+                var costPerMillionTokens = 0.90m;
+                var totalTokens = inputTokens + outputTokens;
+                return totalTokens / 1_000_000m * costPerMillionTokens;
+            }
+            else if (model.Contains("qwen") || model.Contains("Qwen"))
+            {
+                var costPerMillionTokens = 0.20m;
+                var totalTokens = inputTokens + outputTokens;
+                return totalTokens / 1_000_000m * costPerMillionTokens;
+            }
+
+            var defaultCostPerMillionTokens = 0.50m;
+            var defaultTotalTokens = inputTokens + outputTokens;
+            return defaultTotalTokens / 1_000_000m * defaultCostPerMillionTokens;
+        }
+
+        protected override AiResponse CreateSuccessResponse(string content, long tokensUsed, TimeSpan elapsedTime)
+        {
+            var response = base.CreateSuccessResponse(content, tokensUsed, elapsedTime);
+            response.Metadata["togetherai"] = true;
+            response.Metadata["open_source"] = true;
+            response.Metadata["large_context"] = true;
+            response.Metadata["model_type"] = GetModelType(Configuration.Model ?? DefaultModel);
+            return response;
+        }
+
+        private string GetModelType(string model)
+        {
+            if (model.Contains("mixtral")) return "mixtral";
+            if (model.Contains("llama")) return "llama";
+            if (model.Contains("qwen")) return "qwen";
+            if (model.Contains("codellama")) return "codellama";
+            if (model.Contains("mistral")) return "mistral";
+            return "unknown";
+        }
+
+        public override bool ShouldFallback(Exception exception)
+        {
+            if (exception is ProviderQuotaExceededException || exception is RateLimitExceededException)
+                return true;
+
+            if (exception is HttpRequestException httpEx)
+            {
+                var message = httpEx.Message.ToLowerInvariant();
+                return message.Contains("429") ||
+                       message.Contains("401") ||
+                       message.Contains("403") ||
+                       message.Contains("503") ||
+                       message.Contains("quota") ||
+                       message.Contains("limit") ||
+                       message.Contains("rate limit") ||
+                       message.Contains("insufficient credits") ||
+                       message.Contains("out of capacity");
+            }
+
+            return base.ShouldFallback(exception);
+        }
     }
 }

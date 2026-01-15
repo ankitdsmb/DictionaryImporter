@@ -1,24 +1,18 @@
-﻿using DictionaryImporter.AI.Core.Exceptions;
+﻿using DictionaryImporter.AI.Core.Attributes;
+using DictionaryImporter.AI.Core.Exceptions;
 using DictionaryImporter.AI.Infrastructure;
-using DictionaryImporter.AI.Orchestration.Helpers;
+using DictionaryImporter.AI.Orchestration.Providers.Base;
 
 namespace DictionaryImporter.AI.Orchestration.Providers
 {
     [Provider("DeepAI", Priority = 4, SupportsCaching = true)]
-    public class DeepAiProvider : EnhancedBaseProvider
+    public class DeepAiProvider : TextCompletionProviderBase
     {
         private const string DefaultModel = "text-davinci-003-free";
-        private const string BaseUrl = "https://api.deepai.org/api/text-generator";
+        private const string DefaultBaseUrl = "https://api.deepai.org/api/text-generator";
 
         public override string ProviderName => "DeepAI";
         public override int Priority => 4;
-        public override ProviderType Type => ProviderType.TextCompletion;
-        public override bool SupportsAudio => false;
-        public override bool SupportsVision => false;
-        public override bool SupportsImages => false;
-        public override bool SupportsTextToSpeech => false;
-        public override bool SupportsTranscription => false;
-        public override bool IsLocal => false;
 
         public DeepAiProvider(
             HttpClient httpClient,
@@ -29,7 +23,8 @@ namespace DictionaryImporter.AI.Orchestration.Providers
             IResponseCache responseCache = null,
             IPerformanceMetricsCollector metricsCollector = null,
             IApiKeyManager apiKeyManager = null)
-            : base(httpClient, logger, configuration, quotaManager, auditLogger, responseCache, metricsCollector, apiKeyManager)
+            : base(httpClient, logger, configuration, quotaManager, auditLogger,
+                  responseCache, metricsCollector, apiKeyManager)
         {
             if (string.IsNullOrEmpty(Configuration.ApiKey))
             {
@@ -42,190 +37,75 @@ namespace DictionaryImporter.AI.Orchestration.Providers
         protected override void ConfigureCapabilities()
         {
             base.ConfigureCapabilities();
-            Capabilities.TextCompletion = true;
             Capabilities.MaxTokensLimit = 300;
             Capabilities.SupportedLanguages.Add("en");
         }
 
         protected override void ConfigureAuthentication()
         {
-            AiProviderHelper.SetApiKeyAuth(HttpClient, GetApiKey());
+            HttpClient.DefaultRequestHeaders.Add("api-key", GetApiKey());
         }
 
-        public override async Task<AiResponse> GetCompletionAsync(
-            AiRequest request,
-            CancellationToken cancellationToken = default)
+        protected override string GetDefaultBaseUrl() => DefaultBaseUrl;
+
+        protected override string GetDefaultModel() => DefaultModel;
+
+        protected override void ValidateRequest(AiRequest request)
         {
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            base.ValidateRequest(request);
 
-            try
-            {
-                // Validate request
-                AiProviderHelper.ValidateRequestWithLengthLimit(request, 4000, "DeepAI");
-                AiProviderHelper.ValidateCommonRequest(request, Capabilities, Logger);
-
-                // Check if provider is enabled
-                if (!Configuration.IsEnabled)
-                    throw new InvalidOperationException("DeepAI provider is disabled");
-
-                // Check quota
-                var quotaCheck = await CheckQuotaAsync(request, request.Context?.UserId);
-                if (!quotaCheck.CanProceed)
-                    throw new ProviderQuotaExceededException(ProviderName,
-                        $"Quota exceeded. Remaining: {quotaCheck.RemainingRequests} requests, " +
-                        $"{quotaCheck.RemainingTokens} tokens. Resets in {quotaCheck.TimeUntilReset.TotalMinutes:F0} minutes.");
-
-                // Check cache
-                if (Configuration.EnableCaching)
-                {
-                    var cachedResponse = await TryGetCachedResponseAsync(request);
-                    if (cachedResponse != null) return cachedResponse;
-                }
-
-                // Create payload
-                var payload = CreateRequestPayload(request);
-                var model = string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model;
-                var url = Configuration.BaseUrl ?? BaseUrl;
-
-                Logger.LogDebug("Sending request to DeepAI with model {Model}", model);
-
-                // Create and send request
-                var httpRequest = AiProviderHelper.CreateJsonRequest(payload, url);
-                var response = await SendWithResilienceAsync(
-                    () => HttpClient.SendAsync(httpRequest, cancellationToken),
-                    cancellationToken);
-
-                // Parse response
-                var content = await response.Content.ReadAsStringAsync(cancellationToken);
-                var result = ParseResponse(content);
-
-                stopwatch.Stop();
-
-                // Calculate token usage
-                var tokenUsage = CalculateTokenEstimate(request.Prompt, result);
-
-                // Create success response
-                var aiResponse = AiProviderHelper.CreateSuccessResponse(
-                    result,
-                    ProviderName,
-                    model,
-                    tokenUsage,
-                    stopwatch.Elapsed,
-                    EstimateCost(tokenUsage, 0),
-                    new Dictionary<string, object>
-                    {
-                        ["deepai"] = true,
-                        ["free_tier_max_tokens"] = 300
-                    });
-
-                // Record usage and cache
-                await RecordUsageAsync(request, aiResponse, stopwatch.Elapsed, request.Context?.UserId);
-
-                if (Configuration.EnableCaching && Configuration.CacheDurationMinutes > 0)
-                {
-                    await CacheResponseAsync(request, aiResponse,
-                        TimeSpan.FromMinutes(Configuration.CacheDurationMinutes));
-                }
-
-                return aiResponse;
-            }
-            catch (Exception ex)
-            {
-                stopwatch.Stop();
-                Logger.LogError(ex, "DeepAI provider failed for request {RequestId}", request.Context?.RequestId);
-
-                if (ShouldFallback(ex)) throw;
-
-                // Create error response
-                var errorResponse = AiProviderHelper.CreateErrorResponse(
-                    ex,
-                    ProviderName,
-                    DefaultModel,
-                    stopwatch.Elapsed,
-                    request,
-                    Configuration.Model ?? DefaultModel);
-
-                // Log audit if available
-                if (AuditLogger != null)
-                {
-                    var auditEntry = CreateAuditEntry(request, errorResponse, stopwatch.Elapsed, request.Context?.UserId);
-                    auditEntry.ErrorCode = errorResponse.ErrorCode;
-                    auditEntry.ErrorMessage = errorResponse.ErrorMessage;
-                    await AuditLogger.LogRequestAsync(auditEntry);
-                }
-
-                return errorResponse;
-            }
+            if (request.Prompt.Length > 4000)
+                throw new ArgumentException($"DeepAI prompt exceeds 4000 character limit. Length: {request.Prompt.Length}");
         }
 
-        private object CreateRequestPayload(AiRequest request)
+        protected override object CreateRequestPayload(AiRequest request)
         {
             return new
             {
                 text = request.Prompt,
-                model = string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model,
+                model = Configuration.Model ?? DefaultModel,
                 temperature = Math.Clamp(request.Temperature, 0.1, 1.0),
                 max_tokens = Math.Min(request.MaxTokens, Capabilities.MaxTokensLimit)
             };
         }
 
-        private string ParseResponse(string jsonResponse)
+        protected override string ExtractCompletionText(JsonElement rootElement)
         {
-            try
+            if (rootElement.TryGetProperty("output", out var outputElement))
             {
-                using var jsonDoc = JsonDocument.Parse(jsonResponse);
-                var root = jsonDoc.RootElement;
-
-                // Check for errors
-                if (root.TryGetProperty("err", out var errElement))
-                {
-                    var errorMessage = errElement.GetString() ?? "Unknown error";
-                    throw new ProviderQuotaExceededException(ProviderName, $"DeepAI error: {errorMessage}");
-                }
-
-                // Try different response formats
-                if (root.TryGetProperty("output", out var outputElement))
-                {
-                    return outputElement.GetString() ?? string.Empty;
-                }
-
-                if (root.TryGetProperty("text", out var textElement))
-                {
-                    return textElement.GetString() ?? string.Empty;
-                }
-
-                if (root.TryGetProperty("data", out var dataElement))
-                {
-                    if (dataElement.TryGetProperty("output", out var nestedOutput))
-                    {
-                        return nestedOutput.GetString() ?? string.Empty;
-                    }
-                }
-
-                // Try to find any string property
-                foreach (var property in root.EnumerateObject())
-                {
-                    if (property.Value.ValueKind == JsonValueKind.String &&
-                        property.Name != "id" && property.Name != "model")
-                    {
-                        return property.Value.GetString() ?? string.Empty;
-                    }
-                }
-
-                return string.Empty;
+                return outputElement.GetString() ?? string.Empty;
             }
-            catch (JsonException ex)
+
+            if (rootElement.TryGetProperty("text", out var textElement))
             {
-                Logger.LogError(ex, "Failed to parse DeepAI JSON response");
-                throw new FormatException("Invalid DeepAI response format");
+                return textElement.GetString() ?? string.Empty;
             }
+
+            if (rootElement.TryGetProperty("data", out var dataElement))
+            {
+                if (dataElement.TryGetProperty("output", out var nestedOutput))
+                {
+                    return nestedOutput.GetString() ?? string.Empty;
+                }
+            }
+
+            foreach (var property in rootElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind == JsonValueKind.String &&
+                    property.Name != "id" &&
+                    property.Name != "model")
+                {
+                    return property.Value.GetString() ?? string.Empty;
+                }
+            }
+
+            return string.Empty;
         }
 
-        private long CalculateTokenEstimate(string prompt, string response)
+        protected override long EstimateTokenUsageFromResponse(JsonElement rootElement)
         {
-            var promptTokens = prompt.Length / 4;
-            var responseTokens = response.Length / 4;
-            return promptTokens + responseTokens;
+            var responseText = ExtractCompletionText(rootElement);
+            return EstimateTokenUsage(responseText);
         }
 
         protected override decimal EstimateCost(long inputTokens, long outputTokens)
@@ -241,16 +121,35 @@ namespace DictionaryImporter.AI.Orchestration.Providers
                 var costPerToken = 0.000001m;
                 return (inputTokens + outputTokens) * costPerToken;
             }
-            else
-            {
-                var costPerToken = 0.0000005m;
-                return (inputTokens + outputTokens) * costPerToken;
-            }
+
+            return (inputTokens + outputTokens) * 0.0000005m;
+        }
+
+        protected override AiResponse CreateSuccessResponse(string content, long tokensUsed, TimeSpan elapsedTime)
+        {
+            var response = base.CreateSuccessResponse(content, tokensUsed, elapsedTime);
+            response.Metadata["deepai"] = true;
+            response.Metadata["free_tier_max_tokens"] = 300;
+            return response;
         }
 
         public override bool ShouldFallback(Exception exception)
         {
-            return AiProviderHelper.ShouldFallbackCommon(exception) || base.ShouldFallback(exception);
+            if (exception is ProviderQuotaExceededException || exception is RateLimitExceededException)
+                return true;
+
+            if (exception is HttpRequestException httpEx)
+            {
+                var message = httpEx.Message.ToLowerInvariant();
+                return message.Contains("429") ||
+                       message.Contains("401") ||
+                       message.Contains("403") ||
+                       message.Contains("503") ||
+                       message.Contains("quota") ||
+                       message.Contains("limit");
+            }
+
+            return base.ShouldFallback(exception);
         }
     }
 }

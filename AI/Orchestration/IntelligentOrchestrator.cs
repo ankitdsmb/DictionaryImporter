@@ -328,8 +328,8 @@ public class IntelligentOrchestrator : ICompletionOrchestrator, IDisposable
     }
 
     public async Task<AiResponse> GetCompletionAsync(
-        AiRequest request,
-        CancellationToken cancellationToken = default)
+    AiRequest request,
+    CancellationToken cancellationToken = default)
     {
         var requestStopwatch = Stopwatch.StartNew();
         var requestContext = request.Context ?? new RequestContext();
@@ -363,8 +363,7 @@ public class IntelligentOrchestrator : ICompletionOrchestrator, IDisposable
             try
             {
                 Interlocked.Increment(ref _totalRequests);
-
-                var suitableProviders = SelectSuitableProviders(request).ToList();
+                var suitableProviders = await SelectSuitableProvidersAsync(request, cancellationToken);
 
                 if (!suitableProviders.Any())
                 {
@@ -381,9 +380,8 @@ public class IntelligentOrchestrator : ICompletionOrchestrator, IDisposable
                     try
                     {
                         _logger.LogDebug(
-                            "Attempting provider {Provider} (Priority: {Priority}, Score: {Score:F2}) for request {RequestId}",
-                            provider.ProviderName, provider.Priority,
-                            CalculateProviderScore(provider, request));
+                            "Attempting provider {Provider} (Priority: {Priority}) for request {RequestId}",
+                            provider.ProviderName, provider.Priority, requestContext.RequestId);
 
                         var response = await provider.GetCompletionAsync(request, cancellationToken);
 
@@ -396,21 +394,16 @@ public class IntelligentOrchestrator : ICompletionOrchestrator, IDisposable
                             _logger.LogInformation(
                                 "Request {RequestId} completed successfully using {Provider} " +
                                 "(tokens: {Tokens}, time: {Time:F0}ms, priority: {Priority})",
-                                requestContext.RequestId, provider.ProviderName,
-                                response.TokensUsed, response.ProcessingTime.TotalMilliseconds,
-                                provider.Priority);
+                                requestContext.RequestId, provider.ProviderName, response.TokensUsed,
+                                response.ProcessingTime.TotalMilliseconds, provider.Priority);
 
-                            await RecordTelemetryAsync(request, TelemetryEventType.RequestCompleted,
-                                provider.ProviderName, response);
-
+                            await RecordTelemetryAsync(request, TelemetryEventType.RequestCompleted, provider.ProviderName, response);
                             return response;
                         }
 
                         lastFailedResponse = response;
                         lastException = new InvalidOperationException(response.ErrorMessage);
-
-                        RecordFailure(provider.ProviderName, lastException,
-                            $"Provider returned error: {response.ErrorMessage}");
+                        RecordFailure(provider.ProviderName, lastException, $"Provider returned error: {response.ErrorMessage}");
                     }
                     catch (Exception ex) when (ShouldFallback(ex, provider))
                     {
@@ -424,7 +417,6 @@ public class IntelligentOrchestrator : ICompletionOrchestrator, IDisposable
                                 provider.ProviderName, ex.Message);
                             continue;
                         }
-
                         break;
                     }
                     catch (Exception ex)
@@ -438,9 +430,7 @@ public class IntelligentOrchestrator : ICompletionOrchestrator, IDisposable
 
                 var errorMessage = BuildErrorMessage(attemptedProviders, lastException, lastFailedResponse);
                 _logger.LogError(lastException, errorMessage);
-
-                await RecordTelemetryAsync(request, TelemetryEventType.RequestFailed,
-                    attemptedProviders.LastOrDefault(), lastException);
+                await RecordTelemetryAsync(request, TelemetryEventType.RequestFailed, attemptedProviders.LastOrDefault(), lastException);
 
                 return new AiResponse
                 {
@@ -471,7 +461,6 @@ public class IntelligentOrchestrator : ICompletionOrchestrator, IDisposable
                 requestContext.RequestId, attemptedProviders.Count, ex.Message);
 
             await RecordTelemetryAsync(request, TelemetryEventType.RequestFailed, null, ex);
-
             return CreateErrorResponse(request, attemptedProviders, ex);
         }
         finally
@@ -481,23 +470,56 @@ public class IntelligentOrchestrator : ICompletionOrchestrator, IDisposable
         }
     }
 
-    private IEnumerable<ICompletionProvider> SelectSuitableProviders(AiRequest request)
+    private async Task<IEnumerable<ICompletionProvider>> SelectSuitableProvidersAsync(
+        AiRequest request,
+        CancellationToken cancellationToken)
     {
         var providers = _providerFactory.GetAllProviders()
             .Where(p => p.CanHandleRequest(request))
             .ToList();
 
-        var scoredProviders = providers.Select(p => new
-        {
-            Provider = p,
-            Score = CalculateProviderScore(p, request)
-        })
-        .Where(x => x.Score > 0)
-        .OrderByDescending(x => x.Score)
-        .ThenBy(x => x.Provider.Priority)
-        .Select(x => x.Provider);
+        var scoredProviders = new List<(ICompletionProvider Provider, double Score)>();
 
-        return scoredProviders;
+        foreach (var provider in providers)
+        {
+            var score = CalculateProviderScore(provider, request);
+
+            if (_quotaManager != null && _configuration.EnableQuotaManagement)
+            {
+                try
+                {
+                    var quotaCheck = await _quotaManager.CheckQuotaAsync(
+                        provider.ProviderName,
+                        request.Context?.UserId,
+                        cancellationToken: cancellationToken);
+
+                    if (!quotaCheck.CanProceed)
+                    {
+                        score -= 50;
+                        _logger.LogDebug("Provider {Provider} quota exceeded, reducing score", provider.ProviderName);
+                    }
+                    else if (quotaCheck.IsNearLimit)
+                    {
+                        score -= 20;
+                        _logger.LogDebug("Provider {Provider} near quota limit, reducing score", provider.ProviderName);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to check quota for provider {Provider}", provider.ProviderName);
+                }
+            }
+
+            if (score > 0)
+            {
+                scoredProviders.Add((provider, score));
+            }
+        }
+
+        return scoredProviders
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.Provider.Priority)
+            .Select(x => x.Provider);
     }
 
     private double CalculateProviderScore(ICompletionProvider provider, AiRequest request)
@@ -524,41 +546,12 @@ public class IntelligentOrchestrator : ICompletionOrchestrator, IDisposable
 
         score += (100 - provider.Priority) * 0.1;
 
-        if (provider.IsLocal)
-            score += 15;
-
-        if (request.NeedsImageGeneration && provider.SupportsImages)
-            score += 25;
-        if (request.NeedsTextToSpeech && provider.SupportsTextToSpeech)
-            score += 25;
-        if (request.NeedsTranscription && provider.SupportsTranscription)
-            score += 25;
-        if (request.ImageData != null && provider.SupportsVision)
-            score += 25;
-        if (request.AudioData != null && provider.SupportsAudio)
-            score += 25;
-
-        if (_quotaManager != null && _configuration.EnableQuotaManagement)
-        {
-            try
-            {
-                var quotaCheck = _quotaManager.CheckQuotaAsync(
-                    provider.ProviderName,
-                    request.Context?.UserId).GetAwaiter().GetResult();
-
-                if (!quotaCheck.CanProceed)
-                {
-                    score -= 50;
-                }
-                else if (quotaCheck.IsNearLimit)
-                {
-                    score -= 20;
-                }
-            }
-            catch
-            {
-            }
-        }
+        if (provider.IsLocal) score += 15;
+        if (request.NeedsImageGeneration && provider.SupportsImages) score += 25;
+        if (request.NeedsTextToSpeech && provider.SupportsTextToSpeech) score += 25;
+        if (request.NeedsTranscription && provider.SupportsTranscription) score += 25;
+        if (request.ImageData != null && provider.SupportsVision) score += 25;
+        if (request.AudioData != null && provider.SupportsAudio) score += 25;
 
         if (_providerHealth.TryGetValue(provider.ProviderName, out var health) && !health.IsHealthy)
         {
@@ -681,13 +674,16 @@ public class IntelligentOrchestrator : ICompletionOrchestrator, IDisposable
         List<string> attemptedProviders,
         Exception exception)
     {
+        var errorCode = ErrorHandlingHelper.GetStandardizedErrorCode(exception);
+        var userFriendlyMessage = ErrorHandlingHelper.GetUserFriendlyErrorMessage(errorCode, exception);
+
         return new AiResponse
         {
             Content = string.Empty,
             Provider = "None",
             IsSuccess = false,
-            ErrorCode = GetErrorCode(exception),
-            ErrorMessage = exception.Message,
+            ErrorCode = errorCode,
+            ErrorMessage = userFriendlyMessage,
             ProcessingTime = TimeSpan.Zero,
             AttemptedProviders = attemptedProviders,
             RetryCount = attemptedProviders.Count,
@@ -695,28 +691,18 @@ public class IntelligentOrchestrator : ICompletionOrchestrator, IDisposable
             {
                 ["request_id"] = request.Context?.RequestId,
                 ["request_type"] = request.Type.ToString(),
-                ["exception_type"] = exception.GetType().Name,
+                ["error_type"] = exception.GetType().Name,
+                ["technical_message"] = exception.Message,
                 ["attempted_providers_count"] = attemptedProviders.Count,
                 ["timestamp"] = DateTime.UtcNow,
-                ["stack_trace"] = exception.StackTrace
+                ["is_retryable"] = ErrorHandlingHelper.IsRetryableError(errorCode)
             }
         };
     }
 
     private string GetErrorCode(Exception exception)
     {
-        return exception switch
-        {
-            AiOrchestrationException aiEx => aiEx.ErrorCode,
-            HttpRequestException httpEx => httpEx.StatusCode.HasValue
-                ? $"HTTP_{httpEx.StatusCode.Value}"
-                : "HTTP_ERROR",
-            TimeoutException => "TIMEOUT",
-            TaskCanceledException => "CANCELLED",
-            InvalidOperationException => "INVALID_OPERATION",
-            ArgumentException => "INVALID_ARGUMENT",
-            _ => "UNKNOWN_ERROR"
-        };
+        return ErrorHandlingHelper.GetStandardizedErrorCode(exception);
     }
 
     private void RecordMetrics(TimeSpan responseTime)
