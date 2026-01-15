@@ -1,15 +1,9 @@
 ﻿namespace DictionaryImporter.AI.Core.Exceptions;
 
-public class ProviderQuotaExceededException : AiOrchestrationException
+public class ProviderQuotaExceededException(string providerName, string message = null) : AiOrchestrationException(
+    message ?? $"Quota exceeded for provider: {providerName}",
+    $"QUOTA_EXCEEDED_{providerName.ToUpper()}",
+    false)
 {
-    public string ProviderName { get; }
-
-    public ProviderQuotaExceededException(string providerName, string message = null)
-        : base(
-            message ?? $"Quota exceeded for provider: {providerName}",
-            $"QUOTA_EXCEEDED_{providerName.ToUpper()}",
-            false)
-    {
-        ProviderName = providerName;
-    }
+    public string ProviderName { get; } = providerName;
 }

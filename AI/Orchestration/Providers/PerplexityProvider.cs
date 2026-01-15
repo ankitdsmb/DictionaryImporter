@@ -1,23 +1,26 @@
-﻿using DictionaryImporter.AI.Core.Exceptions;
-using DictionaryImporter.AI.Orchestration.Providers;
-using Microsoft.Extensions.Configuration;
+﻿using Azure.Core;
+using DictionaryImporter.AI.Core.Exceptions;
+using DictionaryImporter.AI.Core.Models;
+using DictionaryImporter.AI.Infrastructure;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using System.Text;
+using System.Text.Json;
 
-public class PerplexityProvider : BaseCompletionProvider
+namespace DictionaryImporter.AI.Orchestration.Providers;
+
+[Provider("Perplexity", Priority = 9, SupportsCaching = true)]
+public class PerplexityProvider : EnhancedBaseProvider
 {
     private const string DefaultModel = "sonar-small-online";
-    private const int FreeTierMaxTokens = 4000;
-    private const int FreeTierRequestsPerDay = 50;
+    private const string BaseUrl = "https://api.perplexity.ai/chat/completions";
 
-    private static long _dailyRequestCount = 0;
-    private static DateTime _lastResetDate = DateTime.UtcNow.Date;
-    private static readonly object DailyCounterLock = new();
+    private AiRequest _currentRequest;
 
     public override string ProviderName => "Perplexity";
     public override int Priority => 9;
     public override ProviderType Type => ProviderType.TextCompletion;
-
     public override bool SupportsAudio => false;
-
     public override bool SupportsVision => false;
     public override bool SupportsImages => false;
     public override bool SupportsTextToSpeech => false;
@@ -27,15 +30,20 @@ public class PerplexityProvider : BaseCompletionProvider
     public PerplexityProvider(
         HttpClient httpClient,
         ILogger<PerplexityProvider> logger,
-        IOptions<ProviderConfiguration> configuration)
-        : base(httpClient, logger, configuration)
+        IOptions<ProviderConfiguration> configuration,
+        IQuotaManager quotaManager = null,
+        IAuditLogger auditLogger = null,
+        IResponseCache responseCache = null,
+        IPerformanceMetricsCollector metricsCollector = null,
+        IApiKeyManager apiKeyManager = null)
+        : base(httpClient, logger, configuration, quotaManager, auditLogger, responseCache, metricsCollector, apiKeyManager)
     {
         if (string.IsNullOrEmpty(Configuration.ApiKey))
         {
             Logger.LogWarning("Perplexity API key not configured. Provider will be disabled.");
+            Configuration.IsEnabled = false;
             return;
         }
-        ConfigureAuthentication();
     }
 
     protected override void ConfigureCapabilities()
@@ -43,14 +51,15 @@ public class PerplexityProvider : BaseCompletionProvider
         base.ConfigureCapabilities();
         Capabilities.TextCompletion = true;
         Capabilities.ChatCompletion = true;
-        Capabilities.MaxTokensLimit = FreeTierMaxTokens;
+        Capabilities.MaxTokensLimit = 4000;
         Capabilities.SupportedLanguages.Add("en");
     }
 
     protected override void ConfigureAuthentication()
     {
+        var apiKey = GetApiKey();
         HttpClient.DefaultRequestHeaders.Clear();
-        HttpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {Configuration.ApiKey}");
+        HttpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
         HttpClient.DefaultRequestHeaders.Add("Accept", "application/json");
         HttpClient.DefaultRequestHeaders.Add("User-Agent", "DictionaryImporter/2.0");
     }
@@ -63,19 +72,30 @@ public class PerplexityProvider : BaseCompletionProvider
 
         try
         {
-            if (string.IsNullOrEmpty(Configuration.ApiKey))
+            _currentRequest = request;
+            if (!Configuration.IsEnabled)
             {
-                throw new InvalidOperationException("Perplexity API key not configured");
+                throw new InvalidOperationException("Perplexity provider is disabled");
             }
 
-            if (!CheckDailyLimit())
+            var quotaCheck = await CheckQuotaAsync(request, request.Context?.UserId);
+            if (!quotaCheck.CanProceed)
             {
-                throw new PerplexityQuotaExceededException(
-                    $"Perplexity free tier daily limit reached: {FreeTierRequestsPerDay} requests/day");
+                throw new ProviderQuotaExceededException(ProviderName,
+                    $"Quota exceeded. Remaining: {quotaCheck.RemainingRequests} requests, " +
+                    $"{quotaCheck.RemainingTokens} tokens. Resets in {quotaCheck.TimeUntilReset.TotalMinutes:F0} minutes.");
+            }
+
+            if (Configuration.EnableCaching)
+            {
+                var cachedResponse = await TryGetCachedResponseAsync(request);
+                if (cachedResponse != null)
+                {
+                    return cachedResponse;
+                }
             }
 
             ValidateRequest(request);
-            IncrementDailyCount();
 
             var payload = CreateRequestPayload(request);
             var httpRequest = CreateHttpRequest(payload);
@@ -88,11 +108,11 @@ public class PerplexityProvider : BaseCompletionProvider
                 cancellationToken);
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            var result = ParseResponse(content, out var tokenUsage);
 
+            var result = ParseResponse(content, out var tokenUsage);
             stopwatch.Stop();
 
-            return new AiResponse
+            var aiResponse = new AiResponse
             {
                 Content = result.Trim(),
                 Provider = ProviderName,
@@ -100,75 +120,70 @@ public class PerplexityProvider : BaseCompletionProvider
                 TokensUsed = tokenUsage,
                 ProcessingTime = stopwatch.Elapsed,
                 IsSuccess = true,
+                EstimatedCost = EstimateCost(tokenUsage, 0),
                 Metadata = new Dictionary<string, object>
-                    {
-                        { "model", model },
-                        { "free_tier", true },
-                        { "daily_requests_used", GetDailyRequestCount() },
-                        { "daily_requests_remaining", FreeTierRequestsPerDay - GetDailyRequestCount() },
-                        { "web_search_enabled", model.Contains("online") }
-                    }
+                {
+                    ["model"] = model,
+                    ["tokens_used"] = tokenUsage,
+                    ["estimated_cost"] = EstimateCost(tokenUsage, 0),
+                    ["perplexity"] = true,
+                    ["web_search"] = model.Contains("online"),
+                    ["real_time_data"] = model.Contains("online")
+                }
             };
-        }
-        catch (PerplexityQuotaExceededException ex)
-        {
-            stopwatch.Stop();
-            Logger.LogWarning(ex.Message);
-            throw;
+
+            await RecordUsageAsync(request, aiResponse, stopwatch.Elapsed, request.Context?.UserId);
+
+            if (Configuration.EnableCaching && Configuration.CacheDurationMinutes > 0)
+            {
+                await CacheResponseAsync(
+                    request,
+                    aiResponse,
+                    TimeSpan.FromMinutes(Configuration.CacheDurationMinutes));
+            }
+
+            return aiResponse;
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
-            Logger.LogError(ex, "Perplexity provider failed");
-            if (ShouldFallback(ex)) throw;
+            Logger.LogError(ex, "Perplexity provider failed for request {RequestId}", request.Context?.RequestId);
 
-            return new AiResponse
+            if (ShouldFallback(ex))
+            {
+                throw;
+            }
+
+            var errorResponse = new AiResponse
             {
                 Content = string.Empty,
                 Provider = ProviderName,
+                Model = Configuration.Model ?? DefaultModel,
                 ProcessingTime = stopwatch.Elapsed,
                 IsSuccess = false,
+                ErrorCode = GetErrorCode(ex),
                 ErrorMessage = ex.Message,
                 Metadata = new Dictionary<string, object>
-                    {
-                        { "model", string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model },
-                        { "error_type", ex.GetType().Name }
-                    }
+                {
+                    ["model"] = Configuration.Model ?? DefaultModel,
+                    ["error_type"] = ex.GetType().Name,
+                    ["stack_trace"] = ex.StackTrace
+                }
             };
-        }
-    }
 
-    private bool CheckDailyLimit()
-    {
-        lock (DailyCounterLock)
-        {
-            if (DateTime.UtcNow.Date > _lastResetDate)
+            if (AuditLogger != null)
             {
-                _dailyRequestCount = 0;
-                _lastResetDate = DateTime.UtcNow.Date;
+                var auditEntry = CreateAuditEntry(request, errorResponse, stopwatch.Elapsed, request.Context?.UserId);
+                auditEntry.ErrorCode = errorResponse.ErrorCode;
+                auditEntry.ErrorMessage = errorResponse.ErrorMessage;
+                await AuditLogger.LogRequestAsync(auditEntry);
             }
-            return _dailyRequestCount < FreeTierRequestsPerDay;
-        }
-    }
 
-    private void IncrementDailyCount()
-    {
-        lock (DailyCounterLock)
-        {
-            _dailyRequestCount++;
+            return errorResponse;
         }
-    }
-
-    private long GetDailyRequestCount()
-    {
-        lock (DailyCounterLock)
+        finally
         {
-            if (DateTime.UtcNow.Date > _lastResetDate)
-            {
-                _dailyRequestCount = 0;
-                _lastResetDate = DateTime.UtcNow.Date;
-            }
-            return _dailyRequestCount;
+            _currentRequest = null;
         }
     }
 
@@ -177,11 +192,11 @@ public class PerplexityProvider : BaseCompletionProvider
         if (string.IsNullOrWhiteSpace(request.Prompt))
             throw new ArgumentException("Prompt cannot be empty");
 
-        if (request.MaxTokens > FreeTierMaxTokens)
+        if (request.MaxTokens > Capabilities.MaxTokensLimit)
         {
             Logger.LogWarning(
-                "Requested {Requested} tokens exceeds Perplexity free tier limit of {Limit}. Using {Limit} instead.",
-                request.MaxTokens, FreeTierMaxTokens, FreeTierMaxTokens);
+                "Requested {Requested} tokens exceeds Perplexity limit of {Limit}. Using {Limit} instead.",
+                request.MaxTokens, Capabilities.MaxTokensLimit, Capabilities.MaxTokensLimit);
         }
     }
 
@@ -200,7 +215,7 @@ public class PerplexityProvider : BaseCompletionProvider
         {
             model = string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model,
             messages = messages,
-            max_tokens = Math.Min(request.MaxTokens, FreeTierMaxTokens),
+            max_tokens = Math.Min(request.MaxTokens, Capabilities.MaxTokensLimit),
             temperature = Math.Clamp(request.Temperature, 0.0, 2.0),
             top_p = 0.9,
             stream = false,
@@ -212,17 +227,12 @@ public class PerplexityProvider : BaseCompletionProvider
 
     private HttpRequestMessage CreateHttpRequest(object payload)
     {
-        var baseUrl = string.IsNullOrEmpty(Configuration.BaseUrl) ?
-            "https://api.perplexity.ai/chat/completions" : Configuration.BaseUrl;
+        var url = Configuration.BaseUrl ?? BaseUrl;
 
-        return new HttpRequestMessage(HttpMethod.Post, baseUrl)
+        return new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = new StringContent(
-                JsonSerializer.Serialize(payload, new JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-                }),
+                JsonSerializer.Serialize(payload, JsonSerializerOptions),
                 Encoding.UTF8,
                 "application/json")
         };
@@ -235,56 +245,112 @@ public class PerplexityProvider : BaseCompletionProvider
         try
         {
             using var jsonDoc = JsonDocument.Parse(jsonResponse);
+            var root = jsonDoc.RootElement;
 
-            if (jsonDoc.RootElement.TryGetProperty("error", out var errorElement))
+            if (root.TryGetProperty("error", out var errorElement))
             {
                 var errorMessage = errorElement.GetProperty("message").GetString() ?? "Unknown error";
                 if (errorMessage.Contains("quota") || errorMessage.Contains("limit"))
-                    throw new PerplexityQuotaExceededException($"Perplexity quota exceeded: {errorMessage}");
+                {
+                    throw new ProviderQuotaExceededException(ProviderName, $"Perplexity error: {errorMessage}");
+                }
                 throw new HttpRequestException($"Perplexity API error: {errorMessage}");
             }
 
-            if (jsonDoc.RootElement.TryGetProperty("usage", out var usage))
+            if (root.TryGetProperty("usage", out var usage))
             {
                 tokenUsage = usage.GetProperty("total_tokens").GetInt64();
             }
+            else
+            {
+                if (_currentRequest != null)
+                {
+                    tokenUsage = EstimateTokenUsage(_currentRequest.Prompt);
+                }
+            }
 
-            if (jsonDoc.RootElement.TryGetProperty("choices", out var choices))
+            if (root.TryGetProperty("choices", out var choices))
             {
                 var firstChoice = choices.EnumerateArray().FirstOrDefault();
                 if (firstChoice.TryGetProperty("message", out var message))
                 {
-                    return message.GetProperty("content").GetString() ?? string.Empty;
+                    var resultText = message.GetProperty("content").GetString() ?? string.Empty;
+
+                    if (tokenUsage == 0 && _currentRequest != null)
+                    {
+                        tokenUsage = EstimateTokenUsage(_currentRequest.Prompt) + EstimateTokenUsage(resultText);
+                    }
+
+                    return resultText;
                 }
             }
 
             throw new FormatException("Could not find choices in Perplexity response");
         }
-        catch (PerplexityQuotaExceededException)
+        catch (JsonException ex)
         {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to parse Perplexity response");
+            Logger.LogError(ex, "Failed to parse Perplexity JSON response");
             throw new FormatException("Invalid Perplexity response format");
+        }
+    }
+
+    private string GetErrorCode(Exception ex)
+    {
+        return ex switch
+        {
+            ProviderQuotaExceededException => "QUOTA_EXCEEDED",
+            RateLimitExceededException => "RATE_LIMIT_EXCEEDED",
+            HttpRequestException httpEx => httpEx.StatusCode.HasValue ? $"HTTP_{httpEx.StatusCode.Value}" : "HTTP_ERROR",
+            TimeoutException => "TIMEOUT",
+            JsonException => "INVALID_RESPONSE",
+            FormatException => "INVALID_RESPONSE",
+            ArgumentException => "INVALID_REQUEST",
+            _ => "UNKNOWN_ERROR"
+        };
+    }
+
+    protected override decimal EstimateCost(long inputTokens, long outputTokens)
+    {
+        var model = Configuration.Model ?? DefaultModel;
+
+        if (model.Contains("sonar-pro"))
+        {
+            var costPerToken = 0.000005m;
+            return (inputTokens + outputTokens) * costPerToken;
+        }
+        else if (model.Contains("sonar"))
+        {
+            var costPerToken = 0.000001m;
+            return (inputTokens + outputTokens) * costPerToken;
+        }
+        else
+        {
+            var inputCostPerToken = 0.000001m;
+            var outputCostPerToken = 0.000002m;
+            return (inputTokens * inputCostPerToken) + (outputTokens * outputCostPerToken);
         }
     }
 
     public override bool ShouldFallback(Exception exception)
     {
-        if (exception is PerplexityQuotaExceededException)
+        if (exception is ProviderQuotaExceededException || exception is RateLimitExceededException)
             return true;
 
         if (exception is HttpRequestException httpEx)
         {
             var message = httpEx.Message.ToLowerInvariant();
             return message.Contains("429") ||
+                   message.Contains("401") ||
+                   message.Contains("403") ||
+                   message.Contains("503") ||
                    message.Contains("quota") ||
                    message.Contains("limit") ||
-                   message.Contains("daily") ||
+                   message.Contains("rate limit") ||
                    message.Contains("free tier");
         }
+
+        if (exception is TimeoutException || exception is TaskCanceledException)
+            return true;
 
         return base.ShouldFallback(exception);
     }

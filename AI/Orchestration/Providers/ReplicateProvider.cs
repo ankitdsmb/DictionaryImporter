@@ -1,27 +1,23 @@
 ﻿using DictionaryImporter.AI.Core.Exceptions;
-using DictionaryImporter.AI.Orchestration.Providers;
-using Microsoft.Extensions.Configuration;
+using DictionaryImporter.AI.Core.Models;
+using DictionaryImporter.AI.Infrastructure;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using System.Text;
+using System.Text.Json;
 
-public class ReplicateProvider : BaseCompletionProvider
+namespace DictionaryImporter.AI.Orchestration.Providers;
+
+[Provider("Replicate", Priority = 12, SupportsCaching = true)]
+public class ReplicateProvider : EnhancedBaseProvider
 {
     private const string DefaultModel = "meta/llama-2-70b-chat";
-    private const int FreeTierMaxTokens = 500;
-    private const int FreeTierSecondsPerMonth = 1000;
-    private const int FreeTierRequestsPerDay = 50;
-
-    private static long _monthlySecondsUsed = 0;
-    private static long _dailyRequestCount = 0;
-    private static DateTime _lastResetMonth = new(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
-    private static DateTime _lastResetDate = DateTime.UtcNow.Date;
-    private static readonly object MonthlyCounterLock = new();
-    private static readonly object DailyCounterLock = new();
+    private const string BaseUrl = "https://api.replicate.com/v1/predictions";
 
     public override string ProviderName => "Replicate";
     public override int Priority => 12;
     public override ProviderType Type => ProviderType.TextCompletion;
-
     public override bool SupportsAudio => false;
-
     public override bool SupportsVision => false;
     public override bool SupportsImages => false;
     public override bool SupportsTextToSpeech => false;
@@ -31,29 +27,35 @@ public class ReplicateProvider : BaseCompletionProvider
     public ReplicateProvider(
         HttpClient httpClient,
         ILogger<ReplicateProvider> logger,
-        IOptions<ProviderConfiguration> configuration)
-        : base(httpClient, logger, configuration)
+        IOptions<ProviderConfiguration> configuration,
+        IQuotaManager quotaManager = null,
+        IAuditLogger auditLogger = null,
+        IResponseCache responseCache = null,
+        IPerformanceMetricsCollector metricsCollector = null,
+        IApiKeyManager apiKeyManager = null)
+        : base(httpClient, logger, configuration, quotaManager, auditLogger, responseCache, metricsCollector, apiKeyManager)
     {
         if (string.IsNullOrEmpty(Configuration.ApiKey))
         {
             Logger.LogWarning("Replicate API key not configured. Provider will be disabled.");
+            Configuration.IsEnabled = false;
             return;
         }
-        ConfigureAuthentication();
     }
 
     protected override void ConfigureCapabilities()
     {
         base.ConfigureCapabilities();
         Capabilities.TextCompletion = true;
-        Capabilities.MaxTokensLimit = FreeTierMaxTokens;
+        Capabilities.MaxTokensLimit = 500;
         Capabilities.SupportedLanguages.Add("en");
     }
 
     protected override void ConfigureAuthentication()
     {
+        var apiKey = GetApiKey();
         HttpClient.DefaultRequestHeaders.Clear();
-        HttpClient.DefaultRequestHeaders.Add("Authorization", $"Token {Configuration.ApiKey}");
+        HttpClient.DefaultRequestHeaders.Add("Authorization", $"Token {apiKey}");
         HttpClient.DefaultRequestHeaders.Add("Accept", "application/json");
         HttpClient.DefaultRequestHeaders.Add("User-Agent", "DictionaryImporter/2.0");
     }
@@ -66,156 +68,106 @@ public class ReplicateProvider : BaseCompletionProvider
 
         try
         {
-            if (string.IsNullOrEmpty(Configuration.ApiKey))
+            if (!Configuration.IsEnabled)
             {
-                throw new InvalidOperationException("Replicate API key not configured");
+                throw new InvalidOperationException("Replicate provider is disabled");
             }
 
-            if (!CheckDailyLimit())
+            var quotaCheck = await CheckQuotaAsync(request, request.Context?.UserId);
+            if (!quotaCheck.CanProceed)
             {
-                throw new ReplicateQuotaExceededException(
-                    $"Replicate free tier daily limit reached: {FreeTierRequestsPerDay} requests/day");
+                throw new ProviderQuotaExceededException(ProviderName,
+                    $"Quota exceeded. Remaining: {quotaCheck.RemainingRequests} requests, " +
+                    $"{quotaCheck.RemainingTokens} tokens. Resets in {quotaCheck.TimeUntilReset.TotalMinutes:F0} minutes.");
             }
 
-            var estimatedSeconds = EstimateProcessingTime(request);
-            if (!CheckMonthlyLimit(estimatedSeconds))
+            if (Configuration.EnableCaching)
             {
-                throw new ReplicateQuotaExceededException(
-                    $"Replicate free tier monthly limit reached: {FreeTierSecondsPerMonth} seconds/month");
+                var cachedResponse = await TryGetCachedResponseAsync(request);
+                if (cachedResponse != null)
+                {
+                    return cachedResponse;
+                }
             }
 
             ValidateRequest(request);
-            IncrementDailyCount();
 
             var predictionId = await CreatePredictionAsync(request, cancellationToken);
-            var result = await PollPredictionAsync(predictionId, cancellationToken);
 
+            var result = await PollPredictionAsync(predictionId, cancellationToken);
             stopwatch.Stop();
 
-            var actualSeconds = (long)stopwatch.Elapsed.TotalSeconds;
-            IncrementMonthlyUsage(actualSeconds);
+            var tokenUsage = result.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
 
-            return new AiResponse
+            var aiResponse = new AiResponse
             {
                 Content = result.Trim(),
                 Provider = ProviderName,
                 Model = string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model,
-                TokensUsed = result.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length,
+                TokensUsed = tokenUsage,
                 ProcessingTime = stopwatch.Elapsed,
                 IsSuccess = true,
+                EstimatedCost = EstimateCost(tokenUsage, 0),
                 Metadata = new Dictionary<string, object>
-                    {
-                        { "model", string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model },
-                        { "free_tier", true },
-                        { "daily_requests_used", GetDailyRequestCount() },
-                        { "daily_requests_remaining", FreeTierRequestsPerDay - GetDailyRequestCount() },
-                        { "monthly_seconds_used", GetMonthlySecondsUsed() },
-                        { "monthly_seconds_remaining", FreeTierSecondsPerMonth - GetMonthlySecondsUsed() },
-                        { "prediction_id", predictionId },
-                        { "open_source", true }
-                    }
+                {
+                    ["model"] = string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model,
+                    ["tokens_used"] = tokenUsage,
+                    ["estimated_cost"] = EstimateCost(tokenUsage, 0),
+                    ["replicate"] = true,
+                    ["open_source"] = true,
+                    ["prediction_id"] = predictionId,
+                    ["processing_time_seconds"] = stopwatch.Elapsed.TotalSeconds
+                }
             };
-        }
-        catch (ReplicateQuotaExceededException ex)
-        {
-            stopwatch.Stop();
-            Logger.LogWarning(ex.Message);
-            throw;
+
+            await RecordUsageAsync(request, aiResponse, stopwatch.Elapsed, request.Context?.UserId);
+
+            if (Configuration.EnableCaching && Configuration.CacheDurationMinutes > 0)
+            {
+                await CacheResponseAsync(
+                    request,
+                    aiResponse,
+                    TimeSpan.FromMinutes(Configuration.CacheDurationMinutes));
+            }
+
+            return aiResponse;
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
-            Logger.LogError(ex, "Replicate provider failed");
-            if (ShouldFallback(ex)) throw;
+            Logger.LogError(ex, "Replicate provider failed for request {RequestId}", request.Context?.RequestId);
 
-            return new AiResponse
+            if (ShouldFallback(ex))
+            {
+                throw;
+            }
+
+            var errorResponse = new AiResponse
             {
                 Content = string.Empty,
                 Provider = ProviderName,
+                Model = Configuration.Model ?? DefaultModel,
                 ProcessingTime = stopwatch.Elapsed,
                 IsSuccess = false,
+                ErrorCode = GetErrorCode(ex),
                 ErrorMessage = ex.Message,
                 Metadata = new Dictionary<string, object>
-                    {
-                        { "model", string.IsNullOrEmpty(Configuration.Model) ? DefaultModel : Configuration.Model },
-                        { "error_type", ex.GetType().Name }
-                    }
+                {
+                    ["model"] = Configuration.Model ?? DefaultModel,
+                    ["error_type"] = ex.GetType().Name,
+                    ["stack_trace"] = ex.StackTrace
+                }
             };
-        }
-    }
 
-    private bool CheckDailyLimit()
-    {
-        lock (DailyCounterLock)
-        {
-            if (DateTime.UtcNow.Date > _lastResetDate)
+            if (AuditLogger != null)
             {
-                _dailyRequestCount = 0;
-                _lastResetDate = DateTime.UtcNow.Date;
+                var auditEntry = CreateAuditEntry(request, errorResponse, stopwatch.Elapsed, request.Context?.UserId);
+                auditEntry.ErrorCode = errorResponse.ErrorCode;
+                auditEntry.ErrorMessage = errorResponse.ErrorMessage;
+                await AuditLogger.LogRequestAsync(auditEntry);
             }
-            return _dailyRequestCount < FreeTierRequestsPerDay;
-        }
-    }
 
-    private void IncrementDailyCount()
-    {
-        lock (DailyCounterLock)
-        {
-            _dailyRequestCount++;
-        }
-    }
-
-    private long GetDailyRequestCount()
-    {
-        lock (DailyCounterLock)
-        {
-            if (DateTime.UtcNow.Date > _lastResetDate)
-            {
-                _dailyRequestCount = 0;
-                _lastResetDate = DateTime.UtcNow.Date;
-            }
-            return _dailyRequestCount;
-        }
-    }
-
-    private long EstimateProcessingTime(AiRequest request)
-    {
-        return (long)(request.MaxTokens * 0.1);
-    }
-
-    private bool CheckMonthlyLimit(long additionalSeconds)
-    {
-        lock (MonthlyCounterLock)
-        {
-            var currentMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
-            if (currentMonth > _lastResetMonth)
-            {
-                _monthlySecondsUsed = 0;
-                _lastResetMonth = currentMonth;
-            }
-            return (_monthlySecondsUsed + additionalSeconds) <= FreeTierSecondsPerMonth;
-        }
-    }
-
-    private void IncrementMonthlyUsage(long seconds)
-    {
-        lock (MonthlyCounterLock)
-        {
-            _monthlySecondsUsed += seconds;
-        }
-    }
-
-    private long GetMonthlySecondsUsed()
-    {
-        lock (MonthlyCounterLock)
-        {
-            var currentMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
-            if (currentMonth > _lastResetMonth)
-            {
-                _monthlySecondsUsed = 0;
-                _lastResetMonth = currentMonth;
-            }
-            return _monthlySecondsUsed;
+            return errorResponse;
         }
     }
 
@@ -224,11 +176,11 @@ public class ReplicateProvider : BaseCompletionProvider
         if (string.IsNullOrWhiteSpace(request.Prompt))
             throw new ArgumentException("Prompt cannot be empty");
 
-        if (request.MaxTokens > FreeTierMaxTokens)
+        if (request.MaxTokens > Capabilities.MaxTokensLimit)
         {
             Logger.LogWarning(
                 "Requested {Requested} tokens exceeds Replicate free tier limit of {Limit}. Using {Limit} instead.",
-                request.MaxTokens, FreeTierMaxTokens, FreeTierMaxTokens);
+                request.MaxTokens, Capabilities.MaxTokensLimit, Capabilities.MaxTokensLimit);
         }
     }
 
@@ -241,24 +193,18 @@ public class ReplicateProvider : BaseCompletionProvider
             input = new
             {
                 prompt = request.Prompt,
-                max_length = Math.Min(request.MaxTokens, FreeTierMaxTokens),
+                max_length = Math.Min(request.MaxTokens, Capabilities.MaxTokensLimit),
                 temperature = Math.Clamp(request.Temperature, 0.0, 1.0),
                 top_p = 0.9,
                 repetition_penalty = 1.0
             }
         };
 
-        var baseUrl = string.IsNullOrEmpty(Configuration.BaseUrl) ?
-            "https://api.replicate.com/v1/predictions" : Configuration.BaseUrl;
-
-        var httpRequest = new HttpRequestMessage(HttpMethod.Post, baseUrl)
+        var url = Configuration.BaseUrl ?? BaseUrl;
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = new StringContent(
-                JsonSerializer.Serialize(payload, new JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-                }),
+                JsonSerializer.Serialize(payload, JsonSerializerOptions),
                 Encoding.UTF8,
                 "application/json")
         };
@@ -268,18 +214,17 @@ public class ReplicateProvider : BaseCompletionProvider
             cancellationToken);
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        using var jsonDoc = JsonDocument.Parse(content);
 
+        using var jsonDoc = JsonDocument.Parse(content);
         return jsonDoc.RootElement.GetProperty("id").GetString() ??
                throw new InvalidOperationException("No prediction ID received");
     }
 
     private async Task<string> PollPredictionAsync(string predictionId, CancellationToken cancellationToken)
     {
-        var baseUrl = string.IsNullOrEmpty(Configuration.BaseUrl) ?
-            "https://api.replicate.com/v1/predictions" : Configuration.BaseUrl;
-
+        var baseUrl = Configuration.BaseUrl ?? BaseUrl;
         var pollUrl = $"{baseUrl}/{predictionId}";
+
         var maxAttempts = 60;
         var attempt = 0;
 
@@ -323,21 +268,66 @@ public class ReplicateProvider : BaseCompletionProvider
         return modelVersions.GetValueOrDefault(model, "02e509c789964a7ea8736978a43525956ef40397be9033abf9fd2badfe68c9e3");
     }
 
+    private string GetErrorCode(Exception ex)
+    {
+        return ex switch
+        {
+            ProviderQuotaExceededException => "QUOTA_EXCEEDED",
+            RateLimitExceededException => "RATE_LIMIT_EXCEEDED",
+            HttpRequestException httpEx => httpEx.StatusCode.HasValue ? $"HTTP_{httpEx.StatusCode.Value}" : "HTTP_ERROR",
+            TimeoutException => "TIMEOUT",
+            JsonException => "INVALID_RESPONSE",
+            FormatException => "INVALID_RESPONSE",
+            ArgumentException => "INVALID_REQUEST",
+            _ => "UNKNOWN_ERROR"
+        };
+    }
+
+    protected override decimal EstimateCost(long inputTokens, long outputTokens)
+    {
+        var model = Configuration.Model ?? DefaultModel;
+
+        if (model.Contains("llama-2-70b"))
+        {
+            var seconds = (inputTokens + outputTokens) / 100;
+            var costPerSecond = 0.0183m;
+            return seconds * costPerSecond;
+        }
+        else if (model.Contains("mistral-7b"))
+        {
+            var seconds = (inputTokens + outputTokens) / 200;
+            var costPerSecond = 0.0033m;
+            return seconds * costPerSecond;
+        }
+        else
+        {
+            var seconds = (inputTokens + outputTokens) / 150;
+            var costPerSecond = 0.0083m;
+            return seconds * costPerSecond;
+        }
+    }
+
     public override bool ShouldFallback(Exception exception)
     {
-        if (exception is ReplicateQuotaExceededException)
+        if (exception is ProviderQuotaExceededException || exception is RateLimitExceededException)
             return true;
 
         if (exception is HttpRequestException httpEx)
         {
             var message = httpEx.Message.ToLowerInvariant();
             return message.Contains("429") ||
+                   message.Contains("401") ||
+                   message.Contains("403") ||
+                   message.Contains("503") ||
                    message.Contains("quota") ||
                    message.Contains("limit") ||
                    message.Contains("monthly") ||
                    message.Contains("free tier") ||
                    message.Contains("credit");
         }
+
+        if (exception is TimeoutException || exception is TaskCanceledException)
+            return true;
 
         return base.ShouldFallback(exception);
     }

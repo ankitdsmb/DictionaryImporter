@@ -1,17 +1,10 @@
 ﻿namespace DictionaryImporter.AI.Core.Exceptions;
 
-public class CircuitBreakerOpenException : AiOrchestrationException
+public class CircuitBreakerOpenException(string providerName, TimeSpan duration) : AiOrchestrationException(
+    $"Circuit breaker is open for {providerName}. Will retry after {duration.TotalSeconds} seconds",
+    $"CIRCUIT_BREAKER_{providerName.ToUpper()}",
+    true)
 {
-    public string ProviderName { get; }
-    public TimeSpan Duration { get; }
-
-    public CircuitBreakerOpenException(string providerName, TimeSpan duration)
-        : base(
-            $"Circuit breaker is open for {providerName}. Will retry after {duration.TotalSeconds} seconds",
-            $"CIRCUIT_BREAKER_{providerName.ToUpper()}",
-            true)
-    {
-        ProviderName = providerName;
-        Duration = duration;
-    }
+    public string ProviderName { get; } = providerName;
+    public TimeSpan Duration { get; } = duration;
 }
