@@ -2,7 +2,17 @@
 
 public sealed record GrammarPatternRule
 {
-    public GrammarPatternRule(string id, string pattern, string replacement, string description, string category, int confidence, List<string> languages)
+    // Required for System.Text.Json
+    public GrammarPatternRule() { }
+
+    public GrammarPatternRule(
+        string id,
+        string pattern,
+        string replacement,
+        string description,
+        string category,
+        int confidence,
+        List<string> languages)
     {
         Id = id;
         Pattern = pattern;
@@ -13,7 +23,16 @@ public sealed record GrammarPatternRule
         Languages = languages;
     }
 
-    public GrammarPatternRule(string id, string pattern, string replacement, string description, string category, int confidence, List<string> languages, int usageCount, int successCount)
+    public GrammarPatternRule(
+        string id,
+        string pattern,
+        string replacement,
+        string description,
+        string category,
+        int confidence,
+        List<string> languages,
+        int usageCount,
+        int successCount)
     {
         Id = id;
         Pattern = pattern;

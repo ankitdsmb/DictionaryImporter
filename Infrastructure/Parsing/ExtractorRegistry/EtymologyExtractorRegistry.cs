@@ -1,4 +1,7 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
+﻿using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
+
+namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
 
 public sealed class EtymologyExtractorRegistry : IEtymologyExtractorRegistry
 {
@@ -16,8 +19,10 @@ public sealed class EtymologyExtractorRegistry : IEtymologyExtractorRegistry
         _logger = logger;
 
         foreach (var extractor in extractors)
+        {
             if (extractor.SourceCode != "*")
                 Register(extractor);
+        }
     }
 
     public IEtymologyExtractor GetExtractor(string sourceCode)
@@ -26,13 +31,16 @@ public sealed class EtymologyExtractorRegistry : IEtymologyExtractorRegistry
         {
             _logger.LogDebug(
                 "Using etymology extractor for source {Source}: {ExtractorType}",
-                sourceCode, extractor.GetType().Name);
+                sourceCode,
+                extractor.GetType().Name);
+
             return extractor;
         }
 
         _logger.LogDebug(
             "No specific etymology extractor for source {Source}, using generic",
             sourceCode);
+
         return _genericExtractor;
     }
 
@@ -45,13 +53,19 @@ public sealed class EtymologyExtractorRegistry : IEtymologyExtractorRegistry
         }
 
         if (_extractors.TryAdd(extractor.SourceCode, extractor))
+        {
             _logger.LogInformation(
                 "Registered etymology extractor for source {Source} ({Type})",
-                extractor.SourceCode, extractor.GetType().Name);
-        else
-            _logger.LogWarning(
-                "Etymology extractor for source {Source} already registered",
-                extractor.SourceCode);
+                extractor.SourceCode,
+                extractor.GetType().Name);
+            return;
+        }
+
+        // Duplicate registration is not harmful
+        _logger.LogDebug(
+            "Etymology extractor for source {Source} already registered ({Type})",
+            extractor.SourceCode,
+            extractor.GetType().Name);
     }
 
     public IReadOnlyDictionary<string, IEtymologyExtractor> GetAllExtractors()

@@ -2,7 +2,7 @@
 
 namespace DictionaryImporter.AITextKit.Grammar;
 
-public sealed class HybridGrammarCorrector(
+internal sealed class HybridGrammarCorrector(
     ILanguageDetector languageDetector,
     IGrammarCorrector languageToolCorrector,
     ILogger<HybridGrammarCorrector> logger) : IGrammarCorrector

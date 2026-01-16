@@ -5,6 +5,8 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+	  <PlatformTarget>x64</PlatformTarget>
+  
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,15 +28,23 @@
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="6.0.0" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="6.0.0" />
+    <PackageReference Include="NTextCat" Version="0.3.65" />
     <PackageReference Include="Polly" Version="7.2.3" />
     <PackageReference Include="Microsoft.ML" Version="5.0.0" />
     <PackageReference Include="NHunspell" Version="1.2.5554.16953" />
+    <PackageReference Include="Scrutor" Version="7.0.0" />
     <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="AITextKit\Grammar\Configuration\Dictionaries\en.aff">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="AITextKit\Grammar\Configuration\Dictionaries\en.dic">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="appsettings.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
@@ -77,7 +87,7 @@
     <None Update="AITextKit\Grammar\Configuration\grammar-rules.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="AITextKit\Grammar\Configuration\LanguageProfiles.xml">
+    <None Update="AITextKit\Grammar\Configuration\Core14.profile.xml">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>

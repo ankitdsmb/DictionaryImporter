@@ -1,4 +1,7 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
+﻿using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
+
+namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
 
 public sealed class ExampleExtractorRegistry : IExampleExtractorRegistry
 {
@@ -15,12 +18,14 @@ public sealed class ExampleExtractorRegistry : IExampleExtractorRegistry
         _genericExtractor = genericExtractor;
         _logger = logger;
 
-        foreach (var extractor in extractors) Register(extractor);
+        foreach (var extractor in extractors)
+            Register(extractor);
     }
 
     public IExampleExtractor GetExtractor(string sourceCode)
     {
-        if (_extractors.TryGetValue(sourceCode, out var extractor)) return extractor;
+        if (_extractors.TryGetValue(sourceCode, out var extractor))
+            return extractor;
 
         _logger.LogDebug(
             "No specific extractor found for source {Source}, using generic extractor",
@@ -39,13 +44,17 @@ public sealed class ExampleExtractorRegistry : IExampleExtractorRegistry
         }
 
         if (_extractors.TryAdd(extractor.SourceCode, extractor))
+        {
             _logger.LogInformation(
                 "Registered example extractor for source {Source}",
                 extractor.SourceCode);
-        else
-            _logger.LogWarning(
-                "Example extractor for source {Source} already registered",
-                extractor.SourceCode);
+            return;
+        }
+
+        // Duplicate registration is not harmful
+        _logger.LogDebug(
+            "Example extractor for source {Source} already registered",
+            extractor.SourceCode);
     }
 
     public IReadOnlyDictionary<string, IExampleExtractor> GetAllExtractors()

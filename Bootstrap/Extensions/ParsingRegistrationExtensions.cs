@@ -1,3 +1,4 @@
+﻿using DictionaryImporter.Core.Text;
 using DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
 using WebsterEtymologyExtractor =
     DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor.WebsterEtymologyExtractor;
@@ -69,7 +70,11 @@ public static class ParsingRegistrationExtensions
                 sp.GetRequiredService<IExampleExtractorRegistry>(),
                 sp.GetRequiredService<ISynonymExtractorRegistry>(),
                 sp.GetRequiredService<IDictionaryEntrySynonymWriter>(),
-                sp.GetRequiredService<IEtymologyExtractorRegistry>(), sp.GetRequiredService<ILogger<DictionaryParsedDefinitionProcessor>>()));
+                sp.GetRequiredService<IEtymologyExtractorRegistry>(),
+                sp.GetRequiredService<IDictionaryTextFormatter>(),
+                sp.GetRequiredService<IGrammarEnrichedTextService>(),
+                sp.GetRequiredService<ILogger<DictionaryParsedDefinitionProcessor>>()
+            ));
 
         return services;
     }

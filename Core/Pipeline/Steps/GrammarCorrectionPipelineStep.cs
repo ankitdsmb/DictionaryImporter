@@ -1,11 +1,11 @@
 ﻿namespace DictionaryImporter.Core.Pipeline.Steps;
 
-public sealed class GrammarCorrectionPipelineStep(GrammarCorrectionStep step) : IImportPipelineStep
+public sealed class GrammarCorrectionPipelineStep(IGrammarFeature grammar) : IImportPipelineStep
 {
     public string Name => PipelineStepNames.GrammarCorrection;
 
     public async Task ExecuteAsync(ImportPipelineContext context)
     {
-        await step.ExecuteAsync(context.SourceCode, context.CancellationToken);
+        await grammar.CorrectSourceAsync(context.SourceCode, context.CancellationToken);
     }
 }

@@ -36,11 +36,11 @@ public sealed class NHunspellSpellChecker : ISpellChecker
 
     private string GetDictionaryPath(string languageCode)
     {
-        return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Dictionaries", $"{languageCode}.dic");
+        return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AITextKit/Grammar/Configuration/Dictionaries", $"{languageCode}.dic");
     }
 
     private string GetAffixPath(string languageCode)
     {
-        return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Dictionaries", $"{languageCode}.aff");
+        return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AITextKit/Grammar/Configuration/Dictionaries", $"{languageCode}.aff");
     }
 }

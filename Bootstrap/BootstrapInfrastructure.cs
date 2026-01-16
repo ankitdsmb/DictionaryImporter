@@ -1,5 +1,4 @@
 ﻿using DictionaryImporter.AITextKit.AI.Extensions;
-using DictionaryImporter.AITextKit.Grammar.Extensions;
 using DictionaryImporter.Bootstrap.Extensions;
 
 namespace DictionaryImporter.Bootstrap;
@@ -12,6 +11,7 @@ public static class BootstrapInfrastructure
                                ?? throw new InvalidOperationException("Connection string 'DictionaryImporter' not configured");
 
         services.AddIpaConfiguration(configuration);
+
         services
             .AddPersistence(connectionString)
             .AddCanonical(connectionString)
@@ -21,9 +21,8 @@ public static class BootstrapInfrastructure
             .AddGraph(connectionString)
             .AddConcepts(connectionString)
             .AddIpa(connectionString)
-            .AddGrammarCorrection(configuration)
-            .AddGrammarCorrectionStep(configuration)
+            .AddParsing(connectionString)
+            .AddGrammar(configuration)
             .AddAiOrchestration(configuration);
-        ;
     }
 }

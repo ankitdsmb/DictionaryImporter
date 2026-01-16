@@ -19,7 +19,14 @@
                 try
                 {
                     var json = File.ReadAllText(_rulesFilePath);
-                    var loadedRules = JsonSerializer.Deserialize<List<GrammarPatternRule>>(json);
+                    var options = new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true,
+                        ReadCommentHandling = JsonCommentHandling.Skip,
+                        AllowTrailingCommas = true
+                    };
+
+                    var loadedRules = JsonSerializer.Deserialize<List<GrammarPatternRule>>(json, options);
                     if (loadedRules != null)
                     {
                         lock (_lock)

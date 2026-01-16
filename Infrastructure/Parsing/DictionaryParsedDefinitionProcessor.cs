@@ -1,4 +1,9 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing;
+﻿using Dapper;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
+using DictionaryImporter.Core.Text;
+
+namespace DictionaryImporter.Infrastructure.Parsing;
 
 public sealed class DictionaryParsedDefinitionProcessor(
     string connectionString,
@@ -13,6 +18,8 @@ public sealed class DictionaryParsedDefinitionProcessor(
     ISynonymExtractorRegistry synonymExtractorRegistry,
     IDictionaryEntrySynonymWriter synonymWriter,
     IEtymologyExtractorRegistry etymologyExtractorRegistry,
+    IDictionaryTextFormatter formatter,
+    IGrammarEnrichedTextService grammarText,
     ILogger<DictionaryParsedDefinitionProcessor> logger)
 {
     private readonly SqlDictionaryEntryVariantWriter _variantWriter = variantWriter;
@@ -63,8 +70,9 @@ public sealed class DictionaryParsedDefinitionProcessor(
             entryIndex++;
 
             if (entryIndex % 1_000 == 0)
+            {
                 logger.LogInformation(
-                    "Stage=Parsing completed | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants} | Examples={Examples} | Synonyms={Synonyms}",
+                    "Stage=Parsing progress | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants} | Examples={Examples} | Synonyms={Synonyms}",
                     sourceCode,
                     entryIndex,
                     parsedInserted,
@@ -73,6 +81,7 @@ public sealed class DictionaryParsedDefinitionProcessor(
                     variantInserted,
                     exampleInserted,
                     synonymInserted);
+            }
 
             var parsedDefinitions = parser.Parse(entry)?.ToList();
 
@@ -94,6 +103,37 @@ public sealed class DictionaryParsedDefinitionProcessor(
             foreach (var parsed in parsedDefinitions)
             {
                 var currentParsed = parsed;
+                var inputDefinition =
+                    !string.IsNullOrWhiteSpace(currentParsed.Definition)
+                        ? currentParsed.Definition
+                        : currentParsed.RawFragment;
+
+                if (!string.IsNullOrWhiteSpace(inputDefinition))
+                {
+                    var formattedDefinition =
+                        formatter.FormatDefinition(inputDefinition);
+
+                    var correctedDefinition =
+                        await grammarText.NormalizeDefinitionAsync(formattedDefinition, ct);
+
+                    currentParsed = new ParsedDefinition
+                    {
+                        ParentKey = currentParsed.ParentKey,
+                        SelfKey = currentParsed.SelfKey,
+                        MeaningTitle = currentParsed.MeaningTitle,
+                        SenseNumber = currentParsed.SenseNumber,
+                        Definition = string.IsNullOrWhiteSpace(correctedDefinition)
+                            ? inputDefinition
+                            : correctedDefinition,
+                        RawFragment = currentParsed.RawFragment,
+                        Domain = currentParsed.Domain,
+                        UsageLabel = currentParsed.UsageLabel,
+                        Alias = currentParsed.Alias,
+                        Synonyms = currentParsed.Synonyms,
+                        CrossReferences = currentParsed.CrossReferences
+                    };
+                }
+
                 var parsedId = await parsedWriter.WriteAsync(
                     entry.DictionaryEntryId,
                     currentParsed,
@@ -106,15 +146,23 @@ public sealed class DictionaryParsedDefinitionProcessor(
 
                 parsedInserted++;
 
+                // ✅ Examples are strings in your project
                 if (!string.IsNullOrWhiteSpace(currentParsed.Definition))
                 {
                     var examples = exampleExtractor.Extract(currentParsed);
 
-                    foreach (var example in examples)
+                    foreach (var exampleText in examples)
                     {
+                        ct.ThrowIfCancellationRequested();
+
+                        var formattedExample = formatter.FormatExample(exampleText);
+
+                        var correctedExample =
+                            await grammarText.NormalizeExampleAsync(formattedExample, ct);
+
                         await exampleWriter.WriteAsync(
                             parsedId,
-                            example,
+                            correctedExample,
                             sourceCode,
                             ct);
 
@@ -128,6 +176,7 @@ public sealed class DictionaryParsedDefinitionProcessor(
                             parsedId);
                 }
 
+                // Synonyms
                 if (!string.IsNullOrWhiteSpace(currentParsed.Definition))
                 {
                     var synonymExtractor = synonymExtractorRegistry.GetExtractor(sourceCode);
@@ -139,17 +188,23 @@ public sealed class DictionaryParsedDefinitionProcessor(
                     var validSynonyms = new List<string>();
 
                     foreach (var synonymResult in synonymResults)
-                        if (synonymResult.ConfidenceLevel == "high" || synonymResult.ConfidenceLevel == "medium")
-                            if (synonymExtractor.ValidateSynonymPair(entry.Word, synonymResult.TargetHeadword))
-                            {
-                                validSynonyms.Add(synonymResult.TargetHeadword);
+                    {
+                        if (synonymResult.ConfidenceLevel != "high" &&
+                            synonymResult.ConfidenceLevel != "medium")
+                            continue;
 
-                                logger.LogDebug(
-                                    "Synonym detected | Headword={Headword} | Synonym={Synonym} | Confidence={Confidence}",
-                                    entry.Word,
-                                    synonymResult.TargetHeadword,
-                                    synonymResult.ConfidenceLevel);
-                            }
+                        if (!synonymExtractor.ValidateSynonymPair(entry.Word, synonymResult.TargetHeadword))
+                            continue;
+                        var cleanedSynonym = formatter.FormatSynonym(synonymResult.TargetHeadword);
+                        if (!string.IsNullOrWhiteSpace(cleanedSynonym))
+                            validSynonyms.Add(cleanedSynonym);
+
+                        logger.LogDebug(
+                            "Synonym detected | Headword={Headword} | Synonym={Synonym} | Confidence={Confidence}",
+                            entry.Word,
+                            synonymResult.TargetHeadword,
+                            synonymResult.ConfidenceLevel);
+                    }
 
                     if (validSynonyms.Count > 0)
                     {
@@ -163,6 +218,7 @@ public sealed class DictionaryParsedDefinitionProcessor(
                     }
                 }
 
+                // Etymology extraction
                 if (!string.IsNullOrWhiteSpace(currentParsed.Definition))
                 {
                     var etymologyExtractor = etymologyExtractorRegistry.GetExtractor(sourceCode);
@@ -186,13 +242,12 @@ public sealed class DictionaryParsedDefinitionProcessor(
                         etymologyExtracted++;
 
                         logger.LogDebug(
-                            "Etymology extracted from definition | Headword={Headword} | Etymology={Etymology} | Method={Method}",
+                            "Etymology extracted from definition | Headword={Headword} | Method={Method}",
                             entry.Word,
-                            etymologyResult.EtymologyText.Substring(0,
-                                Math.Min(100, etymologyResult.EtymologyText.Length)),
                             etymologyResult.DetectionMethod);
 
                         if (!string.IsNullOrWhiteSpace(etymologyResult.CleanedDefinition))
+                        {
                             currentParsed = new ParsedDefinition
                             {
                                 ParentKey = currentParsed.ParentKey,
@@ -207,9 +262,11 @@ public sealed class DictionaryParsedDefinitionProcessor(
                                 Synonyms = currentParsed.Synonyms,
                                 CrossReferences = currentParsed.CrossReferences
                             };
+                        }
                     }
                 }
 
+                // Cross references
                 foreach (var cr in currentParsed.CrossReferences)
                 {
                     await crossRefWriter.WriteAsync(
@@ -220,25 +277,30 @@ public sealed class DictionaryParsedDefinitionProcessor(
                     crossRefInserted++;
                 }
 
+                // Alias
                 if (!string.IsNullOrWhiteSpace(currentParsed.Alias))
                 {
                     await aliasWriter.WriteAsync(
                         parsedId,
-                        currentParsed.Alias, ct);
+                        currentParsed.Alias,
+                        ct);
 
                     aliasInserted++;
                 }
             }
-
-            logger.LogInformation(
-                "Stage=Parsing completed | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants} | Examples={Examples}",
-                sourceCode,
-                entryIndex,
-                parsedInserted,
-                crossRefInserted,
-                aliasInserted,
-                variantInserted,
-                exampleInserted);
         }
+
+        // ✅ Final single completion log (only once)
+        logger.LogInformation(
+            "Stage=Parsing completed | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants} | Examples={Examples} | Synonyms={Synonyms} | EtymologyExtracted={Etymology}",
+            sourceCode,
+            entryIndex,
+            parsedInserted,
+            crossRefInserted,
+            aliasInserted,
+            variantInserted,
+            exampleInserted,
+            synonymInserted,
+            etymologyExtracted);
     }
 }
