@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Pipeline;
-
-namespace DictionaryImporter.Core.Abstractions;
+﻿namespace DictionaryImporter.Core.Abstractions;
 
 public interface IImportEngineRegistry
 {

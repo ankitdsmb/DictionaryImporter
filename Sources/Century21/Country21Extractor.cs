@@ -1,5 +1,4 @@
-﻿using DictionaryImporter.Sources.Century21.Models;
-using HtmlAgilityPack;
+﻿using HtmlAgilityPack;
 
 namespace DictionaryImporter.Sources.Century21;
 

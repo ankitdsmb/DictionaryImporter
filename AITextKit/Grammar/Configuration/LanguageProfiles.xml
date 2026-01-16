@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<LanguageIdentificationProfile>
+	<Name>CoreLanguages</Name>
+	<NGramLength>3</NGramLength>
+	<MaximumSizeOfDistribution>400</MaximumSizeOfDistribution>
+	<LanguageModels>
+		<LanguageModel name="English">
+			<NGrams>
+				<NGram freq="1000"> th</NGram>
+				<NGram freq="950">the</NGram>
+				<NGram freq="900">he </NGram>
+				<NGram freq="850"> an</NGram>
+				<NGram freq="800">and</NGram>
+			</NGrams>
+		</LanguageModel>
+		<LanguageModel name="French">
+			<NGrams>
+				<NGram freq="1000"> de</NGram>
+				<NGram freq="950">de </NGram>
+				<NGram freq="900"> la</NGram>
+				<NGram freq="850">la </NGram>
+				<NGram freq="800"> le</NGram>
+			</NGrams>
+		</LanguageModel>
+		<LanguageModel name="German">
+			<NGrams>
+				<NGram freq="1000"> un</NGram>
+				<NGram freq="950">und</NGram>
+				<NGram freq="900">nd </NGram>
+				<NGram freq="850"> de</NGram>
+				<NGram freq="800">der</NGram>
+			</NGrams>
+		</LanguageModel>
+	</LanguageModels>
+</LanguageIdentificationProfile>

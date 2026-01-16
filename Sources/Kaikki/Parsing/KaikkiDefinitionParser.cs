@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Sources.Kaikki.Models;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+﻿using Newtonsoft.Json.Linq;
 
 namespace DictionaryImporter.Sources.Kaikki.Parsing;
 

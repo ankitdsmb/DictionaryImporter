@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Sources.Century21.Models;
-
-namespace DictionaryImporter.Sources.Century21;
+﻿namespace DictionaryImporter.Sources.Century21;
 
 public sealed class Century21Transformer(ILogger<Century21Transformer> logger) : IDataTransformer<Century21RawEntry>
 {

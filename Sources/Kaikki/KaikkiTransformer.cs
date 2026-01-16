@@ -1,7 +1,4 @@
-﻿using DictionaryImporter.Sources.Kaikki.Models;
-using Newtonsoft.Json;
-
-namespace DictionaryImporter.Sources.Kaikki;
+﻿namespace DictionaryImporter.Sources.Kaikki;
 
 public sealed class KaikkiTransformer(ILogger<KaikkiTransformer> logger) : IDataTransformer<KaikkiRawEntry>
 {

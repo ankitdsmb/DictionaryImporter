@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Pipeline;
-
-namespace DictionaryImporter.Orchestration;
+﻿namespace DictionaryImporter.Orchestration;
 
 public sealed class ImportEngineFactory<TRaw>(
     IDataExtractor<TRaw> extractor,

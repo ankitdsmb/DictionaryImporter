@@ -1,6 +1,4 @@
-﻿using Newtonsoft.Json;
-
-namespace DictionaryImporter.Sources.Kaikki.Models;
+﻿namespace DictionaryImporter.Sources.Kaikki.Models;
 
 public sealed class KaikkiExample
 {

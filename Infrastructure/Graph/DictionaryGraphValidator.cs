@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Graph;
-
-namespace DictionaryImporter.Infrastructure.Graph;
+﻿namespace DictionaryImporter.Infrastructure.Graph;
 
 public sealed class DictionaryGraphValidator(
     string connectionString,

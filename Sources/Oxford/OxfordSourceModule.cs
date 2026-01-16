@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Sources.Gutenberg.Parsing;
-
-namespace DictionaryImporter.Sources.Oxford;
+﻿namespace DictionaryImporter.Sources.Oxford;
 
 public sealed class OxfordSourceModule : IDictionarySourceModule
 {
