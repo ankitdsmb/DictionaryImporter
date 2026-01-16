@@ -15,8 +15,10 @@ internal static class PersistenceRegistrationExtensions
 
         services.AddSingleton<IDataLoader, StagingDataLoaderAdapter>();
 
-        services.AddSingleton<IEntryEtymologyWriter>(_ =>
-            new SqlDictionaryEntryEtymologyWriter(connectionString));
+        services.AddSingleton<IEntryEtymologyWriter>(sp =>
+            new SqlDictionaryEntryEtymologyWriter(
+                connectionString,
+                sp.GetRequiredService<ILogger<SqlDictionaryEntryEtymologyWriter>>()));
 
         services.AddSingleton<IDataMergeExecutor>(sp =>
             new SqlDictionaryEntryMergeExecutor(
