@@ -117,7 +117,7 @@ public sealed class GrammarCorrectionStep(
 
         var examples = await conn.QueryAsync<ExampleRecord>(
             """
-            SELECT e.DictionaryEntryExampleId, e.ExampleText, de.Word
+            SELECT ex.DictionaryEntryExampleId, ex.ExampleText, de.Word
             FROM dbo.DictionaryEntryExample ex
             JOIN dbo.DictionaryEntryParsed p ON p.DictionaryEntryParsedId = ex.DictionaryEntryParsedId
             JOIN dbo.DictionaryEntry de ON de.DictionaryEntryId = p.DictionaryEntryId
