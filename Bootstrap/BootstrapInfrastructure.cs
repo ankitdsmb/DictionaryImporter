@@ -1,4 +1,6 @@
-﻿using DictionaryImporter.Bootstrap.Exensions;
+﻿using DictionaryImporter.AITextKit.AI.Extensions;
+using DictionaryImporter.AITextKit.Grammar.Extensions;
+using DictionaryImporter.Bootstrap.Extensions;
 
 namespace DictionaryImporter.Bootstrap;
 
@@ -20,6 +22,8 @@ public static class BootstrapInfrastructure
             .AddConcepts(connectionString)
             .AddIpa(connectionString)
             .AddGrammarCorrection(configuration)
-            .AddGrammarCorrectionStep(configuration);
+            .AddGrammarCorrectionStep(configuration)
+            .AddAiOrchestration(configuration);
+        ;
     }
 }

@@ -1,6 +1,4 @@
-﻿using System.Data;
-
-namespace DictionaryImporter.Infrastructure.Persistence;
+﻿namespace DictionaryImporter.Infrastructure.Persistence;
 
 public sealed class SqlDictionaryEntrySynonymWriter(
     string connectionString,

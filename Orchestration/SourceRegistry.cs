@@ -1,5 +1,4 @@
-﻿using DictionaryImporter.Sources;
-using DictionaryImporter.Sources.StructuredJson;
+﻿using DictionaryImporter.Sources.StructuredJson;
 
 namespace DictionaryImporter.Orchestration;
 

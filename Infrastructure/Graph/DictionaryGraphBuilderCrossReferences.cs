@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Infrastructure.Graph;
+﻿using ILogger = Microsoft.Extensions.Logging.ILogger;
+
+namespace DictionaryImporter.Infrastructure.Graph;
 
 internal static class DictionaryGraphBuilderCrossReferences
 {

@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
-
-namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
+﻿namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
 
 public sealed class ExampleExtractorRegistry : IExampleExtractorRegistry
 {

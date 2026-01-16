@@ -8,15 +8,28 @@ public sealed class SqlDictionaryEntryEtymologyWriter(string connectionString) :
     {
         const string sql =
             """
-            INSERT INTO dbo.DictionaryEntryEtymology
-            (DictionaryEntryId, EtymologyText, LanguageCode, CreatedUtc)
-            VALUES
-            (
-                @DictionaryEntryId,
-                @EtymologyText,
-                @LanguageCode,
-                @CreatedUtc
-            )
+            IF NOT EXISTS (SELECT 1 FROM DictionaryEntryEtymology
+                            WHERE DictionaryEntryId = @DictionaryEntryId
+                            AND EtymologyText = @EtymologyText
+                            AND LanguageCode = @LanguageCode)
+            --BEGIN
+                --UPDATE DictionaryEntryEtymology
+                --SET EtymologyText = @EtymologyText,
+                    --UpdatedUtc = SYSUTCDATETIME()
+                --WHERE DictionaryEntryId = @EntryId;
+            --END
+            --ELSE
+            BEGIN
+                INSERT INTO dbo.DictionaryEntryEtymology
+                (DictionaryEntryId, EtymologyText, LanguageCode, CreatedUtc)
+                VALUES
+                (
+                    @DictionaryEntryId,
+                    @EtymologyText,
+                    @LanguageCode,
+                    @CreatedUtc
+                )
+            END
             """;
 
         await using var conn =

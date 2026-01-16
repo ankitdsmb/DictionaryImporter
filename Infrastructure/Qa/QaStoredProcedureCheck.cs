@@ -1,6 +1,4 @@
-﻿using System.Data;
-
-namespace DictionaryImporter.Infrastructure.Qa;
+﻿namespace DictionaryImporter.Infrastructure.Qa;
 
 public sealed class QaStoredProcedureCheck(
     string name,

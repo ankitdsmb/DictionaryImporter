@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Sources.Kaikki.Models;
-using Newtonsoft.Json;
-using JsonException = Newtonsoft.Json.JsonException;
+﻿using JsonException = Newtonsoft.Json.JsonException;
 
 namespace DictionaryImporter.Sources.Kaikki;
 

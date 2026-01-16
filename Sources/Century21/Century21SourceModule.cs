@@ -1,5 +1,4 @@
-﻿using DictionaryImporter.Sources.Century21.Models;
-using DictionaryImporter.Sources.Century21.Parsing;
+﻿using DictionaryImporter.Sources.Century21.Parsing;
 
 namespace DictionaryImporter.Sources.Century21;
 

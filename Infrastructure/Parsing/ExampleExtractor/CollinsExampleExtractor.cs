@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Sources.Collins.parsing;
-
-namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
+﻿namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
 
 public sealed class CollinsExampleExtractor : IExampleExtractor
 {

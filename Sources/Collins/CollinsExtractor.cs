@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Sources.Collins.parsing;
-
-namespace DictionaryImporter.Sources.Collins;
+﻿namespace DictionaryImporter.Sources.Collins;
 
 public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
 {

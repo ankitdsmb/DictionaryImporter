@@ -1,6 +1,4 @@
-﻿using System.Data;
-
-namespace DictionaryImporter.Infrastructure.Persistence;
+﻿namespace DictionaryImporter.Infrastructure.Persistence;
 
 /// <summary>
 ///     Writer for parsed dictionary definitions.

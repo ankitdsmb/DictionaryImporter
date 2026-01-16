@@ -1,1 +1,0 @@
-﻿namespace DictionaryImporter.Core.Grammar.Simple;

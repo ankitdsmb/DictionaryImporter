@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor;
-
-namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
+﻿namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
 
 public sealed class EtymologyExtractorRegistry : IEtymologyExtractorRegistry
 {

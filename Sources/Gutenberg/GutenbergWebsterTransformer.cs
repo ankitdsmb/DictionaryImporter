@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Sources.Gutenberg.Parsing;
-
-namespace DictionaryImporter.Sources.Gutenberg;
+﻿namespace DictionaryImporter.Sources.Gutenberg;
 
 public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransformer> logger)
     : IDataTransformer<GutenbergRawEntry>

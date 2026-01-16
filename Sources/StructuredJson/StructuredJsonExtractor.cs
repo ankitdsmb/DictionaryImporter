@@ -1,6 +1,4 @@
-﻿using JsonSerializer = System.Text.Json.JsonSerializer;
-
-namespace DictionaryImporter.Sources.StructuredJson;
+﻿namespace DictionaryImporter.Sources.StructuredJson;
 
 public sealed class StructuredJsonExtractor
     : IDataExtractor<StructuredJsonRawEntry>
