@@ -1,8 +1,9 @@
-﻿namespace DictionaryImporter.Core.Abstractions;
-
-public interface IDataExtractor<TRaw>
+﻿namespace DictionaryImporter.Core.Abstractions
 {
-    IAsyncEnumerable<TRaw> ExtractAsync(
-        Stream source,
-        CancellationToken cancellationToken);
+    public interface IDataExtractor<TRaw>
+    {
+        IAsyncEnumerable<TRaw> ExtractAsync(
+            Stream source,
+            CancellationToken cancellationToken);
+    }
 }

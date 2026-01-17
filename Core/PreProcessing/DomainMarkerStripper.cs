@@ -1,15 +1,16 @@
-﻿namespace DictionaryImporter.Core.PreProcessing;
-
-internal static class DomainMarkerStripper
+﻿namespace DictionaryImporter.Core.PreProcessing
 {
-    private static readonly Regex Marker =
-        new(@"^[\(\[【].+?[\)\]】]\s*", RegexOptions.Compiled);
-
-    public static string Strip(string word)
+    internal static class DomainMarkerStripper
     {
-        if (string.IsNullOrWhiteSpace(word))
-            return word;
+        private static readonly Regex Marker =
+            new(@"^[\(\[【].+?[\)\]】]\s*", RegexOptions.Compiled);
 
-        return Marker.Replace(word, "").Trim();
+        public static string Strip(string word)
+        {
+            if (string.IsNullOrWhiteSpace(word))
+                return word;
+
+            return Marker.Replace(word, "").Trim();
+        }
     }
 }

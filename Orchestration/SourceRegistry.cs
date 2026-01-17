@@ -1,11 +1,12 @@
 ﻿using DictionaryImporter.Sources.StructuredJson;
 
-namespace DictionaryImporter.Orchestration;
-
-public static class SourceRegistry
+namespace DictionaryImporter.Orchestration
 {
-    public static IEnumerable<IDictionarySourceModule> CreateSources()
+    public static class SourceRegistry
     {
-        yield return new StructuredJsonSourceModule();
+        public static IEnumerable<IDictionarySourceModule> CreateSources()
+        {
+            yield return new StructuredJsonSourceModule();
+        }
     }
 }

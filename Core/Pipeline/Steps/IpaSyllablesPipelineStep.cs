@@ -1,11 +1,12 @@
-﻿namespace DictionaryImporter.Core.Pipeline.Steps;
-
-public sealed class IpaSyllablesPipelineStep(CanonicalWordSyllableEnricher syllableEnricher) : IImportPipelineStep
+﻿namespace DictionaryImporter.Core.Pipeline.Steps
 {
-    public string Name => PipelineStepNames.IpaSyllables;
-
-    public async Task ExecuteAsync(ImportPipelineContext context)
+    public sealed class IpaSyllablesPipelineStep(CanonicalWordSyllableEnricher syllableEnricher) : IImportPipelineStep
     {
-        await syllableEnricher.ExecuteAsync(context.CancellationToken);
+        public string Name => PipelineStepNames.IpaSyllables;
+
+        public async Task ExecuteAsync(ImportPipelineContext context)
+        {
+            await syllableEnricher.ExecuteAsync(context.CancellationToken);
+        }
     }
 }

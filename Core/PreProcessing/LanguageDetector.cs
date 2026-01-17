@@ -1,16 +1,17 @@
-﻿namespace DictionaryImporter.Core.PreProcessing;
-
-internal static class LanguageDetector
+﻿namespace DictionaryImporter.Core.PreProcessing
 {
-    public static string Detect(string? text)
+    internal static class LanguageDetector
     {
-        if (string.IsNullOrWhiteSpace(text))
+        public static string Detect(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return "en";
+
+            foreach (var c in text)
+                if (c >= '\u4E00' && c <= '\u9FFF')
+                    return "zh";
+
             return "en";
-
-        foreach (var c in text)
-            if (c >= '\u4E00' && c <= '\u9FFF')
-                return "zh";
-
-        return "en";
+        }
     }
 }

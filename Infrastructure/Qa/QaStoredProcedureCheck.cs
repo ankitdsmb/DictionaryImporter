@@ -1,41 +1,42 @@
-﻿namespace DictionaryImporter.Infrastructure.Qa;
-
-public sealed class QaStoredProcedureCheck(
-    string name,
-    string phase,
-    string procedureName,
-    string connectionString,
-    object? parameters = null)
-    : IQaCheck
+﻿namespace DictionaryImporter.Infrastructure.Qa
 {
-    public string Name { get; } = name;
-    public string Phase { get; } = phase;
-
-    public async Task<IReadOnlyList<QaSummaryRow>> ExecuteAsync(
-        CancellationToken ct)
+    public sealed class QaStoredProcedureCheck(
+        string name,
+        string phase,
+        string procedureName,
+        string connectionString,
+        object? parameters = null)
+        : IQaCheck
     {
-        await using var conn = new SqlConnection(connectionString);
-        await conn.OpenAsync(ct);
+        public string Name { get; } = name;
+        public string Phase { get; } = phase;
 
-        var rows =
-            await conn.QueryAsync<dynamic>(
-                procedureName,
-                parameters,
-                commandType: CommandType.StoredProcedure);
+        public async Task<IReadOnlyList<QaSummaryRow>> ExecuteAsync(
+            CancellationToken ct)
+        {
+            await using var conn = new SqlConnection(connectionString);
+            await conn.OpenAsync(ct);
 
-        var results = new List<QaSummaryRow>();
+            var rows =
+                await conn.QueryAsync<dynamic>(
+                    procedureName,
+                    parameters,
+                    commandType: CommandType.StoredProcedure);
 
-        foreach (var row in rows)
-            results.Add(new QaSummaryRow
-            {
-                Phase = Phase,
-                CheckName = Name,
-                Status = row.OverallQaStatus,
-                Details = row.LocaleCode != null
-                    ? $"Locale={row.LocaleCode}"
-                    : null
-            });
+            var results = new List<QaSummaryRow>();
 
-        return results;
+            foreach (var row in rows)
+                results.Add(new QaSummaryRow
+                {
+                    Phase = Phase,
+                    CheckName = Name,
+                    Status = row.OverallQaStatus,
+                    Details = row.LocaleCode != null
+                        ? $"Locale={row.LocaleCode}"
+                        : null
+                });
+
+            return results;
+        }
     }
 }

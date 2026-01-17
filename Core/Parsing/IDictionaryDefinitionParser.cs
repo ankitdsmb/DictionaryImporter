@@ -1,6 +1,7 @@
-﻿namespace DictionaryImporter.Core.Parsing;
-
-public interface IDictionaryDefinitionParser
+﻿namespace DictionaryImporter.Core.Parsing
 {
-    IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry);
+    public interface IDictionaryDefinitionParser
+    {
+        IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry);
+    }
 }

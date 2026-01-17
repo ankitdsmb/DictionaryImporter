@@ -1,38 +1,39 @@
-﻿namespace DictionaryImporter.Core.Validation;
-
-public sealed class DefaultDictionaryEntryValidator
-    : IDictionaryEntryValidator
+﻿namespace DictionaryImporter.Core.Validation
 {
-    private const int MaxWordLength = 200;
-    private const int MinDefinitionLength = 10;
-
-    public ValidationResult Validate(
-        DictionaryEntry e)
+    public sealed class DefaultDictionaryEntryValidator
+        : IDictionaryEntryValidator
     {
-        if (string.IsNullOrWhiteSpace(e.Word))
-            return ValidationResult.Invalid("Word is empty");
+        private const int MaxWordLength = 200;
+        private const int MinDefinitionLength = 10;
 
-        if (e.Word.Length > MaxWordLength)
-            return ValidationResult.Invalid("Word too long");
+        public ValidationResult Validate(
+            DictionaryEntry e)
+        {
+            if (string.IsNullOrWhiteSpace(e.Word))
+                return ValidationResult.Invalid("Word is empty");
 
-        if (string.IsNullOrWhiteSpace(e.NormalizedWord))
-            return ValidationResult.Invalid("NormalizedWord missing");
+            if (e.Word.Length > MaxWordLength)
+                return ValidationResult.Invalid("Word too long");
 
-        if (string.IsNullOrWhiteSpace(e.Definition))
-            return ValidationResult.Invalid("Definition empty");
+            if (string.IsNullOrWhiteSpace(e.NormalizedWord))
+                return ValidationResult.Invalid("NormalizedWord missing");
 
-        if (e.Definition.Length < MinDefinitionLength)
-            return ValidationResult.Invalid("Definition too short");
+            if (string.IsNullOrWhiteSpace(e.Definition))
+                return ValidationResult.Invalid("Definition empty");
 
-        if (!e.Word.Any(char.IsLetter))
-            return ValidationResult.Invalid("Word contains no letters");
+            if (e.Definition.Length < MinDefinitionLength)
+                return ValidationResult.Invalid("Definition too short");
 
-        if (string.IsNullOrWhiteSpace(e.SourceCode))
-            return ValidationResult.Invalid("SourceCode missing");
+            if (!e.Word.Any(char.IsLetter))
+                return ValidationResult.Invalid("Word contains no letters");
 
-        if (e.SenseNumber <= 0)
-            return ValidationResult.Invalid("Invalid sense number");
+            if (string.IsNullOrWhiteSpace(e.SourceCode))
+                return ValidationResult.Invalid("SourceCode missing");
 
-        return ValidationResult.Valid();
+            if (e.SenseNumber <= 0)
+                return ValidationResult.Invalid("Invalid sense number");
+
+            return ValidationResult.Valid();
+        }
     }
 }

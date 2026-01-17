@@ -1,26 +1,27 @@
-﻿namespace DictionaryImporter.Core.Linguistics;
-
-public sealed class EnUkOrthographicRule : IOrthographicSyllableRule
+﻿namespace DictionaryImporter.Core.Linguistics
 {
-    public string LocaleCode => "en-UK";
-
-    public IReadOnlyList<string> Apply(
-        IReadOnlyList<string> syllables,
-        string word)
+    public sealed class EnUkOrthographicRule : IOrthographicSyllableRule
     {
-        var result = new List<string>();
+        public string LocaleCode => "en-UK";
 
-        foreach (var s in syllables)
-            if (s.EndsWith("ion") && s.Length > 3)
-            {
-                result.Add(s.Substring(0, s.Length - 3));
-                result.Add("ion");
-            }
-            else
-            {
-                result.Add(s);
-            }
+        public IReadOnlyList<string> Apply(
+            IReadOnlyList<string> syllables,
+            string word)
+        {
+            var result = new List<string>();
 
-        return result.Where(x => x.Length > 0).ToList();
+            foreach (var s in syllables)
+                if (s.EndsWith("ion") && s.Length > 3)
+                {
+                    result.Add(s.Substring(0, s.Length - 3));
+                    result.Add("ion");
+                }
+                else
+                {
+                    result.Add(s);
+                }
+
+            return result.Where(x => x.Length > 0).ToList();
+        }
     }
 }

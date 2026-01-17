@@ -1,16 +1,17 @@
-﻿namespace DictionaryImporter.Sources.Collins;
-
-public sealed class CollinsEntryValidator
-    : IDictionaryEntryValidator
+﻿namespace DictionaryImporter.Sources.Collins
 {
-    public ValidationResult Validate(DictionaryEntry entry)
+    public sealed class CollinsEntryValidator
+        : IDictionaryEntryValidator
     {
-        if (string.IsNullOrWhiteSpace(entry.Word))
-            return ValidationResult.Invalid("Word missing");
+        public ValidationResult Validate(DictionaryEntry entry)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Word))
+                return ValidationResult.Invalid("Word missing");
 
-        if (string.IsNullOrWhiteSpace(entry.Definition))
-            return ValidationResult.Invalid("Definition missing");
+            if (string.IsNullOrWhiteSpace(entry.Definition))
+                return ValidationResult.Invalid("Definition missing");
 
-        return ValidationResult.Valid();
+            return ValidationResult.Valid();
+        }
     }
 }

@@ -1,7 +1,8 @@
-﻿namespace DictionaryImporter.Orchestration;
-
-public enum PipelineMode
+﻿namespace DictionaryImporter.Orchestration
 {
-    ImportOnly,
-    Full
+    public enum PipelineMode
+    {
+        ImportOnly,
+        Full
+    }
 }

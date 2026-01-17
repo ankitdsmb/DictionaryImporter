@@ -1,33 +1,34 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing;
-
-internal static class WebsterMeaningGuard
+﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
-    private static readonly Regex InvalidTitleRegex =
-        new(
-            @"^(\[[^\]]+\]|\([^)]+\)|Etym:|Note:)$",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex GarbageTitleRegex =
-        new(
-            @"^[^A-Za-z]+$",
-            RegexOptions.Compiled);
-
-    public static bool IsValidMeaningTitle(string title)
+    internal static class WebsterMeaningGuard
     {
-        if (string.IsNullOrWhiteSpace(title))
-            return false;
+        private static readonly Regex InvalidTitleRegex =
+            new(
+                @"^(\[[^\]]+\]|\([^)]+\)|Etym:|Note:)$",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        title = title.Trim();
+        private static readonly Regex GarbageTitleRegex =
+            new(
+                @"^[^A-Za-z]+$",
+                RegexOptions.Compiled);
 
-        if (InvalidTitleRegex.IsMatch(title))
-            return false;
+        public static bool IsValidMeaningTitle(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+                return false;
 
-        if (GarbageTitleRegex.IsMatch(title))
-            return false;
+            title = title.Trim();
 
-        if (!char.IsLetter(title[0]))
-            return false;
+            if (InvalidTitleRegex.IsMatch(title))
+                return false;
 
-        return true;
+            if (GarbageTitleRegex.IsMatch(title))
+                return false;
+
+            if (!char.IsLetter(title[0]))
+                return false;
+
+            return true;
+        }
     }
 }

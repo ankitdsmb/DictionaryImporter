@@ -1,10 +1,11 @@
-﻿namespace DictionaryImporter.Core.Parsing;
-
-public interface IEtymologyExtractorRegistry
+﻿namespace DictionaryImporter.Core.Parsing
 {
-    IEtymologyExtractor GetExtractor(string sourceCode);
+    public interface IEtymologyExtractorRegistry
+    {
+        IEtymologyExtractor GetExtractor(string sourceCode);
 
-    void Register(IEtymologyExtractor extractor);
+        void Register(IEtymologyExtractor extractor);
 
-    IReadOnlyDictionary<string, IEtymologyExtractor> GetAllExtractors();
+        IReadOnlyDictionary<string, IEtymologyExtractor> GetAllExtractors();
+    }
 }

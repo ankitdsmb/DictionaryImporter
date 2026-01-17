@@ -1,33 +1,34 @@
-﻿namespace DictionaryImporter.Core.PreProcessing;
-
-internal static class IpaAutoStressNormalizer
+﻿namespace DictionaryImporter.Core.PreProcessing
 {
-    private static readonly Regex StressRegex =
-        new(@"[ˈˌ]", RegexOptions.Compiled);
-
-    private static readonly Regex VowelRegex =
-        new(@"[ɑæɐəɛɪiɔʊuʌeɜ]", RegexOptions.Compiled);
-
-    /// <summary>
-    ///     Injects primary stress (ˈ) if IPA has multiple syllables
-    ///     and no existing stress markers.
-    /// </summary>
-    public static string Normalize(string ipaWithSlashes)
+    internal static class IpaAutoStressNormalizer
     {
-        if (string.IsNullOrWhiteSpace(ipaWithSlashes))
-            return ipaWithSlashes;
+        private static readonly Regex StressRegex =
+            new(@"[ˈˌ]", RegexOptions.Compiled);
 
-        var core = ipaWithSlashes.Trim('/');
+        private static readonly Regex VowelRegex =
+            new(@"[ɑæɐəɛɪiɔʊuʌeɜ]", RegexOptions.Compiled);
 
-        if (StressRegex.IsMatch(core))
-            return ipaWithSlashes;
+        /// <summary>
+        ///     Injects primary stress (ˈ) if IPA has multiple syllables
+        ///     and no existing stress markers.
+        /// </summary>
+        public static string Normalize(string ipaWithSlashes)
+        {
+            if (string.IsNullOrWhiteSpace(ipaWithSlashes))
+                return ipaWithSlashes;
 
-        var vowelCount = VowelRegex.Matches(core).Count;
-        if (vowelCount < 2)
-            return ipaWithSlashes;
+            var core = ipaWithSlashes.Trim('/');
 
-        var stressed = "ˈ" + core;
+            if (StressRegex.IsMatch(core))
+                return ipaWithSlashes;
 
-        return $"/{stressed}/";
+            var vowelCount = VowelRegex.Matches(core).Count;
+            if (vowelCount < 2)
+                return ipaWithSlashes;
+
+            var stressed = "ˈ" + core;
+
+            return $"/{stressed}/";
+        }
     }
 }

@@ -1,7 +1,8 @@
-﻿namespace DictionaryImporter.Core.Linguistics;
-
-public sealed class PartOfSpeechResult
+﻿namespace DictionaryImporter.Core.Linguistics
 {
-    public string Pos { get; init; } = "unk";
-    public byte Confidence { get; init; }
+    public sealed class PartOfSpeechResult
+    {
+        public string Pos { get; init; } = "unk";
+        public byte Confidence { get; init; }
+    }
 }

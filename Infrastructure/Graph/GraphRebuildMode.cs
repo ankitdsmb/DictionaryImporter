@@ -1,7 +1,8 @@
-﻿namespace DictionaryImporter.Infrastructure.Graph;
-
-public enum GraphRebuildMode
+﻿namespace DictionaryImporter.Infrastructure.Graph
 {
-    Append,
-    Rebuild
+    public enum GraphRebuildMode
+    {
+        Append,
+        Rebuild
+    }
 }

@@ -1,10 +1,11 @@
-﻿namespace DictionaryImporter.Sources.Kaikki.Models;
-
-public sealed class KaikkiExample
+﻿namespace DictionaryImporter.Sources.Kaikki.Models
 {
-    [JsonProperty("text")]
-    public string Text { get; set; } = null!;
+    public sealed class KaikkiExample
+    {
+        [JsonProperty("text")]
+        public string Text { get; set; } = null!;
 
-    [JsonProperty("type")]
-    public string? Type { get; set; }
+        [JsonProperty("type")]
+        public string? Type { get; set; }
+    }
 }

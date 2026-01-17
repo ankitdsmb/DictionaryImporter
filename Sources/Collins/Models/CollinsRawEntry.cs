@@ -1,13 +1,14 @@
-﻿namespace DictionaryImporter.Sources.Collins.Models;
-
-public sealed class CollinsRawEntry
+﻿namespace DictionaryImporter.Sources.Collins.Models
 {
-    public string Headword { get; set; } = null!;
+    public sealed class CollinsRawEntry
+    {
+        public string Headword { get; set; } = null!;
 
-    public List<string> RawIpaLines { get; set; } = [];
+        public List<string> RawIpaLines { get; set; } = [];
 
-    public List<ParsedIpa> ParsedIpa { get; set; } = [];
+        public List<ParsedIpa> ParsedIpa { get; set; } = [];
 
-    public List<CollinsSenseRaw> Senses { get; set; } = [];
-    public string? Etymology { get; set; }
+        public List<CollinsSenseRaw> Senses { get; set; } = [];
+        public string? Etymology { get; set; }
+    }
 }

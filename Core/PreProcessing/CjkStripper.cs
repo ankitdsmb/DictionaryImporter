@@ -1,16 +1,17 @@
-﻿namespace DictionaryImporter.Core.PreProcessing;
-
-public static class CjkStripper
+﻿namespace DictionaryImporter.Core.PreProcessing
 {
-    private static readonly Regex CjkRegex =
-        new(@"[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]",
-            RegexOptions.Compiled);
-
-    public static string RemoveCjk(string input)
+    public static class CjkStripper
     {
-        if (string.IsNullOrWhiteSpace(input))
-            return input;
+        private static readonly Regex CjkRegex =
+            new(@"[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]",
+                RegexOptions.Compiled);
 
-        return CjkRegex.Replace(input, string.Empty).Trim();
+        public static string RemoveCjk(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+                return input;
+
+            return CjkRegex.Replace(input, string.Empty).Trim();
+        }
     }
 }

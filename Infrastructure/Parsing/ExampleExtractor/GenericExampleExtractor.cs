@@ -1,25 +1,26 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor;
-
-public sealed class GenericExampleExtractor : IExampleExtractor
+﻿namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor
 {
-    public string SourceCode => "*";
-
-    public IReadOnlyList<string> Extract(ParsedDefinition parsed)
+    public sealed class GenericExampleExtractor : IExampleExtractor
     {
-        var examples = new List<string>();
+        public string SourceCode => "*";
 
-        if (string.IsNullOrWhiteSpace(parsed.Definition))
-            return examples;
+        public IReadOnlyList<string> Extract(ParsedDefinition parsed)
+        {
+            var examples = new List<string>();
 
-        var quotedMatches = Regex.Matches(parsed.Definition, @"[""']([^""']+)[""']");
-        foreach (Match match in quotedMatches)
-            if (match.Groups[1].Value.Length > 10)
-                examples.Add(match.Groups[1].Value);
+            if (string.IsNullOrWhiteSpace(parsed.Definition))
+                return examples;
 
-        return examples
-            .Where(e => !string.IsNullOrWhiteSpace(e))
-            .Select(e => e.Trim())
-            .Distinct()
-            .ToList();
+            var quotedMatches = Regex.Matches(parsed.Definition, @"[""']([^""']+)[""']");
+            foreach (Match match in quotedMatches)
+                if (match.Groups[1].Value.Length > 10)
+                    examples.Add(match.Groups[1].Value);
+
+            return examples
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e.Trim())
+                .Distinct()
+                .ToList();
+        }
     }
 }

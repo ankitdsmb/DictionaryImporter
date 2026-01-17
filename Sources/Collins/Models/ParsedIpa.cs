@@ -1,7 +1,8 @@
-﻿namespace DictionaryImporter.Sources.Collins.Models;
-
-public sealed class ParsedIpa
+﻿namespace DictionaryImporter.Sources.Collins.Models
 {
-    public string LocaleCode { get; set; } = null!;
-    public string Ipa { get; set; } = null!;
+    public sealed class ParsedIpa
+    {
+        public string LocaleCode { get; set; } = null!;
+        public string Ipa { get; set; } = null!;
+    }
 }

@@ -1,6 +1,7 @@
-﻿namespace DictionaryImporter.Core.Pipeline;
-
-public interface IImportEngine
+﻿namespace DictionaryImporter.Core.Pipeline
 {
-    Task ImportAsync(Stream stream, CancellationToken ct);
+    public interface IImportEngine
+    {
+        Task ImportAsync(Stream stream, CancellationToken ct);
+    }
 }

@@ -1,27 +1,28 @@
-﻿using DictionaryImporter.AITextKit.Grammar.Extensions;
-using DictionaryImporter.Core.Text;
+﻿using DictionaryImporter.Core.Text;
+using DictionaryImporter.Gateway.Grammar.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace DictionaryImporter.Bootstrap.Extensions;
-
-internal static class GrammarRegistrationExtensions
+namespace DictionaryImporter.Bootstrap.Extensions
 {
-    public static IServiceCollection AddGrammar(
-        this IServiceCollection services,
-        IConfiguration configuration)
+    internal static class GrammarRegistrationExtensions
     {
-        services.AddGrammarCorrection(configuration);
+        public static IServiceCollection AddGrammar(
+            this IServiceCollection services,
+            IConfiguration configuration)
+        {
+            services.AddGrammarCorrection(configuration);
 
-        services.Configure<OcrNormalizationOptions>(configuration.GetSection("OcrNormalization"));
-        services.Configure<DictionaryTextFormattingOptions>(configuration.GetSection("TextFormatting"));
+            services.Configure<OcrNormalizationOptions>(configuration.GetSection("OcrNormalization"));
+            services.Configure<DictionaryTextFormattingOptions>(configuration.GetSection("TextFormatting"));
 
-        services.AddSingleton<IOcrArtifactNormalizer, OcrArtifactNormalizer>();
-        services.AddSingleton<IDefinitionNormalizer, DefinitionNormalizer>();
-        services.AddSingleton<IDictionaryTextFormatter, DictionaryTextFormatter>();
+            services.AddSingleton<IOcrArtifactNormalizer, OcrArtifactNormalizer>();
+            services.AddSingleton<IDefinitionNormalizer, DefinitionNormalizer>();
+            services.AddSingleton<IDictionaryTextFormatter, DictionaryTextFormatter>();
 
-        services.AddSingleton<IGrammarEnrichedTextService, GrammarEnrichedTextService>();
+            services.AddSingleton<IGrammarEnrichedTextService, GrammarEnrichedTextService>();
 
-        return services;
+            return services;
+        }
     }
 }

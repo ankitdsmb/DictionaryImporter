@@ -10,25 +10,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="AITextKit\AI\Orchestration\Middleware\**" />
-    <Compile Remove="AITextKit\AI\Orchestration\Providers\Implementations\**" />
-    <Compile Remove="AITextKit\AI\Orchestration\Providers\Refactored\**" />
-    <Compile Remove="AITextKit\AI\Orchestration\Providers\Templates\**" />
-    <Compile Remove="AITextKit\AI\Orchestration\Strategies\**" />
     <Compile Remove="Infrastructure\Concept\**" />
     <Compile Remove="Infrastructure\PostProcessing\Ranking\**" />
-    <EmbeddedResource Remove="AITextKit\AI\Orchestration\Middleware\**" />
-    <EmbeddedResource Remove="AITextKit\AI\Orchestration\Providers\Implementations\**" />
-    <EmbeddedResource Remove="AITextKit\AI\Orchestration\Providers\Refactored\**" />
-    <EmbeddedResource Remove="AITextKit\AI\Orchestration\Providers\Templates\**" />
-    <EmbeddedResource Remove="AITextKit\AI\Orchestration\Strategies\**" />
     <EmbeddedResource Remove="Infrastructure\Concept\**" />
     <EmbeddedResource Remove="Infrastructure\PostProcessing\Ranking\**" />
-    <None Remove="AITextKit\AI\Orchestration\Middleware\**" />
-    <None Remove="AITextKit\AI\Orchestration\Providers\Implementations\**" />
-    <None Remove="AITextKit\AI\Orchestration\Providers\Refactored\**" />
-    <None Remove="AITextKit\AI\Orchestration\Providers\Templates\**" />
-    <None Remove="AITextKit\AI\Orchestration\Strategies\**" />
     <None Remove="Infrastructure\Concept\**" />
     <None Remove="Infrastructure\PostProcessing\Ranking\**" />
   </ItemGroup>
@@ -54,10 +39,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="AITextKit\Grammar\Configuration\Dictionaries\en.aff">
+    <None Update="Gateway\Grammar\Configuration\Dictionaries\en.aff">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="AITextKit\Grammar\Configuration\Dictionaries\en.dic">
+    <None Update="Gateway\Grammar\Configuration\Dictionaries\en.dic">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="appsettings.json">
@@ -99,10 +84,10 @@
     <None Update="Data\TheEnglishChineseDictionary.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="AITextKit\Grammar\Configuration\grammar-rules.json">
+    <None Update="Gateway\Grammar\Configuration\grammar-rules.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="AITextKit\Grammar\Configuration\Core14.profile.xml">
+    <None Update="Gateway\Grammar\Configuration\Core14.profile.xml">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>

@@ -1,26 +1,27 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing;
-
-public static class WebsterSynonymExtractor
+﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
-    private static readonly Regex SynonymRegex =
-        new(
-            @"Syn\.\s*--\s*(?<list>[^.]+)",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    public static IReadOnlyList<string> Extract(string? definition)
+    public static class WebsterSynonymExtractor
     {
-        if (string.IsNullOrWhiteSpace(definition))
-            return [];
+        private static readonly Regex SynonymRegex =
+            new(
+                @"Syn\.\s*--\s*(?<list>[^.]+)",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        var match = SynonymRegex.Match(definition);
-        if (!match.Success)
-            return [];
+        public static IReadOnlyList<string> Extract(string? definition)
+        {
+            if (string.IsNullOrWhiteSpace(definition))
+                return [];
 
-        return match.Groups["list"].Value
-            .Split(';', StringSplitOptions.RemoveEmptyEntries)
-            .Select(s => s.Trim())
-            .Where(s => s.Length > 1)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            var match = SynonymRegex.Match(definition);
+            if (!match.Success)
+                return [];
+
+            return match.Groups["list"].Value
+                .Split(';', StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .Where(s => s.Length > 1)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
     }
 }

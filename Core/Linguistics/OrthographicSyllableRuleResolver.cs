@@ -1,19 +1,20 @@
-﻿namespace DictionaryImporter.Core.Linguistics;
-
-public sealed class OrthographicSyllableRuleResolver(IEnumerable<IOrthographicSyllableRule> rules)
+﻿namespace DictionaryImporter.Core.Linguistics
 {
-    private readonly IReadOnlyList<IOrthographicSyllableRule> _rules = rules.ToList();
-
-    public IReadOnlyList<string> ApplyRules(
-        string locale,
-        IReadOnlyList<string> syllables,
-        string word)
+    public sealed class OrthographicSyllableRuleResolver(IEnumerable<IOrthographicSyllableRule> rules)
     {
-        var rule =
-            _rules.FirstOrDefault(r => r.LocaleCode == locale);
+        private readonly IReadOnlyList<IOrthographicSyllableRule> _rules = rules.ToList();
 
-        return rule == null
-            ? syllables
-            : rule.Apply(syllables, word);
+        public IReadOnlyList<string> ApplyRules(
+            string locale,
+            IReadOnlyList<string> syllables,
+            string word)
+        {
+            var rule =
+                _rules.FirstOrDefault(r => r.LocaleCode == locale);
+
+            return rule == null
+                ? syllables
+                : rule.Apply(syllables, word);
+        }
     }
 }

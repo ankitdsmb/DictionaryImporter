@@ -1,7 +1,8 @@
-﻿namespace DictionaryImporter.Sources.EnglishChinese.Models;
-
-public sealed class EnglishChineseRawEntry
+﻿namespace DictionaryImporter.Sources.EnglishChinese.Models
 {
-    public string Headword { get; init; } = null!;
-    public string RawLine { get; init; } = null!;
+    public sealed class EnglishChineseRawEntry
+    {
+        public string Headword { get; init; } = null!;
+        public string RawLine { get; init; } = null!;
+    }
 }

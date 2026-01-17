@@ -1,11 +1,12 @@
-﻿namespace DictionaryImporter.Core.Pipeline.Steps;
-
-public sealed class CanonicalizationPipelineStep(ICanonicalWordResolver canonicalResolver) : IImportPipelineStep
+﻿namespace DictionaryImporter.Core.Pipeline.Steps
 {
-    public string Name => PipelineStepNames.Canonicalization;
-
-    public async Task ExecuteAsync(ImportPipelineContext context)
+    public sealed class CanonicalizationPipelineStep(ICanonicalWordResolver canonicalResolver) : IImportPipelineStep
     {
-        await canonicalResolver.ResolveAsync(context.SourceCode, context.CancellationToken);
+        public string Name => PipelineStepNames.Canonicalization;
+
+        public async Task ExecuteAsync(ImportPipelineContext context)
+        {
+            await canonicalResolver.ResolveAsync(context.SourceCode, context.CancellationToken);
+        }
     }
 }

@@ -1,30 +1,31 @@
-﻿namespace DictionaryImporter.Core.Pipeline;
-
-public sealed class ImportPipelineRunner(
-    IEnumerable<IImportPipelineStep> steps,
-    ILogger<ImportPipelineRunner> logger)
+﻿namespace DictionaryImporter.Core.Pipeline
 {
-    private readonly IReadOnlyDictionary<string, IImportPipelineStep> _steps =
-        steps.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
-
-    public async Task RunAsync(ImportPipelineContext context, IReadOnlyList<string> stepOrder)
+    public sealed class ImportPipelineRunner(
+        IEnumerable<IImportPipelineStep> steps,
+        ILogger<ImportPipelineRunner> logger)
     {
-        if (context == null) throw new ArgumentNullException(nameof(context));
-        if (stepOrder == null || stepOrder.Count == 0)
-            throw new InvalidOperationException("Pipeline step order is empty.");
+        private readonly IReadOnlyDictionary<string, IImportPipelineStep> _steps =
+            steps.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
 
-        foreach (var stepName in stepOrder)
+        public async Task RunAsync(ImportPipelineContext context, IReadOnlyList<string> stepOrder)
         {
-            context.CancellationToken.ThrowIfCancellationRequested();
+            if (context == null) throw new ArgumentNullException(nameof(context));
+            if (stepOrder == null || stepOrder.Count == 0)
+                throw new InvalidOperationException("Pipeline step order is empty.");
 
-            if (!_steps.TryGetValue(stepName, out var step))
-                throw new InvalidOperationException($"Pipeline step not registered: {stepName}");
+            foreach (var stepName in stepOrder)
+            {
+                context.CancellationToken.ThrowIfCancellationRequested();
 
-            logger.LogInformation("Stage={Stage} started | Code={Code}", stepName, context.SourceCode);
+                if (!_steps.TryGetValue(stepName, out var step))
+                    throw new InvalidOperationException($"Pipeline step not registered: {stepName}");
 
-            await step.ExecuteAsync(context);
+                logger.LogInformation("Stage={Stage} started | Code={Code}", stepName, context.SourceCode);
 
-            logger.LogInformation("Stage={Stage} completed | Code={Code}", stepName, context.SourceCode);
+                await step.ExecuteAsync(context);
+
+                logger.LogInformation("Stage={Stage} completed | Code={Code}", stepName, context.SourceCode);
+            }
         }
     }
 }

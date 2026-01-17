@@ -1,6 +1,7 @@
-﻿namespace DictionaryImporter.Core.Parsing;
-
-public interface ISynonymExtractorRegistry
+﻿namespace DictionaryImporter.Core.Parsing
 {
-    ISynonymExtractor GetExtractor(string sourceCode);
+    public interface ISynonymExtractorRegistry
+    {
+        ISynonymExtractor GetExtractor(string sourceCode);
+    }
 }

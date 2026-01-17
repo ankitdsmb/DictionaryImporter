@@ -1,30 +1,31 @@
-﻿namespace DictionaryImporter.Sources.Kaikki;
-
-public sealed class KaikkiEntryValidator : IDictionaryEntryValidator
+﻿namespace DictionaryImporter.Sources.Kaikki
 {
-    public ValidationResult Validate(DictionaryEntry entry)
+    public sealed class KaikkiEntryValidator : IDictionaryEntryValidator
     {
-        if (string.IsNullOrWhiteSpace(entry.Word))
-            return ValidationResult.Invalid("Word missing");
+        public ValidationResult Validate(DictionaryEntry entry)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Word))
+                return ValidationResult.Invalid("Word missing");
 
-        if (string.IsNullOrWhiteSpace(entry.Definition))
-            return ValidationResult.Invalid("Definition missing");
+            if (string.IsNullOrWhiteSpace(entry.Definition))
+                return ValidationResult.Invalid("Definition missing");
 
-        if (string.IsNullOrWhiteSpace(entry.NormalizedWord))
-            return ValidationResult.Invalid("NormalizedWord missing");
+            if (string.IsNullOrWhiteSpace(entry.NormalizedWord))
+                return ValidationResult.Invalid("NormalizedWord missing");
 
-        if (entry.Word.Length > 200)
-            return ValidationResult.Invalid("Word too long");
+            if (entry.Word.Length > 200)
+                return ValidationResult.Invalid("Word too long");
 
-        if (entry.Definition.Length < 3)
-            return ValidationResult.Invalid("Definition too short");
+            if (entry.Definition.Length < 3)
+                return ValidationResult.Invalid("Definition too short");
 
-        if (string.IsNullOrWhiteSpace(entry.SourceCode))
-            return ValidationResult.Invalid("SourceCode missing");
+            if (string.IsNullOrWhiteSpace(entry.SourceCode))
+                return ValidationResult.Invalid("SourceCode missing");
 
-        if (entry.SenseNumber <= 0)
-            return ValidationResult.Invalid("Invalid sense number");
+            if (entry.SenseNumber <= 0)
+                return ValidationResult.Invalid("Invalid sense number");
 
-        return ValidationResult.Valid();
+            return ValidationResult.Valid();
+        }
     }
 }

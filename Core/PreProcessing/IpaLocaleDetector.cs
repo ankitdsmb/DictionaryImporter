@@ -1,55 +1,56 @@
-﻿namespace DictionaryImporter.Core.PreProcessing;
-
-internal static class IpaLocaleDetector
+﻿namespace DictionaryImporter.Core.PreProcessing
 {
-    private static readonly Regex AmericanMarkers =
-        new(@"[ɹɑɚɝoʊ]", RegexOptions.Compiled);
-
-    private static readonly Regex BritishMarkers =
-        new(@"[ɒəʊː]", RegexOptions.Compiled);
-
-    /// <summary>
-    ///     Detects IPA locale using phonetic markers.
-    ///     Returns a BCP-47 language tag.
-    /// </summary>
-    public static string Detect(string ipa)
+    internal static class IpaLocaleDetector
     {
-        if (string.IsNullOrWhiteSpace(ipa))
-            return "en";
+        private static readonly Regex AmericanMarkers =
+            new(@"[ɹɑɚɝoʊ]", RegexOptions.Compiled);
 
-        var usScore = 0;
-        var gbScore = 0;
+        private static readonly Regex BritishMarkers =
+            new(@"[ɒəʊː]", RegexOptions.Compiled);
 
-        if (AmericanMarkers.IsMatch(ipa))
-            usScore++;
-
-        if (BritishMarkers.IsMatch(ipa))
-            gbScore++;
-
-        if (ipa.Contains("ɚ") || ipa.Contains("ɝ"))
-            usScore += 2;
-
-        if (ipa.Contains("ː"))
-            gbScore += 2;
-
-        if (usScore > gbScore)
-            return "en-US";
-
-        if (gbScore > usScore)
-            return "en-GB";
-
-        return "en";
-    }
-
-    /// <summary>
-    ///     Optional compatibility mapping for systems using en-UK.
-    /// </summary>
-    public static string MapToSystemLocale(string detectedLocale)
-    {
-        return detectedLocale switch
+        /// <summary>
+        ///     Detects IPA locale using phonetic markers.
+        ///     Returns a BCP-47 language tag.
+        /// </summary>
+        public static string Detect(string ipa)
         {
-            "en-GB" => "en-UK",
-            _ => detectedLocale
-        };
+            if (string.IsNullOrWhiteSpace(ipa))
+                return "en";
+
+            var usScore = 0;
+            var gbScore = 0;
+
+            if (AmericanMarkers.IsMatch(ipa))
+                usScore++;
+
+            if (BritishMarkers.IsMatch(ipa))
+                gbScore++;
+
+            if (ipa.Contains("ɚ") || ipa.Contains("ɝ"))
+                usScore += 2;
+
+            if (ipa.Contains("ː"))
+                gbScore += 2;
+
+            if (usScore > gbScore)
+                return "en-US";
+
+            if (gbScore > usScore)
+                return "en-GB";
+
+            return "en";
+        }
+
+        /// <summary>
+        ///     Optional compatibility mapping for systems using en-UK.
+        /// </summary>
+        public static string MapToSystemLocale(string detectedLocale)
+        {
+            return detectedLocale switch
+            {
+                "en-GB" => "en-UK",
+                _ => detectedLocale
+            };
+        }
     }
 }

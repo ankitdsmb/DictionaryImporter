@@ -1,18 +1,19 @@
 using DictionaryImporter.Infrastructure.Canonicalization;
 
-namespace DictionaryImporter.Bootstrap.Extensions;
-
-internal static class CanonicalRegistrationExtensions
+namespace DictionaryImporter.Bootstrap.Extensions
 {
-    public static IServiceCollection AddCanonical(
-        this IServiceCollection services,
-        string connectionString)
+    internal static class CanonicalRegistrationExtensions
     {
-        services.AddSingleton<ICanonicalWordResolver>(sp =>
-            new SqlCanonicalWordResolver(
-                connectionString,
-                sp.GetRequiredService<ILogger<SqlCanonicalWordResolver>>()));
+        public static IServiceCollection AddCanonical(
+            this IServiceCollection services,
+            string connectionString)
+        {
+            services.AddSingleton<ICanonicalWordResolver>(sp =>
+                new SqlCanonicalWordResolver(
+                    connectionString,
+                    sp.GetRequiredService<ILogger<SqlCanonicalWordResolver>>()));
 
-        return services;
+            return services;
+        }
     }
 }

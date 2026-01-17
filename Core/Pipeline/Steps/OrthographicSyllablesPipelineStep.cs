@@ -1,16 +1,17 @@
-﻿namespace DictionaryImporter.Core.Pipeline.Steps;
-
-public sealed class OrthographicSyllablesPipelineStep(
-    CanonicalWordOrthographicSyllableEnricher orthographicSyllableEnricher,
-    IReadOnlyList<IpaSourceConfig> ipaSources) : IImportPipelineStep
+﻿namespace DictionaryImporter.Core.Pipeline.Steps
 {
-    public string Name => PipelineStepNames.OrthographicSyllables;
-
-    public async Task ExecuteAsync(ImportPipelineContext context)
+    public sealed class OrthographicSyllablesPipelineStep(
+        CanonicalWordOrthographicSyllableEnricher orthographicSyllableEnricher,
+        IReadOnlyList<IpaSourceConfig> ipaSources) : IImportPipelineStep
     {
-        foreach (var ipa in ipaSources)
+        public string Name => PipelineStepNames.OrthographicSyllables;
+
+        public async Task ExecuteAsync(ImportPipelineContext context)
         {
-            await orthographicSyllableEnricher.ExecuteAsync(ipa.Locale, context.CancellationToken);
+            foreach (var ipa in ipaSources)
+            {
+                await orthographicSyllableEnricher.ExecuteAsync(ipa.Locale, context.CancellationToken);
+            }
         }
     }
 }

@@ -1,27 +1,28 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing;
-
-internal static class WebsterDomainExtractor
+﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
-    private static readonly Regex DomainRegex =
-        new(
-            @"^\(\s*(?<domain>[A-Za-z]{2,10}\.?)\s*\)",
-            RegexOptions.Compiled);
-
-    public static string? Extract(ref string definition)
+    internal static class WebsterDomainExtractor
     {
-        if (string.IsNullOrWhiteSpace(definition))
-            return null;
+        private static readonly Regex DomainRegex =
+            new(
+                @"^\(\s*(?<domain>[A-Za-z]{2,10}\.?)\s*\)",
+                RegexOptions.Compiled);
 
-        var match = DomainRegex.Match(definition.Trim());
-        if (!match.Success)
-            return null;
+        public static string? Extract(ref string definition)
+        {
+            if (string.IsNullOrWhiteSpace(definition))
+                return null;
 
-        var domain = match.Groups["domain"].Value.TrimEnd('.');
+            var match = DomainRegex.Match(definition.Trim());
+            if (!match.Success)
+                return null;
 
-        definition =
-            definition.Substring(match.Length)
-                .TrimStart();
+            var domain = match.Groups["domain"].Value.TrimEnd('.');
 
-        return domain;
+            definition =
+                definition.Substring(match.Length)
+                    .TrimStart();
+
+            return domain;
+        }
     }
 }

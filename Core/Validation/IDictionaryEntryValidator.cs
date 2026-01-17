@@ -1,7 +1,8 @@
-﻿namespace DictionaryImporter.Core.Validation;
-
-public interface IDictionaryEntryValidator
+﻿namespace DictionaryImporter.Core.Validation
 {
-    ValidationResult Validate(
-        DictionaryEntry entry);
+    public interface IDictionaryEntryValidator
+    {
+        ValidationResult Validate(
+            DictionaryEntry entry);
+    }
 }

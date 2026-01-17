@@ -1,22 +1,23 @@
-﻿namespace DictionaryImporter.Core.PreProcessing;
-
-internal static class NormalizedWordSanitizer
+﻿namespace DictionaryImporter.Core.PreProcessing
 {
-    private static readonly Regex Noise =
-        new(@"[^\p{L}\s]", RegexOptions.Compiled);
-
-    public static string Sanitize(string input, string language)
+    internal static class NormalizedWordSanitizer
     {
-        if (string.IsNullOrWhiteSpace(input))
-            return string.Empty;
+        private static readonly Regex Noise =
+            new(@"[^\p{L}\s]", RegexOptions.Compiled);
 
-        if (language == "zh")
-            return input.Trim();
+        public static string Sanitize(string input, string language)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+                return string.Empty;
 
-        var text = input.ToLowerInvariant();
-        text = Noise.Replace(text, " ");
-        text = Regex.Replace(text, @"\s+", " ").Trim();
+            if (language == "zh")
+                return input.Trim();
 
-        return text;
+            var text = input.ToLowerInvariant();
+            text = Noise.Replace(text, " ");
+            text = Regex.Replace(text, @"\s+", " ").Trim();
+
+            return text;
+        }
     }
 }

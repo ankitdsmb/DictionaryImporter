@@ -1,10 +1,11 @@
-﻿namespace DictionaryImporter.Sources.StructuredJson.Models;
-
-internal sealed class StructuredJsonDefinition
+﻿namespace DictionaryImporter.Sources.StructuredJson.Models
 {
-    [JsonPropertyName("part_of_speech")] public string PartOfSpeech { get; set; } = null!;
+    internal sealed class StructuredJsonDefinition
+    {
+        [JsonPropertyName("part_of_speech")] public string PartOfSpeech { get; set; } = null!;
 
-    [JsonPropertyName("definition")] public string Definition { get; set; } = null!;
+        [JsonPropertyName("definition")] public string Definition { get; set; } = null!;
 
-    [JsonPropertyName("sequence")] public int Sequence { get; set; }
+        [JsonPropertyName("sequence")] public int Sequence { get; set; }
+    }
 }

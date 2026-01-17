@@ -1,16 +1,17 @@
-﻿namespace DictionaryImporter.Core.Pipeline.Steps;
-
-public sealed class ConceptMergePipelineStep(
-    DictionaryConceptMerger conceptMerger,
-    DictionaryConceptConfidenceCalculator confidenceCalculator,
-    DictionaryGraphRankCalculator graphRankCalculator) : IImportPipelineStep
+﻿namespace DictionaryImporter.Core.Pipeline.Steps
 {
-    public string Name => PipelineStepNames.ConceptMerge;
-
-    public async Task ExecuteAsync(ImportPipelineContext context)
+    public sealed class ConceptMergePipelineStep(
+        DictionaryConceptMerger conceptMerger,
+        DictionaryConceptConfidenceCalculator confidenceCalculator,
+        DictionaryGraphRankCalculator graphRankCalculator) : IImportPipelineStep
     {
-        await conceptMerger.MergeAsync(context.CancellationToken);
-        await confidenceCalculator.CalculateAsync(context.CancellationToken);
-        await graphRankCalculator.CalculateAsync(context.CancellationToken);
+        public string Name => PipelineStepNames.ConceptMerge;
+
+        public async Task ExecuteAsync(ImportPipelineContext context)
+        {
+            await conceptMerger.MergeAsync(context.CancellationToken);
+            await confidenceCalculator.CalculateAsync(context.CancellationToken);
+            await graphRankCalculator.CalculateAsync(context.CancellationToken);
+        }
     }
 }

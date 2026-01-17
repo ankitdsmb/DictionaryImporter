@@ -1,8 +1,9 @@
-﻿namespace DictionaryImporter.Core.Parsing;
-
-public interface IExampleExtractorRegistry
+﻿namespace DictionaryImporter.Core.Parsing
 {
-    IExampleExtractor GetExtractor(string sourceCode);
+    public interface IExampleExtractorRegistry
+    {
+        IExampleExtractor GetExtractor(string sourceCode);
 
-    void Register(IExampleExtractor extractor);
+        void Register(IExampleExtractor extractor);
+    }
 }

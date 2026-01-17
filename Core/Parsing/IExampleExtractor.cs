@@ -1,8 +1,9 @@
-﻿namespace DictionaryImporter.Core.Parsing;
-
-public interface IExampleExtractor
+﻿namespace DictionaryImporter.Core.Parsing
 {
-    string SourceCode { get; }
+    public interface IExampleExtractor
+    {
+        string SourceCode { get; }
 
-    IReadOnlyList<string> Extract(ParsedDefinition parsed);
+        IReadOnlyList<string> Extract(ParsedDefinition parsed);
+    }
 }
