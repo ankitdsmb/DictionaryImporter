@@ -1,4 +1,6 @@
-﻿public sealed class GrammarAwareDefinitionParser(
+﻿using DictionaryImporter.AITextKit.Grammar.Feature;
+
+public sealed class GrammarAwareDefinitionParser(
     IGrammarFeature grammar,
     ILogger<GrammarAwareDefinitionParser> logger)
 {

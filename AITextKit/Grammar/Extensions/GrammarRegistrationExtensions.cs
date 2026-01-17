@@ -1,9 +1,9 @@
-﻿using DictionaryImporter.AITextKit.Grammar.Enhanced;
-using DictionaryImporter.AITextKit.Grammar.Simple;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+﻿using DictionaryImporter.AITextKit.Grammar.Core;
+using DictionaryImporter.AITextKit.Grammar.Correctors;
+using DictionaryImporter.AITextKit.Grammar.Engines;
+using DictionaryImporter.AITextKit.Grammar.Feature;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Logging;
+using LanguageDetector = DictionaryImporter.AITextKit.Grammar.Engines.LanguageDetector;
 
 namespace DictionaryImporter.AITextKit.Grammar.Extensions;
 
@@ -42,7 +42,7 @@ internal static class GrammarRegistrationExtensions
                 new GrammarFeature(
                     connectionString,
                     sp.GetRequiredService<EnhancedGrammarConfiguration>(),
-                    sp.GetRequiredService<ILanguageDetector>(),
+                    sp.GetRequiredService<LanguageDetector>(),
                     sp.GetRequiredService<IGrammarCorrector>(),
                     sp.GetServices<IGrammarEngine>(),
                     sp.GetRequiredService<ILogger<GrammarFeature>>()));
@@ -71,12 +71,11 @@ internal static class GrammarRegistrationExtensions
         // ------------------------------------------------------------
         services.TryAddSingleton<GrammarCorrectorChain>(sp =>
             new GrammarCorrectorChain(
-                new IGrammarCorrector[]
-                {
+                [
                     sp.GetRequiredService<CustomRuleCorrectorAdapter>(),
                     sp.GetRequiredService<HunspellCorrectorAdapter>(),
                     sp.GetRequiredService<LanguageToolGrammarCorrector>()
-                },
+                ],
                 sp.GetRequiredService<ILogger<GrammarCorrectorChain>>()));
 
         // ------------------------------------------------------------

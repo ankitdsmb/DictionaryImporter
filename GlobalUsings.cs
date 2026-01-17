@@ -45,8 +45,6 @@ global using DictionaryImporter.AITextKit.AI.Orchestration.Providers;
 global using DictionaryImporter.AITextKit.AI.Orchestration.Providers.Base;
 global using DictionaryImporter.AITextKit.Grammar;
 global using DictionaryImporter.AITextKit.Grammar.Configuration;
-global using DictionaryImporter.AITextKit.Grammar.Enhanced;
-global using DictionaryImporter.AITextKit.Grammar.Infrastructure;
 global using DictionaryImporter.Core.Graph;
 global using DictionaryImporter.Core.Pipeline;
 global using DictionaryImporter.Infrastructure.Merge;

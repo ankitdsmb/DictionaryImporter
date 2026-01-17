@@ -1,4 +1,6 @@
 ﻿using System.Text.RegularExpressions;
+using DictionaryImporter.AITextKit.Grammar.Core;
+using DictionaryImporter.AITextKit.Grammar.Engines;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 

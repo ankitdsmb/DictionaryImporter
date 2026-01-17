@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Core.Pipeline.Steps;
+﻿using DictionaryImporter.AITextKit.Grammar.Feature;
+
+namespace DictionaryImporter.Core.Pipeline.Steps;
 
 public sealed class GrammarCorrectionPipelineStep(IGrammarFeature grammar) : IImportPipelineStep
 {

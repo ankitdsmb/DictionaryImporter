@@ -10,10 +10,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="AITextKit\AI\Orchestration\Middleware\**" />
+    <Compile Remove="AITextKit\AI\Orchestration\Strategies\**" />
     <Compile Remove="Infrastructure\Concept\**" />
     <Compile Remove="Infrastructure\PostProcessing\Ranking\**" />
+    <EmbeddedResource Remove="AITextKit\AI\Orchestration\Middleware\**" />
+    <EmbeddedResource Remove="AITextKit\AI\Orchestration\Strategies\**" />
     <EmbeddedResource Remove="Infrastructure\Concept\**" />
     <EmbeddedResource Remove="Infrastructure\PostProcessing\Ranking\**" />
+    <None Remove="AITextKit\AI\Orchestration\Middleware\**" />
+    <None Remove="AITextKit\AI\Orchestration\Strategies\**" />
     <None Remove="Infrastructure\Concept\**" />
     <None Remove="Infrastructure\PostProcessing\Ranking\**" />
   </ItemGroup>
@@ -93,13 +99,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="AITextKit\AI\Core\Abstractions\" />
-    <Folder Include="AITextKit\AI\Infrastructure\Http\" />
-    <Folder Include="AITextKit\AI\Infrastructure\Caching\" />
-    <Folder Include="AITextKit\AI\Infrastructure\Serialization\" />
-    <Folder Include="AITextKit\AI\Orchestration\Middleware\" />
     <Folder Include="AITextKit\AI\Orchestration\Providers\Refactored\" />
-    <Folder Include="AITextKit\AI\Orchestration\Strategies\" />
     <Folder Include="AITextKit\AI\Orchestration\Providers\Implementations\" />
     <Folder Include="AITextKit\AI\Orchestration\Providers\Templates\" />
   </ItemGroup>

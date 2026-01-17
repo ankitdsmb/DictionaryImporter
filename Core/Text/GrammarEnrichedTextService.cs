@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using DictionaryImporter.AITextKit.Grammar.Feature;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Core.Text;
 
