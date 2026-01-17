@@ -21,9 +21,11 @@ Thumbs.db
 .DS_Store
 
 *.json
+*.jsonl
 *.txt
 *.patch
 *.editorconfig
+*.xml
 
 Data/*
 Dictionaries/*
