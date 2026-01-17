@@ -11,14 +11,23 @@
 
   <ItemGroup>
     <Compile Remove="AITextKit\AI\Orchestration\Middleware\**" />
+    <Compile Remove="AITextKit\AI\Orchestration\Providers\Implementations\**" />
+    <Compile Remove="AITextKit\AI\Orchestration\Providers\Refactored\**" />
+    <Compile Remove="AITextKit\AI\Orchestration\Providers\Templates\**" />
     <Compile Remove="AITextKit\AI\Orchestration\Strategies\**" />
     <Compile Remove="Infrastructure\Concept\**" />
     <Compile Remove="Infrastructure\PostProcessing\Ranking\**" />
     <EmbeddedResource Remove="AITextKit\AI\Orchestration\Middleware\**" />
+    <EmbeddedResource Remove="AITextKit\AI\Orchestration\Providers\Implementations\**" />
+    <EmbeddedResource Remove="AITextKit\AI\Orchestration\Providers\Refactored\**" />
+    <EmbeddedResource Remove="AITextKit\AI\Orchestration\Providers\Templates\**" />
     <EmbeddedResource Remove="AITextKit\AI\Orchestration\Strategies\**" />
     <EmbeddedResource Remove="Infrastructure\Concept\**" />
     <EmbeddedResource Remove="Infrastructure\PostProcessing\Ranking\**" />
     <None Remove="AITextKit\AI\Orchestration\Middleware\**" />
+    <None Remove="AITextKit\AI\Orchestration\Providers\Implementations\**" />
+    <None Remove="AITextKit\AI\Orchestration\Providers\Refactored\**" />
+    <None Remove="AITextKit\AI\Orchestration\Providers\Templates\**" />
     <None Remove="AITextKit\AI\Orchestration\Strategies\**" />
     <None Remove="Infrastructure\Concept\**" />
     <None Remove="Infrastructure\PostProcessing\Ranking\**" />
@@ -96,12 +105,6 @@
     <None Update="AITextKit\Grammar\Configuration\Core14.profile.xml">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="AITextKit\AI\Orchestration\Providers\Refactored\" />
-    <Folder Include="AITextKit\AI\Orchestration\Providers\Implementations\" />
-    <Folder Include="AITextKit\AI\Orchestration\Providers\Templates\" />
   </ItemGroup>
 
 </Project>
