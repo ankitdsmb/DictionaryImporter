@@ -1,19 +1,20 @@
-﻿namespace DictionaryImporter.Sources.StructuredJson;
-
-public sealed class StructuredJsonTransformer
-    : IDataTransformer<StructuredJsonRawEntry>
+﻿namespace DictionaryImporter.Sources.StructuredJson
 {
-    public IEnumerable<DictionaryEntry> Transform(
-        StructuredJsonRawEntry raw)
+    public sealed class StructuredJsonTransformer
+        : IDataTransformer<StructuredJsonRawEntry>
     {
-        yield return new DictionaryEntry
+        public IEnumerable<DictionaryEntry> Transform(
+            StructuredJsonRawEntry raw)
         {
-            SourceCode = "STRUCT_JSON",
-            Word = raw.Word,
-            NormalizedWord = raw.NormalizedWord,
-            Definition = raw.Definition,
-            PartOfSpeech = raw.PartOfSpeech,
-            SenseNumber = raw.SenseNumber
-        };
+            yield return new DictionaryEntry
+            {
+                SourceCode = "STRUCT_JSON",
+                Word = raw.Word,
+                NormalizedWord = raw.NormalizedWord,
+                Definition = raw.Definition,
+                PartOfSpeech = raw.PartOfSpeech,
+                SenseNumber = raw.SenseNumber
+            };
+        }
     }
 }

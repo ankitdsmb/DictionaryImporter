@@ -1,19 +1,20 @@
-﻿namespace DictionaryImporter.Infrastructure.Persistence.Mapping;
-
-public static class StagingMapper
+﻿namespace DictionaryImporter.Infrastructure.Persistence.Mapping
 {
-    public static DictionaryEntryStaging Map(DictionaryEntry e)
+    public static class StagingMapper
     {
-        return new DictionaryEntryStaging
+        public static DictionaryEntryStaging Map(DictionaryEntry e)
         {
-            Word = e.Word,
-            NormalizedWord = e.NormalizedWord,
-            PartOfSpeech = e.PartOfSpeech,
-            Definition = e.Definition,
-            Etymology = e.Etymology,
-            SenseNumber = e.SenseNumber,
-            SourceCode = e.SourceCode,
-            CreatedUtc = e.CreatedUtc
-        };
+            return new DictionaryEntryStaging
+            {
+                Word = e.Word,
+                NormalizedWord = e.NormalizedWord,
+                PartOfSpeech = e.PartOfSpeech,
+                Definition = e.Definition,
+                Etymology = e.Etymology,
+                SenseNumber = e.SenseNumber,
+                SourceCode = e.SourceCode,
+                CreatedUtc = e.CreatedUtc
+            };
+        }
     }
 }

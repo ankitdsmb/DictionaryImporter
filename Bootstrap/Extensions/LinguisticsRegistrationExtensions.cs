@@ -1,16 +1,17 @@
 using DictionaryImporter.Infrastructure.Linguistics;
 
-namespace DictionaryImporter.Bootstrap.Extensions;
-
-internal static class LinguisticsRegistrationExtensions
+namespace DictionaryImporter.Bootstrap.Extensions
 {
-    public static IServiceCollection AddLinguistics(
-        this IServiceCollection services)
+    internal static class LinguisticsRegistrationExtensions
     {
-        services.AddSingleton<
-            IPartOfSpeechInfererV2,
-            ParsedDefinitionPartOfSpeechInfererV2>();
+        public static IServiceCollection AddLinguistics(
+            this IServiceCollection services)
+        {
+            services.AddSingleton<
+                IPartOfSpeechInfererV2,
+                ParsedDefinitionPartOfSpeechInfererV2>();
 
-        return services;
+            return services;
+        }
     }
 }

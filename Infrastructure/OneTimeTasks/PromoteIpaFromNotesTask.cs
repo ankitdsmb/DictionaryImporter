@@ -1,21 +1,22 @@
-﻿namespace DictionaryImporter.Infrastructure.OneTimeTasks;
-
-/// <summary>
-///     Promotes real IPA tokens from pronunciation notes
-///     into CanonicalWordPronunciation.
-///     Safe to re-run.
-/// </summary>
-public sealed class PromoteIpaFromNotesTask(string connectionString) : IOneTimeDatabaseTask
+﻿namespace DictionaryImporter.Infrastructure.OneTimeTasks
 {
-    public string Name => "promote-ipa-from-notes";
-
-    public async Task ExecuteAsync(CancellationToken ct)
+    /// <summary>
+    ///     Promotes real IPA tokens from pronunciation notes
+    ///     into CanonicalWordPronunciation.
+    ///     Safe to re-run.
+    /// </summary>
+    public sealed class PromoteIpaFromNotesTask(string connectionString) : IOneTimeDatabaseTask
     {
-        await using var conn = new SqlConnection(connectionString);
-        await conn.OpenAsync(ct);
+        public string Name => "promote-ipa-from-notes";
 
-        await conn.ExecuteAsync(
-            "EXEC dbo.promote_IpaFromPronunciationNotes",
-            commandTimeout: 0);
+        public async Task ExecuteAsync(CancellationToken ct)
+        {
+            await using var conn = new SqlConnection(connectionString);
+            await conn.OpenAsync(ct);
+
+            await conn.ExecuteAsync(
+                "EXEC dbo.promote_IpaFromPronunciationNotes",
+                commandTimeout: 0);
+        }
     }
 }

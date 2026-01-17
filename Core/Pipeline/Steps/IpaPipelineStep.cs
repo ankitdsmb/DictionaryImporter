@@ -1,19 +1,20 @@
-﻿namespace DictionaryImporter.Core.Pipeline.Steps;
-
-public sealed class IpaPipelineStep(
-    CanonicalWordIpaEnricher ipaEnricher,
-    IReadOnlyList<IpaSourceConfig> ipaSources) : IImportPipelineStep
+﻿namespace DictionaryImporter.Core.Pipeline.Steps
 {
-    public string Name => PipelineStepNames.Ipa;
-
-    public async Task ExecuteAsync(ImportPipelineContext context)
+    public sealed class IpaPipelineStep(
+        CanonicalWordIpaEnricher ipaEnricher,
+        IReadOnlyList<IpaSourceConfig> ipaSources) : IImportPipelineStep
     {
-        foreach (var ipa in ipaSources)
+        public string Name => PipelineStepNames.Ipa;
+
+        public async Task ExecuteAsync(ImportPipelineContext context)
         {
-            await ipaEnricher.ExecuteAsync(
-                ipa.Locale,
-                ipa.FilePath,
-                context.CancellationToken);
+            foreach (var ipa in ipaSources)
+            {
+                await ipaEnricher.ExecuteAsync(
+                    ipa.Locale,
+                    ipa.FilePath,
+                    context.CancellationToken);
+            }
         }
     }
 }

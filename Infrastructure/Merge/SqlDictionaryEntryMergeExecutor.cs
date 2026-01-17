@@ -1,166 +1,167 @@
-﻿namespace DictionaryImporter.Infrastructure.Merge;
-
-public sealed class SqlDictionaryEntryMergeExecutor(
-    string connectionString,
-    ILogger<SqlDictionaryEntryMergeExecutor> logger)
-    : IDataMergeExecutor
+﻿namespace DictionaryImporter.Infrastructure.Merge
 {
-    public async Task ExecuteAsync(
-        string sourceCode,
-        CancellationToken ct)
+    public sealed class SqlDictionaryEntryMergeExecutor(
+        string connectionString,
+        ILogger<SqlDictionaryEntryMergeExecutor> logger)
+        : IDataMergeExecutor
     {
-        await using var connection =
-            new SqlConnection(connectionString);
-
-        await connection.OpenAsync(ct);
-
-        await using var tx =
-            await connection.BeginTransactionAsync(ct);
-
-        try
+        public async Task ExecuteAsync(
+            string sourceCode,
+            CancellationToken ct)
         {
-            const string stagingStatsSql = """
-                                           SELECT
-                                               COUNT_BIG(*) AS TotalRows,
-                                               COUNT_BIG(DISTINCT
-                                                   CONCAT(SourceCode, '|', NormalizedWord, '|', SenseNumber)
-                                               ) AS UniqueKeys
-                                           FROM dbo.DictionaryEntry_Staging
-                                           WHERE SourceCode = @SourceCode;
-                                           """
-                ;
+            await using var connection =
+                new SqlConnection(connectionString);
 
-            var stats =
-                await connection.QuerySingleAsync<StagingStats>(
-                    stagingStatsSql,
-                    new { SourceCode = sourceCode },
-                    tx);
+            await connection.OpenAsync(ct);
 
-            var duplicateCount =
-                stats.TotalRows - stats.UniqueKeys;
+            await using var tx =
+                await connection.BeginTransactionAsync(ct);
 
-            logger.LogInformation(
-                "Staging analysis | Source={SourceCode} | Total={Total} | Unique={Unique} | Duplicates={Duplicates}",
-                sourceCode,
-                stats.TotalRows,
-                stats.UniqueKeys,
-                duplicateCount);
+            try
+            {
+                const string stagingStatsSql = """
+                                               SELECT
+                                                   COUNT_BIG(*) AS TotalRows,
+                                                   COUNT_BIG(DISTINCT
+                                                       CONCAT(SourceCode, '|', NormalizedWord, '|', SenseNumber)
+                                                   ) AS UniqueKeys
+                                               FROM dbo.DictionaryEntry_Staging
+                                               WHERE SourceCode = @SourceCode;
+                                               """
+                    ;
 
-            const string mergeSql = """
-                                    SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+                var stats =
+                    await connection.QuerySingleAsync<StagingStats>(
+                        stagingStatsSql,
+                        new { SourceCode = sourceCode },
+                        tx);
 
-                                    WITH DedupedSource AS
-                                    (
-                                        SELECT
-                                            Word,
-                                            NormalizedWord,
-                                            PartOfSpeech,
-                                            Definition,
-                                            Etymology,
-                                            SenseNumber,
-                                            SourceCode,
-                                            CreatedUtc,
-                                            ROW_NUMBER() OVER
-                                            (
-                                                PARTITION BY
-                                                    SourceCode,
-                                                    NormalizedWord,
-                                                    SenseNumber
-                                                ORDER BY
-                                                    CreatedUtc DESC
-                                            ) AS rn
-                                        FROM dbo.DictionaryEntry_Staging
-                                        WHERE SourceCode = @SourceCode
-                                    )
-                                    MERGE dbo.DictionaryEntry AS Target
-                                    USING
-                                    (
-                                        SELECT
-                                            Word,
-                                            NormalizedWord,
-                                            PartOfSpeech,
-                                            Definition,
-                                            Etymology,
-                                            SenseNumber,
-                                            SourceCode,
-                                            CreatedUtc
-                                        FROM DedupedSource
-                                        WHERE rn = 1
-                                    ) AS Source
-                                    ON
-                                        Target.SourceCode     = Source.SourceCode AND
-                                        Target.NormalizedWord = Source.NormalizedWord AND
-                                        Target.SenseNumber    = Source.SenseNumber
+                var duplicateCount =
+                    stats.TotalRows - stats.UniqueKeys;
 
-                                    WHEN NOT MATCHED BY TARGET THEN
-                                        INSERT
+                logger.LogInformation(
+                    "Staging analysis | Source={SourceCode} | Total={Total} | Unique={Unique} | Duplicates={Duplicates}",
+                    sourceCode,
+                    stats.TotalRows,
+                    stats.UniqueKeys,
+                    duplicateCount);
+
+                const string mergeSql = """
+                                        SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+
+                                        WITH DedupedSource AS
                                         (
-                                            Word,
-                                            NormalizedWord,
-                                            PartOfSpeech,
-                                            Definition,
-                                            Etymology,
-                                            SenseNumber,
-                                            SourceCode,
-                                            CreatedUtc
+                                            SELECT
+                                                Word,
+                                                NormalizedWord,
+                                                PartOfSpeech,
+                                                Definition,
+                                                Etymology,
+                                                SenseNumber,
+                                                SourceCode,
+                                                CreatedUtc,
+                                                ROW_NUMBER() OVER
+                                                (
+                                                    PARTITION BY
+                                                        SourceCode,
+                                                        NormalizedWord,
+                                                        SenseNumber
+                                                    ORDER BY
+                                                        CreatedUtc DESC
+                                                ) AS rn
+                                            FROM dbo.DictionaryEntry_Staging
+                                            WHERE SourceCode = @SourceCode
                                         )
-                                        VALUES
+                                        MERGE dbo.DictionaryEntry AS Target
+                                        USING
                                         (
-                                            Source.Word,
-                                            Source.NormalizedWord,
-                                            Source.PartOfSpeech,
-                                            Source.Definition,
-                                            Source.Etymology,
-                                            Source.SenseNumber,
-                                            Source.SourceCode,
-                                            Source.CreatedUtc
-                                        );
-                                    """;
+                                            SELECT
+                                                Word,
+                                                NormalizedWord,
+                                                PartOfSpeech,
+                                                Definition,
+                                                Etymology,
+                                                SenseNumber,
+                                                SourceCode,
+                                                CreatedUtc
+                                            FROM DedupedSource
+                                            WHERE rn = 1
+                                        ) AS Source
+                                        ON
+                                            Target.SourceCode     = Source.SourceCode AND
+                                            Target.NormalizedWord = Source.NormalizedWord AND
+                                            Target.SenseNumber    = Source.SenseNumber
 
-            await connection.ExecuteAsync(
-                mergeSql,
-                new { SourceCode = sourceCode },
-                tx,
-                0);
+                                        WHEN NOT MATCHED BY TARGET THEN
+                                            INSERT
+                                            (
+                                                Word,
+                                                NormalizedWord,
+                                                PartOfSpeech,
+                                                Definition,
+                                                Etymology,
+                                                SenseNumber,
+                                                SourceCode,
+                                                CreatedUtc
+                                            )
+                                            VALUES
+                                            (
+                                                Source.Word,
+                                                Source.NormalizedWord,
+                                                Source.PartOfSpeech,
+                                                Source.Definition,
+                                                Source.Etymology,
+                                                Source.SenseNumber,
+                                                Source.SourceCode,
+                                                Source.CreatedUtc
+                                            );
+                                        """;
 
-            const string clearStagingSql = """
-                                           DELETE FROM dbo.DictionaryEntry_Staging
-                                           WHERE SourceCode = @SourceCode;
-                                           """;
-
-            var cleared =
                 await connection.ExecuteAsync(
-                    clearStagingSql,
+                    mergeSql,
                     new { SourceCode = sourceCode },
-                    tx);
+                    tx,
+                    0);
 
-            logger.LogInformation(
-                "Cleared {Count} staging rows for source {SourceCode}",
-                cleared,
-                sourceCode);
+                const string clearStagingSql = """
+                                               DELETE FROM dbo.DictionaryEntry_Staging
+                                               WHERE SourceCode = @SourceCode;
+                                               """;
 
-            await tx.CommitAsync(ct);
+                var cleared =
+                    await connection.ExecuteAsync(
+                        clearStagingSql,
+                        new { SourceCode = sourceCode },
+                        tx);
 
-            logger.LogInformation(
-                "Merge completed successfully for source {SourceCode}",
-                sourceCode);
+                logger.LogInformation(
+                    "Cleared {Count} staging rows for source {SourceCode}",
+                    cleared,
+                    sourceCode);
+
+                await tx.CommitAsync(ct);
+
+                logger.LogInformation(
+                    "Merge completed successfully for source {SourceCode}",
+                    sourceCode);
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync(ct);
+
+                logger.LogError(
+                    ex,
+                    "Merge failed for source {SourceCode}. Staging preserved.",
+                    sourceCode);
+
+                throw;
+            }
         }
-        catch (Exception ex)
+
+        private sealed class StagingStats
         {
-            await tx.RollbackAsync(ct);
-
-            logger.LogError(
-                ex,
-                "Merge failed for source {SourceCode}. Staging preserved.",
-                sourceCode);
-
-            throw;
+            public long TotalRows { get; init; }
+            public long UniqueKeys { get; init; }
         }
-    }
-
-    private sealed class StagingStats
-    {
-        public long TotalRows { get; init; }
-        public long UniqueKeys { get; init; }
     }
 }

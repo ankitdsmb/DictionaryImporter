@@ -1,17 +1,18 @@
-namespace DictionaryImporter.Bootstrap.Extensions;
-
-internal static class IpaConfigurationExtensions
+namespace DictionaryImporter.Bootstrap.Extensions
 {
-    public static IServiceCollection AddIpaConfiguration(
-        this IServiceCollection services,
-        IConfiguration configuration)
+    internal static class IpaConfigurationExtensions
     {
-        services.AddSingleton(
-            configuration
-                .GetSection("IPA:Sources")
-                .Get<IReadOnlyList<IpaSourceConfig>>()
-            ?? []);
+        public static IServiceCollection AddIpaConfiguration(
+            this IServiceCollection services,
+            IConfiguration configuration)
+        {
+            services.AddSingleton(
+                configuration
+                    .GetSection("IPA:Sources")
+                    .Get<IReadOnlyList<IpaSourceConfig>>()
+                ?? []);
 
-        return services;
+            return services;
+        }
     }
 }

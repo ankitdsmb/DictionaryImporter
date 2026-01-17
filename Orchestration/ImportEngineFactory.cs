@@ -1,24 +1,25 @@
-﻿namespace DictionaryImporter.Orchestration;
-
-public sealed class ImportEngineFactory<TRaw>(
-    IDataExtractor<TRaw> extractor,
-    IDataTransformer<TRaw> transformer,
-    IDataLoader loader,
-    ILogger<ImportEngine<TRaw>> logger)
+﻿namespace DictionaryImporter.Orchestration
 {
-    public ImportEngine<TRaw> Create(
-        IDictionaryEntryValidator validator)
+    public sealed class ImportEngineFactory<TRaw>(
+        IDataExtractor<TRaw> extractor,
+        IDataTransformer<TRaw> transformer,
+        IDataLoader loader,
+        ILogger<ImportEngine<TRaw>> logger)
     {
-        logger.LogInformation(
-            "ImportEngine created | RawType={RawType} | Validator={Validator}",
-            typeof(TRaw).Name,
-            validator.GetType().Name);
+        public ImportEngine<TRaw> Create(
+            IDictionaryEntryValidator validator)
+        {
+            logger.LogInformation(
+                "ImportEngine created | RawType={RawType} | Validator={Validator}",
+                typeof(TRaw).Name,
+                validator.GetType().Name);
 
-        return new ImportEngine<TRaw>(
-            extractor,
-            transformer,
-            loader,
-            validator,
-            logger);
+            return new ImportEngine<TRaw>(
+                extractor,
+                transformer,
+                loader,
+                validator,
+                logger);
+        }
     }
 }

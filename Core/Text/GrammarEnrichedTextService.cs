@@ -1,60 +1,61 @@
-﻿using DictionaryImporter.AITextKit.Grammar.Feature;
+﻿using DictionaryImporter.Gateway.Grammar.Feature;
 using Microsoft.Extensions.Logging;
 
-namespace DictionaryImporter.Core.Text;
-
-public interface IGrammarEnrichedTextService
+namespace DictionaryImporter.Core.Text
 {
-    Task<string> NormalizeDefinitionAsync(string raw, CancellationToken ct);
-
-    Task<string> NormalizeExampleAsync(string raw, CancellationToken ct);
-}
-
-public sealed class GrammarEnrichedTextService(
-    IGrammarFeature grammar,
-    IOcrArtifactNormalizer ocrNormalizer,
-    IDefinitionNormalizer definitionNormalizer,
-    ILogger<GrammarEnrichedTextService> logger) : IGrammarEnrichedTextService
-{
-    public async Task<string> NormalizeDefinitionAsync(string raw, CancellationToken ct)
+    public interface IGrammarEnrichedTextService
     {
-        if (string.IsNullOrWhiteSpace(raw))
-            return raw;
+        Task<string> NormalizeDefinitionAsync(string raw, CancellationToken ct);
 
-        try
-        {
-            var ocrFixed = ocrNormalizer.Normalize(raw);
-            var normalized = definitionNormalizer.Normalize(ocrFixed);
-            return await grammar.CleanAsync(
-                normalized,
-                applyAutoCorrection: true,
-                languageCode: null,
-                ct: ct);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Definition normalization failed. Returning original text.");
-            return raw;
-        }
+        Task<string> NormalizeExampleAsync(string raw, CancellationToken ct);
     }
 
-    public async Task<string> NormalizeExampleAsync(string raw, CancellationToken ct)
+    public sealed class GrammarEnrichedTextService(
+        IGrammarFeature grammar,
+        IOcrArtifactNormalizer ocrNormalizer,
+        IDefinitionNormalizer definitionNormalizer,
+        ILogger<GrammarEnrichedTextService> logger) : IGrammarEnrichedTextService
     {
-        if (string.IsNullOrWhiteSpace(raw))
-            return raw;
+        public async Task<string> NormalizeDefinitionAsync(string raw, CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return raw;
 
-        try
-        {
-            return await grammar.CleanAsync(
-                raw,
-                applyAutoCorrection: true,
-                languageCode: null,
-                ct: ct);
+            try
+            {
+                var ocrFixed = ocrNormalizer.Normalize(raw);
+                var normalized = definitionNormalizer.Normalize(ocrFixed);
+                return await grammar.CleanAsync(
+                    normalized,
+                    applyAutoCorrection: true,
+                    languageCode: null,
+                    ct: ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Definition normalization failed. Returning original text.");
+                return raw;
+            }
         }
-        catch (Exception ex)
+
+        public async Task<string> NormalizeExampleAsync(string raw, CancellationToken ct)
         {
-            logger.LogWarning(ex, "Example normalization failed. Returning original text.");
-            return raw;
+            if (string.IsNullOrWhiteSpace(raw))
+                return raw;
+
+            try
+            {
+                return await grammar.CleanAsync(
+                    raw,
+                    applyAutoCorrection: true,
+                    languageCode: null,
+                    ct: ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Example normalization failed. Returning original text.");
+                return raw;
+            }
         }
     }
 }

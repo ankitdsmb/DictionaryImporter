@@ -1,21 +1,22 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing;
-
-internal static class WebsterEtymologyExtractor
+﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
-    private static readonly Regex EtymRegex =
-        new(
-            @"Etym:\s*(?<text>.+?)(?=(\n\n|$))",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.Singleline);
-
-    public static string? Extract(string definition)
+    internal static class WebsterEtymologyExtractor
     {
-        if (string.IsNullOrWhiteSpace(definition))
-            return null;
+        private static readonly Regex EtymRegex =
+            new(
+                @"Etym:\s*(?<text>.+?)(?=(\n\n|$))",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.Singleline);
 
-        var match = EtymRegex.Match(definition);
+        public static string? Extract(string definition)
+        {
+            if (string.IsNullOrWhiteSpace(definition))
+                return null;
 
-        return match.Success
-            ? match.Groups["text"].Value.Trim()
-            : null;
+            var match = EtymRegex.Match(definition);
+
+            return match.Success
+                ? match.Groups["text"].Value.Trim()
+                : null;
+        }
     }
 }

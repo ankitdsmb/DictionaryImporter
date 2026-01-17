@@ -1,89 +1,90 @@
-﻿namespace DictionaryImporter.Infrastructure.Canonicalization;
-
-public sealed class SqlCanonicalWordResolver(
-    string connectionString,
-    ILogger<SqlCanonicalWordResolver> logger)
-    : ICanonicalWordResolver
+﻿namespace DictionaryImporter.Infrastructure.Canonicalization
 {
-    public async Task ResolveAsync(
-        string sourceCode,
-        CancellationToken ct)
+    public sealed class SqlCanonicalWordResolver(
+        string connectionString,
+        ILogger<SqlCanonicalWordResolver> logger)
+        : ICanonicalWordResolver
     {
-        await using var conn =
-            new SqlConnection(connectionString);
-
-        await conn.OpenAsync(ct);
-
-        await using var tx =
-            await conn.BeginTransactionAsync(ct);
-
-        try
+        public async Task ResolveAsync(
+            string sourceCode,
+            CancellationToken ct)
         {
-            var totalEntries =
-                await conn.ExecuteScalarAsync<int>(
-                    """
-                    SELECT COUNT(*)
-                    FROM dbo.DictionaryEntry
-                    WHERE SourceCode = @SourceCode;
-                    """,
-                    new { SourceCode = sourceCode },
-                    tx);
+            await using var conn =
+                new SqlConnection(connectionString);
 
-            logger.LogInformation(
-                "CanonicalResolver started | Source={Source} | Entries={Count}",
-                sourceCode,
-                totalEntries);
+            await conn.OpenAsync(ct);
 
-            var inserted =
-                await conn.ExecuteAsync(
-                    """
-                    INSERT INTO dbo.CanonicalWord (NormalizedWord)
-                    SELECT DISTINCT e.NormalizedWord
-                    FROM dbo.DictionaryEntry e
-                    LEFT JOIN dbo.CanonicalWord c
-                        ON c.NormalizedWord = e.NormalizedWord
-                    WHERE c.CanonicalWordId IS NULL;
-                    """,
-                    transaction: tx);
+            await using var tx =
+                await conn.BeginTransactionAsync(ct);
 
-            logger.LogInformation(
-                "CanonicalResolver | Inserted {Count} new canonical words",
-                inserted);
+            try
+            {
+                var totalEntries =
+                    await conn.ExecuteScalarAsync<int>(
+                        """
+                        SELECT COUNT(*)
+                        FROM dbo.DictionaryEntry
+                        WHERE SourceCode = @SourceCode;
+                        """,
+                        new { SourceCode = sourceCode },
+                        tx);
 
-            var updated =
-                await conn.ExecuteAsync(
-                    """
-                    UPDATE e
-                    SET CanonicalWordId = c.CanonicalWordId
-                    FROM dbo.DictionaryEntry e
-                    INNER JOIN dbo.CanonicalWord c
-                        ON c.NormalizedWord = e.NormalizedWord
-                    WHERE e.CanonicalWordId IS NULL
-                      AND e.SourceCode = @SourceCode;
-                    """,
-                    new { SourceCode = sourceCode },
-                    tx);
+                logger.LogInformation(
+                    "CanonicalResolver started | Source={Source} | Entries={Count}",
+                    sourceCode,
+                    totalEntries);
 
-            logger.LogInformation(
-                "CanonicalResolver | Linked {Count} entries to canonical words",
-                updated);
+                var inserted =
+                    await conn.ExecuteAsync(
+                        """
+                        INSERT INTO dbo.CanonicalWord (NormalizedWord)
+                        SELECT DISTINCT e.NormalizedWord
+                        FROM dbo.DictionaryEntry e
+                        LEFT JOIN dbo.CanonicalWord c
+                            ON c.NormalizedWord = e.NormalizedWord
+                        WHERE c.CanonicalWordId IS NULL;
+                        """,
+                        transaction: tx);
 
-            await tx.CommitAsync(ct);
+                logger.LogInformation(
+                    "CanonicalResolver | Inserted {Count} new canonical words",
+                    inserted);
 
-            logger.LogInformation(
-                "CanonicalResolver completed successfully | Source={Source}",
-                sourceCode);
-        }
-        catch (Exception ex)
-        {
-            await tx.RollbackAsync(ct);
+                var updated =
+                    await conn.ExecuteAsync(
+                        """
+                        UPDATE e
+                        SET CanonicalWordId = c.CanonicalWordId
+                        FROM dbo.DictionaryEntry e
+                        INNER JOIN dbo.CanonicalWord c
+                            ON c.NormalizedWord = e.NormalizedWord
+                        WHERE e.CanonicalWordId IS NULL
+                          AND e.SourceCode = @SourceCode;
+                        """,
+                        new { SourceCode = sourceCode },
+                        tx);
 
-            logger.LogError(
-                ex,
-                "CanonicalResolver FAILED | Source={Source}",
-                sourceCode);
+                logger.LogInformation(
+                    "CanonicalResolver | Linked {Count} entries to canonical words",
+                    updated);
 
-            throw;
+                await tx.CommitAsync(ct);
+
+                logger.LogInformation(
+                    "CanonicalResolver completed successfully | Source={Source}",
+                    sourceCode);
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync(ct);
+
+                logger.LogError(
+                    ex,
+                    "CanonicalResolver FAILED | Source={Source}",
+                    sourceCode);
+
+                throw;
+            }
         }
     }
 }

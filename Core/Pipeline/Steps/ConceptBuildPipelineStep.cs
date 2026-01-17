@@ -1,11 +1,12 @@
-﻿namespace DictionaryImporter.Core.Pipeline.Steps;
-
-public sealed class ConceptBuildPipelineStep(DictionaryConceptBuilder conceptBuilder) : IImportPipelineStep
+﻿namespace DictionaryImporter.Core.Pipeline.Steps
 {
-    public string Name => PipelineStepNames.ConceptBuild;
-
-    public async Task ExecuteAsync(ImportPipelineContext context)
+    public sealed class ConceptBuildPipelineStep(DictionaryConceptBuilder conceptBuilder) : IImportPipelineStep
     {
-        await conceptBuilder.BuildAsync(context.SourceCode, context.CancellationToken);
+        public string Name => PipelineStepNames.ConceptBuild;
+
+        public async Task ExecuteAsync(ImportPipelineContext context)
+        {
+            await conceptBuilder.BuildAsync(context.SourceCode, context.CancellationToken);
+        }
     }
 }

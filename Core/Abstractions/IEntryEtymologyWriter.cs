@@ -1,8 +1,9 @@
-﻿namespace DictionaryImporter.Core.Abstractions;
-
-public interface IEntryEtymologyWriter
+﻿namespace DictionaryImporter.Core.Abstractions
 {
-    Task WriteAsync(
-        DictionaryEntryEtymology etymology,
-        CancellationToken ct);
+    public interface IEntryEtymologyWriter
+    {
+        Task WriteAsync(
+            DictionaryEntryEtymology etymology,
+            CancellationToken ct);
+    }
 }

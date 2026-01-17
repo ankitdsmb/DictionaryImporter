@@ -1,14 +1,15 @@
-﻿namespace DictionaryImporter.Core.Text;
-
-public interface IDictionaryTextFormatter
+﻿namespace DictionaryImporter.Core.Text
 {
-    string FormatDefinition(string raw);
+    public interface IDictionaryTextFormatter
+    {
+        string FormatDefinition(string raw);
 
-    string FormatExample(string raw);
+        string FormatExample(string raw);
 
-    string? FormatSynonym(string raw);
+        string? FormatSynonym(string raw);
 
-    string? FormatAntonym(string raw);
+        string? FormatAntonym(string raw);
 
-    string FormatEtymology(string raw);
+        string FormatEtymology(string raw);
+    }
 }

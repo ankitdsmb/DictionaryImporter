@@ -1,25 +1,26 @@
-﻿namespace DictionaryImporter.Bootstrap;
-
-public static class BootstrapLogging
+﻿namespace DictionaryImporter.Bootstrap
 {
-    public static void Configure()
+    public static class BootstrapLogging
     {
-        Log.Logger =
-            new LoggerConfiguration()
-                .MinimumLevel.Information()
-                .WriteTo.Console()
-                .WriteTo.File(
-                    "logs/dictionary-importer-.log",
-                    rollingInterval: RollingInterval.Day)
-                .CreateLogger();
-    }
-
-    public static void Register(IServiceCollection services)
-    {
-        services.AddLogging(b =>
+        public static void Configure()
         {
-            b.ClearProviders();
-            b.AddSerilog(dispose: true);
-        });
+            Log.Logger =
+                new LoggerConfiguration()
+                    .MinimumLevel.Information()
+                    .WriteTo.Console()
+                    .WriteTo.File(
+                        "logs/dictionary-importer-.log",
+                        rollingInterval: RollingInterval.Day)
+                    .CreateLogger();
+        }
+
+        public static void Register(IServiceCollection services)
+        {
+            services.AddLogging(b =>
+            {
+                b.ClearProviders();
+                b.AddSerilog(dispose: true);
+            });
+        }
     }
 }

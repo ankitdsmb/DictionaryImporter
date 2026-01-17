@@ -1,9 +1,10 @@
-﻿namespace DictionaryImporter.Core.Persistence;
-
-public interface IParsedDefinitionWriter
+﻿namespace DictionaryImporter.Core.Persistence
 {
-    Task<long> WriteAsync(
-        long dictionaryEntryId,
-        ParsedDefinition parsed,
-        CancellationToken ct);
+    public interface IParsedDefinitionWriter
+    {
+        Task<long> WriteAsync(
+            long dictionaryEntryId,
+            ParsedDefinition parsed,
+            CancellationToken ct);
+    }
 }

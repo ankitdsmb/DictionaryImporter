@@ -1,11 +1,12 @@
-﻿namespace DictionaryImporter.Core.Pipeline.Steps;
-
-public sealed class GraphValidationPipelineStep(DictionaryGraphValidator graphValidator) : IImportPipelineStep
+﻿namespace DictionaryImporter.Core.Pipeline.Steps
 {
-    public string Name => PipelineStepNames.GraphValidation;
-
-    public async Task ExecuteAsync(ImportPipelineContext context)
+    public sealed class GraphValidationPipelineStep(DictionaryGraphValidator graphValidator) : IImportPipelineStep
     {
-        await graphValidator.ValidateAsync(context.SourceCode, context.CancellationToken);
+        public string Name => PipelineStepNames.GraphValidation;
+
+        public async Task ExecuteAsync(ImportPipelineContext context)
+        {
+            await graphValidator.ValidateAsync(context.SourceCode, context.CancellationToken);
+        }
     }
 }

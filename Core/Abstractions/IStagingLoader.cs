@@ -1,8 +1,9 @@
-﻿namespace DictionaryImporter.Core.Abstractions;
-
-public interface IStagingLoader
+﻿namespace DictionaryImporter.Core.Abstractions
 {
-    Task LoadAsync(
-        IEnumerable<DictionaryEntryStaging> entries,
-        CancellationToken cancellationToken);
+    public interface IStagingLoader
+    {
+        Task LoadAsync(
+            IEnumerable<DictionaryEntryStaging> entries,
+            CancellationToken cancellationToken);
+    }
 }

@@ -1,16 +1,17 @@
-﻿namespace DictionaryImporter.Core.PreProcessing;
-
-public static class CjkPunctuationStripper
+﻿namespace DictionaryImporter.Core.PreProcessing
 {
-    private static readonly Regex CjkPunctuationRegex =
-        new(@"[，。、；：！？【】（）《》〈〉「」『』]",
-            RegexOptions.Compiled);
-
-    public static string RemoveCjkPunctuation(string input)
+    public static class CjkPunctuationStripper
     {
-        if (string.IsNullOrWhiteSpace(input))
-            return input;
+        private static readonly Regex CjkPunctuationRegex =
+            new(@"[，。、；：！？【】（）《》〈〉「」『』]",
+                RegexOptions.Compiled);
 
-        return CjkPunctuationRegex.Replace(input, string.Empty).Trim();
+        public static string RemoveCjkPunctuation(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+                return input;
+
+            return CjkPunctuationRegex.Replace(input, string.Empty).Trim();
+        }
     }
 }

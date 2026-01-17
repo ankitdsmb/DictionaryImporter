@@ -1,16 +1,17 @@
-﻿namespace DictionaryImporter.Core.Text;
-
-public sealed class OcrNormalizationOptions
+﻿namespace DictionaryImporter.Core.Text
 {
-    public bool Enabled { get; set; } = true;
+    public sealed class OcrNormalizationOptions
+    {
+        public bool Enabled { get; set; } = true;
 
-    public bool EnableHunspellSplit { get; set; } = true;
+        public bool EnableHunspellSplit { get; set; } = true;
 
-    public bool EnableReplacements { get; set; } = true;
+        public bool EnableReplacements { get; set; } = true;
 
-    public bool LogChanges { get; set; } = false;
+        public bool LogChanges { get; set; } = false;
 
-    public int MinTokenLengthForSplit { get; set; } = 6;
+        public int MinTokenLengthForSplit { get; set; } = 6;
 
-    public Dictionary<string, string> Replacements { get; set; } = new();
+        public Dictionary<string, string> Replacements { get; set; } = new();
+    }
 }

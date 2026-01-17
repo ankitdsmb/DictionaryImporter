@@ -1,13 +1,14 @@
-﻿using DictionaryImporter.AITextKit.Grammar.Feature;
+﻿using DictionaryImporter.Gateway.Grammar.Feature;
 
-namespace DictionaryImporter.Core.Pipeline.Steps;
-
-public sealed class GrammarCorrectionPipelineStep(IGrammarFeature grammar) : IImportPipelineStep
+namespace DictionaryImporter.Core.Pipeline.Steps
 {
-    public string Name => PipelineStepNames.GrammarCorrection;
-
-    public async Task ExecuteAsync(ImportPipelineContext context)
+    public sealed class GrammarCorrectionPipelineStep(IGrammarFeature grammar) : IImportPipelineStep
     {
-        await grammar.CorrectSourceAsync(context.SourceCode, context.CancellationToken);
+        public string Name => PipelineStepNames.GrammarCorrection;
+
+        public async Task ExecuteAsync(ImportPipelineContext context)
+        {
+            await grammar.CorrectSourceAsync(context.SourceCode, context.CancellationToken);
+        }
     }
 }

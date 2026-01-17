@@ -1,12 +1,13 @@
-﻿namespace DictionaryImporter.Core.Linguistics;
-
-public static class OrthographicSyllableRenderer
+﻿namespace DictionaryImporter.Core.Linguistics
 {
-    public static string Render(
-        IReadOnlyList<string> syllables)
+    public static class OrthographicSyllableRenderer
     {
-        return syllables == null || syllables.Count == 0
-            ? string.Empty
-            : string.Join("·", syllables);
+        public static string Render(
+            IReadOnlyList<string> syllables)
+        {
+            return syllables == null || syllables.Count == 0
+                ? string.Empty
+                : string.Join("·", syllables);
+        }
     }
 }

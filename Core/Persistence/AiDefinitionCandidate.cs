@@ -1,7 +1,8 @@
-﻿namespace DictionaryImporter.Core.Persistence;
-
-public sealed class AiDefinitionCandidate
+﻿namespace DictionaryImporter.Core.Persistence
 {
-    public long ParsedDefinitionId { get; set; }
-    public string DefinitionText { get; set; } = string.Empty;
+    public sealed class AiDefinitionCandidate
+    {
+        public long ParsedDefinitionId { get; set; }
+        public string DefinitionText { get; set; } = string.Empty;
+    }
 }

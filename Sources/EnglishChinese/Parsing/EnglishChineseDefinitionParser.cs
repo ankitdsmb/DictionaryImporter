@@ -1,71 +1,72 @@
-﻿namespace DictionaryImporter.Sources.EnglishChinese.Parsing;
-
-public sealed class EnglishChineseDefinitionParser
-    : IDictionaryDefinitionParser
+﻿namespace DictionaryImporter.Sources.EnglishChinese.Parsing
 {
-    private static readonly Regex IpaRegex =
-        new(@"/[^/]+/",
-            RegexOptions.Compiled);
-
-    private static readonly Regex EnglishSyllableRegex =
-        new(
-            @"^\s*[A-Za-z]+(?:·[A-Za-z]+)+\s*",
-            RegexOptions.Compiled);
-
-    private static readonly Regex PosRegex =
-        new(
-            @"^\s*(n\.|v\.|a\.|adj\.|ad\.|adv\.|vt\.|vi\.|abbr\.)\s+",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex PosOnlyRegex =
-        new(
-            @"^\s*(n\.|v\.|a\.|adj\.|ad\.|adv\.|vt\.|vi\.|abbr\.)\s*$",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    public IEnumerable<ParsedDefinition> Parse(
-        DictionaryEntry entry)
+    public sealed class EnglishChineseDefinitionParser
+        : IDictionaryDefinitionParser
     {
-        var working = entry.Definition;
+        private static readonly Regex IpaRegex =
+            new(@"/[^/]+/",
+                RegexOptions.Compiled);
 
-        if (string.IsNullOrWhiteSpace(working))
-            yield break;
+        private static readonly Regex EnglishSyllableRegex =
+            new(
+                @"^\s*[A-Za-z]+(?:·[A-Za-z]+)+\s*",
+                RegexOptions.Compiled);
 
-        working = IpaRegex.Replace(working, string.Empty);
+        private static readonly Regex PosRegex =
+            new(
+                @"^\s*(n\.|v\.|a\.|adj\.|ad\.|adv\.|vt\.|vi\.|abbr\.)\s+",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        working = EnglishSyllableRegex.Replace(working, string.Empty);
+        private static readonly Regex PosOnlyRegex =
+            new(
+                @"^\s*(n\.|v\.|a\.|adj\.|ad\.|adv\.|vt\.|vi\.|abbr\.)\s*$",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        working = PosRegex.Replace(working, string.Empty);
-
-        if (!string.IsNullOrWhiteSpace(entry.Word))
+        public IEnumerable<ParsedDefinition> Parse(
+            DictionaryEntry entry)
         {
-            var hw = Regex.Escape(entry.Word);
-            working = Regex.Replace(
-                working,
-                @"^\s*" + hw + @"\s+",
-                string.Empty,
-                RegexOptions.IgnoreCase);
-        }
+            var working = entry.Definition;
 
-        working = working.Replace("⬄", "");
+            if (string.IsNullOrWhiteSpace(working))
+                yield break;
 
-        working = Regex.Replace(working, @"\s+", " ").Trim();
+            working = IpaRegex.Replace(working, string.Empty);
 
-        if (string.IsNullOrWhiteSpace(working) || PosOnlyRegex.IsMatch(working))
-        {
+            working = EnglishSyllableRegex.Replace(working, string.Empty);
+
+            working = PosRegex.Replace(working, string.Empty);
+
+            if (!string.IsNullOrWhiteSpace(entry.Word))
+            {
+                var hw = Regex.Escape(entry.Word);
+                working = Regex.Replace(
+                    working,
+                    @"^\s*" + hw + @"\s+",
+                    string.Empty,
+                    RegexOptions.IgnoreCase);
+            }
+
+            working = working.Replace("⬄", "");
+
+            working = Regex.Replace(working, @"\s+", " ").Trim();
+
+            if (string.IsNullOrWhiteSpace(working) || PosOnlyRegex.IsMatch(working))
+            {
+                yield return new ParsedDefinition
+                {
+                    Definition = null,
+                    RawFragment = entry.Definition,
+                    SenseNumber = entry.SenseNumber
+                };
+                yield break;
+            }
+
             yield return new ParsedDefinition
             {
-                Definition = null,
+                Definition = working,
                 RawFragment = entry.Definition,
                 SenseNumber = entry.SenseNumber
             };
-            yield break;
         }
-
-        yield return new ParsedDefinition
-        {
-            Definition = working,
-            RawFragment = entry.Definition,
-            SenseNumber = entry.SenseNumber
-        };
     }
 }

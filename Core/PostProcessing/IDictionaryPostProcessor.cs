@@ -1,8 +1,9 @@
-﻿namespace DictionaryImporter.Core.PostProcessing;
-
-public interface IDictionaryPostProcessor
+﻿namespace DictionaryImporter.Core.PostProcessing
 {
-    Task ExecuteAsync(
-        string sourceCode,
-        CancellationToken ct);
+    public interface IDictionaryPostProcessor
+    {
+        Task ExecuteAsync(
+            string sourceCode,
+            CancellationToken ct);
+    }
 }

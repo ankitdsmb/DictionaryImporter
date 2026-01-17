@@ -1,36 +1,37 @@
-﻿namespace DictionaryImporter.Infrastructure.Qa;
-
-public sealed class QaRunner(
-    IEnumerable<IQaCheck> checks,
-    ILogger<QaRunner> logger)
+﻿namespace DictionaryImporter.Infrastructure.Qa
 {
-    public async Task<IReadOnlyList<QaSummaryRow>> RunAsync(
-        CancellationToken ct)
+    public sealed class QaRunner(
+        IEnumerable<IQaCheck> checks,
+        ILogger<QaRunner> logger)
     {
-        var results = new List<QaSummaryRow>();
-
-        foreach (var check in checks.OrderBy(c => c.Phase))
+        public async Task<IReadOnlyList<QaSummaryRow>> RunAsync(
+            CancellationToken ct)
         {
-            ct.ThrowIfCancellationRequested();
+            var results = new List<QaSummaryRow>();
 
-            logger.LogInformation(
-                "QA started | Phase={Phase} | Check={Check}",
-                check.Phase,
-                check.Name);
+            foreach (var check in checks.OrderBy(c => c.Phase))
+            {
+                ct.ThrowIfCancellationRequested();
 
-            var rows = await check.ExecuteAsync(ct);
-
-            foreach (var r in rows)
                 logger.LogInformation(
-                    "QA result | Phase={Phase} | Check={Check} | Status={Status} | {Details}",
-                    r.Phase,
-                    r.CheckName,
-                    r.Status,
-                    r.Details);
+                    "QA started | Phase={Phase} | Check={Check}",
+                    check.Phase,
+                    check.Name);
 
-            results.AddRange(rows);
+                var rows = await check.ExecuteAsync(ct);
+
+                foreach (var r in rows)
+                    logger.LogInformation(
+                        "QA result | Phase={Phase} | Check={Check} | Status={Status} | {Details}",
+                        r.Phase,
+                        r.CheckName,
+                        r.Status,
+                        r.Details);
+
+                results.AddRange(rows);
+            }
+
+            return results;
         }
-
-        return results;
     }
 }

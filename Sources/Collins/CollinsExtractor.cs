@@ -1,38 +1,25 @@
-﻿namespace DictionaryImporter.Sources.Collins;
-
-public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
+﻿namespace DictionaryImporter.Sources.Collins
 {
-    public async IAsyncEnumerable<CollinsRawEntry> ExtractAsync(
-        Stream stream,
-        [EnumeratorCancellation] CancellationToken ct)
+    public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
     {
-        using var reader = new StreamReader(stream);
-
-        CollinsRawEntry? currentEntry = null;
-        CollinsSenseRaw? currentSense = null;
-        var examplesBuffer = new List<string>();
-        var noteBuffer = new List<string>();
-
-        string? line;
-        while ((line = await reader.ReadLineAsync()) != null)
+        public async IAsyncEnumerable<CollinsRawEntry> ExtractAsync(
+            Stream stream,
+            [EnumeratorCancellation] CancellationToken ct)
         {
-            ct.ThrowIfCancellationRequested();
+            using var reader = new StreamReader(stream);
 
-            line = line.Trim();
-            if (string.IsNullOrWhiteSpace(line))
+            CollinsRawEntry? currentEntry = null;
+            CollinsSenseRaw? currentSense = null;
+            var examplesBuffer = new List<string>();
+            var noteBuffer = new List<string>();
+
+            string? line;
+            while ((line = await reader.ReadLineAsync()) != null)
             {
-                if (currentSense != null && examplesBuffer.Any())
-                {
-                    currentSense.Examples.AddRange(examplesBuffer);
-                    examplesBuffer.Clear();
-                }
+                ct.ThrowIfCancellationRequested();
 
-                continue;
-            }
-
-            if (CollinsParserHelper.IsEntrySeparator(line))
-            {
-                if (currentEntry != null)
+                line = line.Trim();
+                if (string.IsNullOrWhiteSpace(line))
                 {
                     if (currentSense != null && examplesBuffer.Any())
                     {
@@ -40,99 +27,113 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
                         examplesBuffer.Clear();
                     }
 
-                    yield return currentEntry;
+                    continue;
                 }
 
-                currentEntry = null;
-                currentSense = null;
-                continue;
-            }
-
-            if (CollinsParserHelper.TryParseHeadword(line, out var headword))
-            {
-                if (currentEntry != null)
+                if (CollinsParserHelper.IsEntrySeparator(line))
                 {
-                    if (currentSense != null && examplesBuffer.Any())
+                    if (currentEntry != null)
                     {
-                        currentSense.Examples.AddRange(examplesBuffer);
-                        examplesBuffer.Clear();
+                        if (currentSense != null && examplesBuffer.Any())
+                        {
+                            currentSense.Examples.AddRange(examplesBuffer);
+                            examplesBuffer.Clear();
+                        }
+
+                        yield return currentEntry;
                     }
 
-                    yield return currentEntry;
+                    currentEntry = null;
+                    currentSense = null;
+                    continue;
                 }
 
-                currentEntry = new CollinsRawEntry
+                if (CollinsParserHelper.TryParseHeadword(line, out var headword))
                 {
-                    Headword = headword
-                };
-                continue;
+                    if (currentEntry != null)
+                    {
+                        if (currentSense != null && examplesBuffer.Any())
+                        {
+                            currentSense.Examples.AddRange(examplesBuffer);
+                            examplesBuffer.Clear();
+                        }
+
+                        yield return currentEntry;
+                    }
+
+                    currentEntry = new CollinsRawEntry
+                    {
+                        Headword = headword
+                    };
+                    continue;
+                }
+
+                if (currentEntry == null)
+                    continue;
+
+                if (CollinsParserHelper.TryParseSenseHeader(line, out var sense))
+                {
+                    if (currentSense != null)
+                    {
+                        if (examplesBuffer.Any())
+                        {
+                            currentSense.Examples.AddRange(examplesBuffer);
+                            examplesBuffer.Clear();
+                        }
+
+                        currentEntry.Senses.Add(currentSense);
+                    }
+
+                    currentSense = sense;
+                    continue;
+                }
+
+                if (CollinsParserHelper.TryParseExample(line, out var example))
+                {
+                    examplesBuffer.Add(example);
+                    continue;
+                }
+
+                if (CollinsParserHelper.TryParseUsageNote(line, out var usageNote))
+                {
+                    noteBuffer.Add(usageNote);
+                    if (currentSense != null) currentSense.UsageNote = string.Join(" ", noteBuffer);
+                    continue;
+                }
+
+                if (CollinsParserHelper.TryParseDomainLabel(line, out var labelInfo))
+                {
+                    if (currentSense != null)
+                    {
+                        var cleanValue = CollinsParserHelper.RemoveChineseCharacters(labelInfo.Value);
+                        if (labelInfo.LabelType.Contains("语域"))
+                            currentSense.DomainLabel = CollinsParserHelper.ExtractCleanDomain(cleanValue);
+                        else if (labelInfo.LabelType.Contains("语法"))
+                            currentSense.GrammarInfo = CollinsParserHelper.ExtractCleanGrammar(cleanValue);
+                    }
+
+                    continue;
+                }
+
+                if (currentSense != null &&
+                    !string.IsNullOrEmpty(currentSense.Definition) &&
+                    CollinsParserHelper.IsDefinitionContinuation(line, currentSense.Definition))
+                {
+                    var cleanedLine = CollinsParserHelper.RemoveChineseCharacters(line.Trim());
+                    currentSense.Definition += " " + cleanedLine;
+                }
             }
 
-            if (currentEntry == null)
-                continue;
-
-            if (CollinsParserHelper.TryParseSenseHeader(line, out var sense))
+            if (currentEntry != null)
             {
                 if (currentSense != null)
                 {
-                    if (examplesBuffer.Any())
-                    {
-                        currentSense.Examples.AddRange(examplesBuffer);
-                        examplesBuffer.Clear();
-                    }
-
+                    if (examplesBuffer.Any()) currentSense.Examples.AddRange(examplesBuffer);
                     currentEntry.Senses.Add(currentSense);
                 }
 
-                currentSense = sense;
-                continue;
+                yield return currentEntry;
             }
-
-            if (CollinsParserHelper.TryParseExample(line, out var example))
-            {
-                examplesBuffer.Add(example);
-                continue;
-            }
-
-            if (CollinsParserHelper.TryParseUsageNote(line, out var usageNote))
-            {
-                noteBuffer.Add(usageNote);
-                if (currentSense != null) currentSense.UsageNote = string.Join(" ", noteBuffer);
-                continue;
-            }
-
-            if (CollinsParserHelper.TryParseDomainLabel(line, out var labelInfo))
-            {
-                if (currentSense != null)
-                {
-                    var cleanValue = CollinsParserHelper.RemoveChineseCharacters(labelInfo.Value);
-                    if (labelInfo.LabelType.Contains("语域"))
-                        currentSense.DomainLabel = CollinsParserHelper.ExtractCleanDomain(cleanValue);
-                    else if (labelInfo.LabelType.Contains("语法"))
-                        currentSense.GrammarInfo = CollinsParserHelper.ExtractCleanGrammar(cleanValue);
-                }
-
-                continue;
-            }
-
-            if (currentSense != null &&
-                !string.IsNullOrEmpty(currentSense.Definition) &&
-                CollinsParserHelper.IsDefinitionContinuation(line, currentSense.Definition))
-            {
-                var cleanedLine = CollinsParserHelper.RemoveChineseCharacters(line.Trim());
-                currentSense.Definition += " " + cleanedLine;
-            }
-        }
-
-        if (currentEntry != null)
-        {
-            if (currentSense != null)
-            {
-                if (examplesBuffer.Any()) currentSense.Examples.AddRange(examplesBuffer);
-                currentEntry.Senses.Add(currentSense);
-            }
-
-            yield return currentEntry;
         }
     }
 }

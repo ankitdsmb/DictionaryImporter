@@ -1,25 +1,26 @@
-namespace DictionaryImporter.Bootstrap.Extensions;
-
-internal static class IpaRegistrationExtensions
+namespace DictionaryImporter.Bootstrap.Extensions
 {
-    public static IServiceCollection AddIpa(
-        this IServiceCollection services,
-        string connectionString)
+    internal static class IpaRegistrationExtensions
     {
-        services.AddSingleton(_ =>
-            new SqlCanonicalWordPronunciationWriter(connectionString));
+        public static IServiceCollection AddIpa(
+            this IServiceCollection services,
+            string connectionString)
+        {
+            services.AddSingleton(_ =>
+                new SqlCanonicalWordPronunciationWriter(connectionString));
 
-        services.AddSingleton(sp =>
-            new CanonicalWordIpaEnricher(
-                connectionString,
-                sp.GetRequiredService<SqlCanonicalWordPronunciationWriter>(),
-                sp.GetRequiredService<ILogger<CanonicalWordIpaEnricher>>()));
+            services.AddSingleton(sp =>
+                new CanonicalWordIpaEnricher(
+                    connectionString,
+                    sp.GetRequiredService<SqlCanonicalWordPronunciationWriter>(),
+                    sp.GetRequiredService<ILogger<CanonicalWordIpaEnricher>>()));
 
-        services.AddSingleton(sp =>
-            new IpaVerificationReporter(
-                connectionString,
-                sp.GetRequiredService<ILogger<IpaVerificationReporter>>()));
+            services.AddSingleton(sp =>
+                new IpaVerificationReporter(
+                    connectionString,
+                    sp.GetRequiredService<ILogger<IpaVerificationReporter>>()));
 
-        return services;
+            return services;
+        }
     }
 }

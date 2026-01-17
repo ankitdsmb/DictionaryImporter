@@ -1,9 +1,10 @@
-﻿namespace DictionaryImporter.Core.Persistence;
-
-public interface IDictionaryAliasWriter
+﻿namespace DictionaryImporter.Core.Persistence
 {
-    Task WriteAsync(
-        long parsedDefinitionId,
-        string alias,
-        CancellationToken ct);
+    public interface IDictionaryAliasWriter
+    {
+        Task WriteAsync(
+            long parsedDefinitionId,
+            string alias,
+            CancellationToken ct);
+    }
 }

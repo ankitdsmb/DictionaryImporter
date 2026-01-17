@@ -1,10 +1,11 @@
-﻿namespace DictionaryImporter.Infrastructure.Qa;
-
-public interface IQaCheck
+﻿namespace DictionaryImporter.Infrastructure.Qa
 {
-    string Name { get; }
-    string Phase { get; }
+    public interface IQaCheck
+    {
+        string Name { get; }
+        string Phase { get; }
 
-    Task<IReadOnlyList<QaSummaryRow>> ExecuteAsync(
-        CancellationToken ct);
+        Task<IReadOnlyList<QaSummaryRow>> ExecuteAsync(
+            CancellationToken ct);
+    }
 }

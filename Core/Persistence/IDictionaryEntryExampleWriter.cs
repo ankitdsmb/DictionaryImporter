@@ -1,10 +1,11 @@
-﻿namespace DictionaryImporter.Core.Persistence;
-
-public interface IDictionaryEntryExampleWriter
+﻿namespace DictionaryImporter.Core.Persistence
 {
-    Task WriteAsync(
-        long parsedDefinitionId,
-        string exampleText,
-        string sourceCode,
-        CancellationToken ct);
+    public interface IDictionaryEntryExampleWriter
+    {
+        Task WriteAsync(
+            long parsedDefinitionId,
+            string exampleText,
+            string sourceCode,
+            CancellationToken ct);
+    }
 }

@@ -1,8 +1,9 @@
-﻿namespace DictionaryImporter.Core.Abstractions;
-
-public interface IDataMergeExecutor
+﻿namespace DictionaryImporter.Core.Abstractions
 {
-    Task ExecuteAsync(
-        string sourceCode,
-        CancellationToken cancellationToken);
+    public interface IDataMergeExecutor
+    {
+        Task ExecuteAsync(
+            string sourceCode,
+            CancellationToken cancellationToken);
+    }
 }

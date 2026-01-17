@@ -1,8 +1,9 @@
-﻿namespace DictionaryImporter.Orchestration;
-
-public interface IImportOrchestrator
+﻿namespace DictionaryImporter.Orchestration
 {
-    Task RunAsync(
-        IEnumerable<ImportSourceDefinition> sources,
-        CancellationToken cancellationToken);
+    public interface IImportOrchestrator
+    {
+        Task RunAsync(
+            IEnumerable<ImportSourceDefinition> sources,
+            CancellationToken cancellationToken);
+    }
 }

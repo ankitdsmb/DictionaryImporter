@@ -1,8 +1,9 @@
-﻿namespace DictionaryImporter.Core.Abstractions;
-
-public interface IImportEngineRegistry
+﻿namespace DictionaryImporter.Core.Abstractions
 {
-    IImportEngine CreateEngine(
-        string sourceCode,
-        IDictionaryEntryValidator validator);
+    public interface IImportEngineRegistry
+    {
+        IImportEngine CreateEngine(
+            string sourceCode,
+            IDictionaryEntryValidator validator);
+    }
 }

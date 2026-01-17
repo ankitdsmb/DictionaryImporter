@@ -1,22 +1,23 @@
-﻿namespace DictionaryImporter.Infrastructure.Persistence;
-
-internal static class CanonicalWordLookup
+﻿namespace DictionaryImporter.Infrastructure.Persistence
 {
-    public static async Task<long?> GetCanonicalWordIdAsync(
-        SqlConnection conn,
-        string word,
-        CancellationToken ct)
+    internal static class CanonicalWordLookup
     {
-        const string sql = """
-                           SELECT CanonicalWordId
-                           FROM dbo.CanonicalWord
-                           WHERE NormalizedWord = @Word;
-                           """;
+        public static async Task<long?> GetCanonicalWordIdAsync(
+            SqlConnection conn,
+            string word,
+            CancellationToken ct)
+        {
+            const string sql = """
+                               SELECT CanonicalWordId
+                               FROM dbo.CanonicalWord
+                               WHERE NormalizedWord = @Word;
+                               """;
 
-        return await conn.ExecuteScalarAsync<long?>(
-            new CommandDefinition(
-                sql,
-                new { Word = word.ToLowerInvariant() },
-                cancellationToken: ct));
+            return await conn.ExecuteScalarAsync<long?>(
+                new CommandDefinition(
+                    sql,
+                    new { Word = word.ToLowerInvariant() },
+                    cancellationToken: ct));
+        }
     }
 }

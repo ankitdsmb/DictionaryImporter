@@ -1,12 +1,13 @@
-﻿namespace DictionaryImporter.Sources;
-
-public interface IDictionarySourceModule
+﻿namespace DictionaryImporter.Sources
 {
-    string SourceCode { get; }
+    public interface IDictionarySourceModule
+    {
+        string SourceCode { get; }
 
-    ImportSourceDefinition BuildSource(IConfiguration config);
+        ImportSourceDefinition BuildSource(IConfiguration config);
 
-    void RegisterServices(
-        IServiceCollection services,
-        IConfiguration config);
+        void RegisterServices(
+            IServiceCollection services,
+            IConfiguration config);
+    }
 }

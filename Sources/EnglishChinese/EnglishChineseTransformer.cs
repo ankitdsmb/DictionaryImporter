@@ -1,48 +1,49 @@
-﻿namespace DictionaryImporter.Sources.EnglishChinese;
-
-public sealed class EnglishChineseTransformer
-    : IDataTransformer<EnglishChineseRawEntry>
+﻿namespace DictionaryImporter.Sources.EnglishChinese
 {
-    public IEnumerable<DictionaryEntry> Transform(
-        EnglishChineseRawEntry raw)
+    public sealed class EnglishChineseTransformer
+        : IDataTransformer<EnglishChineseRawEntry>
     {
-        if (raw == null)
-            throw new ArgumentNullException(nameof(raw));
-
-        var idx = raw.RawLine.IndexOf('⬄');
-        if (idx < 0 || idx == raw.RawLine.Length - 1)
-            yield break;
-
-        var rhs = raw.RawLine.Substring(idx + 1).Trim();
-
-        if (rhs.Length == 0)
-            yield break;
-
-        yield return new DictionaryEntry
+        public IEnumerable<DictionaryEntry> Transform(
+            EnglishChineseRawEntry raw)
         {
-            Word = raw.Headword,
-            NormalizedWord = Normalize(raw.Headword),
-            Definition = rhs,
-            SenseNumber = 1,
-            SourceCode = "ENG_CHN",
-            CreatedUtc = DateTime.UtcNow
-        };
-    }
+            if (raw == null)
+                throw new ArgumentNullException(nameof(raw));
 
-    private static string Normalize(string input)
-    {
-        if (string.IsNullOrWhiteSpace(input))
-            return input;
+            var idx = raw.RawLine.IndexOf('⬄');
+            if (idx < 0 || idx == raw.RawLine.Length - 1)
+                yield break;
 
-        var s = input.ToLowerInvariant();
+            var rhs = raw.RawLine.Substring(idx + 1).Trim();
 
-        s = s.Replace("(", "")
-            .Replace(")", "");
+            if (rhs.Length == 0)
+                yield break;
 
-        s = s.Replace(",", " ");
+            yield return new DictionaryEntry
+            {
+                Word = raw.Headword,
+                NormalizedWord = Normalize(raw.Headword),
+                Definition = rhs,
+                SenseNumber = 1,
+                SourceCode = "ENG_CHN",
+                CreatedUtc = DateTime.UtcNow
+            };
+        }
 
-        s = Regex.Replace(s, @"\s+", " ").Trim();
+        private static string Normalize(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+                return input;
 
-        return s;
+            var s = input.ToLowerInvariant();
+
+            s = s.Replace("(", "")
+                .Replace(")", "");
+
+            s = s.Replace(",", " ");
+
+            s = Regex.Replace(s, @"\s+", " ").Trim();
+
+            return s;
+        }
     }
 }

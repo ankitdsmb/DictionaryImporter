@@ -1,67 +1,68 @@
-﻿namespace DictionaryImporter.Core.PreProcessing;
-
-internal static class IpaSyllabifier
+﻿namespace DictionaryImporter.Core.PreProcessing
 {
-    private static readonly HashSet<char> Vowels =
-    [
-        'i', 'y', 'ɪ', 'ʏ', 'e', 'ø', 'ɛ', 'œ', 'æ', 'a', 'ɑ', 'ɒ', 'ɔ', 'o', 'ʊ', 'u',
-        'ə', 'ɚ', 'ɝ', 'ɜ', 'ɵ', 'ɐ'
-    ];
-
-    public static IReadOnlyList<IpaSyllable> Split(string ipa)
+    internal static class IpaSyllabifier
     {
-        var result = new List<IpaSyllable>();
+        private static readonly HashSet<char> Vowels =
+        [
+            'i', 'y', 'ɪ', 'ʏ', 'e', 'ø', 'ɛ', 'œ', 'æ', 'a', 'ɑ', 'ɒ', 'ɔ', 'o', 'ʊ', 'u',
+            'ə', 'ɚ', 'ɝ', 'ɜ', 'ɵ', 'ɐ'
+        ];
 
-        if (string.IsNullOrWhiteSpace(ipa))
-            return result;
-
-        var buffer = new StringBuilder();
-        var hasVowel = false;
-        byte currentStress = 0;
-        var index = 1;
-
-        foreach (var ch in ipa)
+        public static IReadOnlyList<IpaSyllable> Split(string ipa)
         {
-            if (ch == 'ˈ')
-            {
-                currentStress = 2;
-                continue;
-            }
+            var result = new List<IpaSyllable>();
 
-            if (ch == 'ˌ')
-            {
-                currentStress = 1;
-                continue;
-            }
+            if (string.IsNullOrWhiteSpace(ipa))
+                return result;
 
-            buffer.Append(ch);
+            var buffer = new StringBuilder();
+            var hasVowel = false;
+            byte currentStress = 0;
+            var index = 1;
 
-            if (Vowels.Contains(ch))
+            foreach (var ch in ipa)
             {
-                if (hasVowel)
+                if (ch == 'ˈ')
                 {
-                    result.Add(
-                        new IpaSyllable(
-                            index++,
-                            buffer.ToString(0, buffer.Length - 1),
-                            currentStress));
-
-                    buffer.Clear();
-                    buffer.Append(ch);
-                    currentStress = 0;
+                    currentStress = 2;
+                    continue;
                 }
 
-                hasVowel = true;
+                if (ch == 'ˌ')
+                {
+                    currentStress = 1;
+                    continue;
+                }
+
+                buffer.Append(ch);
+
+                if (Vowels.Contains(ch))
+                {
+                    if (hasVowel)
+                    {
+                        result.Add(
+                            new IpaSyllable(
+                                index++,
+                                buffer.ToString(0, buffer.Length - 1),
+                                currentStress));
+
+                        buffer.Clear();
+                        buffer.Append(ch);
+                        currentStress = 0;
+                    }
+
+                    hasVowel = true;
+                }
             }
+
+            if (buffer.Length > 0)
+                result.Add(
+                    new IpaSyllable(
+                        index,
+                        buffer.ToString(),
+                        currentStress));
+
+            return result;
         }
-
-        if (buffer.Length > 0)
-            result.Add(
-                new IpaSyllable(
-                    index,
-                    buffer.ToString(),
-                    currentStress));
-
-        return result;
     }
 }

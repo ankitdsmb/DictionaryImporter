@@ -1,21 +1,22 @@
-namespace DictionaryImporter.Bootstrap.Extensions;
-
-internal static class ValidationRegistrationExtensions
+namespace DictionaryImporter.Bootstrap.Extensions
 {
-    public static IServiceCollection AddValidation(
-        this IServiceCollection services,
-        string connectionString)
+    internal static class ValidationRegistrationExtensions
     {
-        services.AddTransient<
-            IDictionaryEntryValidator,
-            DefaultDictionaryEntryValidator>();
+        public static IServiceCollection AddValidation(
+            this IServiceCollection services,
+            string connectionString)
+        {
+            services.AddTransient<
+                IDictionaryEntryValidator,
+                DefaultDictionaryEntryValidator>();
 
-        services.AddSingleton(sp =>
-            new DictionaryEntryLinguisticEnricher(
-                connectionString,
-                sp.GetRequiredService<IPartOfSpeechInfererV2>(),
-                sp.GetRequiredService<ILogger<DictionaryEntryLinguisticEnricher>>()));
+            services.AddSingleton(sp =>
+                new DictionaryEntryLinguisticEnricher(
+                    connectionString,
+                    sp.GetRequiredService<IPartOfSpeechInfererV2>(),
+                    sp.GetRequiredService<ILogger<DictionaryEntryLinguisticEnricher>>()));
 
-        return services;
+            return services;
+        }
     }
 }

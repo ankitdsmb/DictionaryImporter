@@ -1,18 +1,19 @@
-﻿namespace DictionaryImporter.Core.PreProcessing;
-
-internal static class CanonicalEligibility
+﻿namespace DictionaryImporter.Core.PreProcessing
 {
-    public static bool IsEligible(string normalized)
+    internal static class CanonicalEligibility
     {
-        if (string.IsNullOrWhiteSpace(normalized))
-            return false;
+        public static bool IsEligible(string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(normalized))
+                return false;
 
-        if (normalized.Contains(' '))
-            return false;
+            if (normalized.Contains(' '))
+                return false;
 
-        if (normalized.Contains('\''))
-            return false;
+            if (normalized.Contains('\''))
+                return false;
 
-        return true;
+            return true;
+        }
     }
 }

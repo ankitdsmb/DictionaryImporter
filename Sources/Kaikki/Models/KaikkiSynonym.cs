@@ -1,13 +1,14 @@
-﻿namespace DictionaryImporter.Sources.Kaikki.Models;
-
-public sealed class KaikkiSynonym
+﻿namespace DictionaryImporter.Sources.Kaikki.Models
 {
-    [JsonProperty("word")]
-    public string Word { get; set; } = null!;
+    public sealed class KaikkiSynonym
+    {
+        [JsonProperty("word")]
+        public string Word { get; set; } = null!;
 
-    [JsonProperty("sense")]
-    public string? Sense { get; set; }
+        [JsonProperty("sense")]
+        public string? Sense { get; set; }
 
-    [JsonProperty("alt")]
-    public string? Alternative { get; set; }
+        [JsonProperty("alt")]
+        public string? Alternative { get; set; }
+    }
 }

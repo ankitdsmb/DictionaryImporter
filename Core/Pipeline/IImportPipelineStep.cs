@@ -1,8 +1,9 @@
-﻿namespace DictionaryImporter.Core.Pipeline;
-
-public interface IImportPipelineStep
+﻿namespace DictionaryImporter.Core.Pipeline
 {
-    string Name { get; }
+    public interface IImportPipelineStep
+    {
+        string Name { get; }
 
-    Task ExecuteAsync(ImportPipelineContext context);
+        Task ExecuteAsync(ImportPipelineContext context);
+    }
 }

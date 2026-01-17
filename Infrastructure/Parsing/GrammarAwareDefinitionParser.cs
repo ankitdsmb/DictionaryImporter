@@ -1,4 +1,6 @@
-﻿using DictionaryImporter.AITextKit.Grammar.Feature;
+﻿using DictionaryImporter.Gateway.Grammar.Feature;
+
+namespace DictionaryImporter.Infrastructure.Parsing;
 
 public sealed class GrammarAwareDefinitionParser(
     IGrammarFeature grammar,

@@ -1,35 +1,36 @@
-﻿namespace DictionaryImporter.Sources.StructuredJson;
-
-public sealed class StructuredJsonExtractor
-    : IDataExtractor<StructuredJsonRawEntry>
+﻿namespace DictionaryImporter.Sources.StructuredJson
 {
-    public async IAsyncEnumerable<StructuredJsonRawEntry> ExtractAsync(
-        Stream stream,
-        [EnumeratorCancellation] CancellationToken ct)
+    public sealed class StructuredJsonExtractor
+        : IDataExtractor<StructuredJsonRawEntry>
     {
-        var data =
-            await JsonSerializer.DeserializeAsync<
-                Dictionary<string, StructuredJsonEntry>>(
-                stream,
-                cancellationToken: ct)
-            ?? throw new InvalidOperationException(
-                "Failed to deserialize structured JSON dictionary");
-
-        foreach (var kvp in data)
+        public async IAsyncEnumerable<StructuredJsonRawEntry> ExtractAsync(
+            Stream stream,
+            [EnumeratorCancellation] CancellationToken ct)
         {
-            ct.ThrowIfCancellationRequested();
+            var data =
+                await JsonSerializer.DeserializeAsync<
+                    Dictionary<string, StructuredJsonEntry>>(
+                    stream,
+                    cancellationToken: ct)
+                ?? throw new InvalidOperationException(
+                    "Failed to deserialize structured JSON dictionary");
 
-            var entry = kvp.Value;
+            foreach (var kvp in data)
+            {
+                ct.ThrowIfCancellationRequested();
 
-            foreach (var def in entry.Definitions)
-                yield return new StructuredJsonRawEntry
-                {
-                    Word = entry.OriginalCasedWord,
-                    NormalizedWord = entry.TransliteratedWord,
-                    Definition = def.Definition,
-                    PartOfSpeech = def.PartOfSpeech,
-                    SenseNumber = def.Sequence
-                };
+                var entry = kvp.Value;
+
+                foreach (var def in entry.Definitions)
+                    yield return new StructuredJsonRawEntry
+                    {
+                        Word = entry.OriginalCasedWord,
+                        NormalizedWord = entry.TransliteratedWord,
+                        Definition = def.Definition,
+                        PartOfSpeech = def.PartOfSpeech,
+                        SenseNumber = def.Sequence
+                    };
+            }
         }
     }
 }

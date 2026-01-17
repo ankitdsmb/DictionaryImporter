@@ -1,37 +1,38 @@
-﻿namespace DictionaryImporter.Sources.StructuredJson;
-
-public sealed class StructuredJsonSourceModule
-    : IDictionarySourceModule
+﻿namespace DictionaryImporter.Sources.StructuredJson
 {
-    public string SourceCode => "STRUCT_JSON";
-
-    public void RegisterServices(
-        IServiceCollection services,
-        IConfiguration config)
+    public sealed class StructuredJsonSourceModule
+        : IDictionarySourceModule
     {
-        services.AddSingleton<
-            IDataExtractor<StructuredJsonRawEntry>,
-            StructuredJsonExtractor>();
+        public string SourceCode => "STRUCT_JSON";
 
-        services.AddSingleton<
-            IDataTransformer<StructuredJsonRawEntry>,
-            StructuredJsonTransformer>();
-    }
-
-    public ImportSourceDefinition BuildSource(
-        IConfiguration config)
-    {
-        var filePath =
-            config["Sources:StructuredJson:FilePath"]
-            ?? throw new InvalidOperationException(
-                "StructuredJson file path not configured");
-
-        return new ImportSourceDefinition
+        public void RegisterServices(
+            IServiceCollection services,
+            IConfiguration config)
         {
-            SourceCode = SourceCode,
-            SourceName = "Structured English Dictionary (JSON)",
-            OpenStream = () => File.OpenRead(filePath),
-            GraphRebuildMode = GraphRebuildMode.Rebuild
-        };
+            services.AddSingleton<
+                IDataExtractor<StructuredJsonRawEntry>,
+                StructuredJsonExtractor>();
+
+            services.AddSingleton<
+                IDataTransformer<StructuredJsonRawEntry>,
+                StructuredJsonTransformer>();
+        }
+
+        public ImportSourceDefinition BuildSource(
+            IConfiguration config)
+        {
+            var filePath =
+                config["Sources:StructuredJson:FilePath"]
+                ?? throw new InvalidOperationException(
+                    "StructuredJson file path not configured");
+
+            return new ImportSourceDefinition
+            {
+                SourceCode = SourceCode,
+                SourceName = "Structured English Dictionary (JSON)",
+                OpenStream = () => File.OpenRead(filePath),
+                GraphRebuildMode = GraphRebuildMode.Rebuild
+            };
+        }
     }
 }

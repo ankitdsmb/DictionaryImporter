@@ -1,41 +1,42 @@
-﻿namespace DictionaryImporter.Sources.Oxford;
-
-public sealed class OxfordSourceModule : IDictionarySourceModule
+﻿namespace DictionaryImporter.Sources.Oxford
 {
-    public string SourceCode => "ENG_OXFORD";
-
-    public void RegisterServices(
-        IServiceCollection services,
-        IConfiguration configuration)
+    public sealed class OxfordSourceModule : IDictionarySourceModule
     {
-        services.AddSingleton<
-            IDataExtractor<OxfordRawEntry>,
-            OxfordExtractor>();
+        public string SourceCode => "ENG_OXFORD";
 
-        services.AddSingleton<
-            IDataTransformer<OxfordRawEntry>,
-            OxfordTransformer>();
-
-        services.AddSingleton<
-            IDictionaryDefinitionParser,
-            OxfordDefinitionParser>();
-
-        services.AddSingleton<
-            IDictionaryEntryValidator,
-            OxfordEntryValidator>();
-    }
-
-    public ImportSourceDefinition BuildSource(IConfiguration config)
-    {
-        var filePath = config["Sources:Oxford:FilePath"]
-                       ?? throw new InvalidOperationException("Oxford file path not configured");
-
-        return new ImportSourceDefinition
+        public void RegisterServices(
+            IServiceCollection services,
+            IConfiguration configuration)
         {
-            SourceCode = SourceCode,
-            SourceName = "Oxford English-Chinese Dictionary",
-            OpenStream = () => File.OpenRead(filePath),
-            GraphRebuildMode = GraphRebuildMode.Rebuild
-        };
+            services.AddSingleton<
+                IDataExtractor<OxfordRawEntry>,
+                OxfordExtractor>();
+
+            services.AddSingleton<
+                IDataTransformer<OxfordRawEntry>,
+                OxfordTransformer>();
+
+            services.AddSingleton<
+                IDictionaryDefinitionParser,
+                OxfordDefinitionParser>();
+
+            services.AddSingleton<
+                IDictionaryEntryValidator,
+                OxfordEntryValidator>();
+        }
+
+        public ImportSourceDefinition BuildSource(IConfiguration config)
+        {
+            var filePath = config["Sources:Oxford:FilePath"]
+                           ?? throw new InvalidOperationException("Oxford file path not configured");
+
+            return new ImportSourceDefinition
+            {
+                SourceCode = SourceCode,
+                SourceName = "Oxford English-Chinese Dictionary",
+                OpenStream = () => File.OpenRead(filePath),
+                GraphRebuildMode = GraphRebuildMode.Rebuild
+            };
+        }
     }
 }

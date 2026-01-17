@@ -1,6 +1,7 @@
-﻿namespace DictionaryImporter.Core.Graph;
-
-public interface IGraphBuilder
+﻿namespace DictionaryImporter.Core.Graph
 {
-    Task BuildAsync(string sourceCode, CancellationToken ct);
+    public interface IGraphBuilder
+    {
+        Task BuildAsync(string sourceCode, CancellationToken ct);
+    }
 }
