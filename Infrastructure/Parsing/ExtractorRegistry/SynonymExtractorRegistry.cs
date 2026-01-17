@@ -1,4 +1,7 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
+﻿using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
+
+namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
 
 public sealed class SynonymExtractorRegistry : ISynonymExtractorRegistry
 {
@@ -24,13 +27,18 @@ public sealed class SynonymExtractorRegistry : ISynonymExtractorRegistry
     {
         if (_extractors.TryGetValue(sourceCode, out var extractor))
         {
-            _logger.LogDebug("Using synonym extractor for source {Source}: {ExtractorType}",
-                sourceCode, extractor.GetType().Name);
+            _logger.LogDebug(
+                "Using synonym extractor for source {Source}: {ExtractorType}",
+                sourceCode,
+                extractor.GetType().Name);
+
             return extractor;
         }
 
-        _logger.LogDebug("No specific synonym extractor for source {Source}, using generic",
+        _logger.LogDebug(
+            "No specific synonym extractor for source {Source}, using generic",
             sourceCode);
+
         return _genericExtractor;
     }
 
@@ -43,11 +51,19 @@ public sealed class SynonymExtractorRegistry : ISynonymExtractorRegistry
         }
 
         if (_extractors.TryAdd(extractor.SourceCode, extractor))
-            _logger.LogInformation("Registered synonym extractor for source {Source} ({Type})",
-                extractor.SourceCode, extractor.GetType().Name);
-        else
-            _logger.LogWarning("Synonym extractor for source {Source} already registered",
-                extractor.SourceCode);
+        {
+            _logger.LogInformation(
+                "Registered synonym extractor for source {Source} ({Type})",
+                extractor.SourceCode,
+                extractor.GetType().Name);
+            return;
+        }
+
+        // Duplicate registration is not harmful
+        _logger.LogDebug(
+            "Synonym extractor for source {Source} already registered ({Type})",
+            extractor.SourceCode,
+            extractor.GetType().Name);
     }
 
     public IReadOnlyDictionary<string, ISynonymExtractor> GetAllExtractors()

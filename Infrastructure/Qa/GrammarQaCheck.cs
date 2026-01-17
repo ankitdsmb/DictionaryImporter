@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Infrastructure.Qa;
+﻿using DictionaryImporter.AITextKit.Grammar.Core;
+
+namespace DictionaryImporter.Infrastructure.Qa;
 
 public sealed class GrammarQaCheck(string connectionString, IGrammarCorrector grammarCorrector, ILogger<GrammarQaCheck> logger) : IQaCheck
 {

@@ -5,13 +5,21 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+	  <PlatformTarget>x64</PlatformTarget>
+  
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="AITextKit\AI\Orchestration\Middleware\**" />
+    <Compile Remove="AITextKit\AI\Orchestration\Strategies\**" />
     <Compile Remove="Infrastructure\Concept\**" />
     <Compile Remove="Infrastructure\PostProcessing\Ranking\**" />
+    <EmbeddedResource Remove="AITextKit\AI\Orchestration\Middleware\**" />
+    <EmbeddedResource Remove="AITextKit\AI\Orchestration\Strategies\**" />
     <EmbeddedResource Remove="Infrastructure\Concept\**" />
     <EmbeddedResource Remove="Infrastructure\PostProcessing\Ranking\**" />
+    <None Remove="AITextKit\AI\Orchestration\Middleware\**" />
+    <None Remove="AITextKit\AI\Orchestration\Strategies\**" />
     <None Remove="Infrastructure\Concept\**" />
     <None Remove="Infrastructure\PostProcessing\Ranking\**" />
   </ItemGroup>
@@ -26,15 +34,23 @@
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="6.0.0" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="6.0.0" />
+    <PackageReference Include="NTextCat" Version="0.3.65" />
     <PackageReference Include="Polly" Version="7.2.3" />
     <PackageReference Include="Microsoft.ML" Version="5.0.0" />
     <PackageReference Include="NHunspell" Version="1.2.5554.16953" />
+    <PackageReference Include="Scrutor" Version="7.0.0" />
     <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="AITextKit\Grammar\Configuration\Dictionaries\en.aff">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="AITextKit\Grammar\Configuration\Dictionaries\en.dic">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="appsettings.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
@@ -77,19 +93,13 @@
     <None Update="AITextKit\Grammar\Configuration\grammar-rules.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="AITextKit\Grammar\Configuration\LanguageProfiles.xml">
+    <None Update="AITextKit\Grammar\Configuration\Core14.profile.xml">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="AITextKit\AI\Core\Abstractions\" />
-    <Folder Include="AITextKit\AI\Infrastructure\Http\" />
-    <Folder Include="AITextKit\AI\Infrastructure\Caching\" />
-    <Folder Include="AITextKit\AI\Infrastructure\Serialization\" />
-    <Folder Include="AITextKit\AI\Orchestration\Middleware\" />
     <Folder Include="AITextKit\AI\Orchestration\Providers\Refactored\" />
-    <Folder Include="AITextKit\AI\Orchestration\Strategies\" />
     <Folder Include="AITextKit\AI\Orchestration\Providers\Implementations\" />
     <Folder Include="AITextKit\AI\Orchestration\Providers\Templates\" />
   </ItemGroup>

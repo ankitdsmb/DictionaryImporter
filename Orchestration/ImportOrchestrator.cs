@@ -20,7 +20,6 @@ public sealed class ImportOrchestrator(
     CanonicalWordSyllableEnricher syllableEnricher,
     IpaVerificationReporter ipaVerificationReporter,
     IReadOnlyList<IpaSourceConfig> ipaSources,
-    GrammarCorrectionStep grammarCorrectionStep,
     AiEnhancementStep aiEnhancementStep,
     ImportPipelineRunner pipelineRunner,
     ImportPipelineOrderResolver pipelineOrderResolver,
