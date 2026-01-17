@@ -124,17 +124,34 @@ public sealed class GrammarFeature : IGrammarFeature, IGrammarCorrector
                 }
 
                 var result = await _corrector.AutoCorrectAsync(r.Definition, languageCode, ct);
-                var finalText = string.IsNullOrWhiteSpace(result.CorrectedText) ? r.Definition : result.CorrectedText;
+
+                var finalText = string.IsNullOrWhiteSpace(result.CorrectedText)
+                    ? r.Definition
+                    : result.CorrectedText;
+
+                var confidence = ComputeConfidenceScore(result);
+                var engines = ComputeEnginesApplied(result);
+                var correctionsJson = BuildCorrectionsJson(result);
 
                 await conn.ExecuteAsync(
                     """
                     UPDATE dbo.DictionaryEntryParsed
                     SET Definition = @Definition,
                         GrammarCorrected = 1,
-                        GrammarCorrectionDate = SYSUTCDATETIME()
+                        GrammarCorrectionDate = SYSUTCDATETIME(),
+                        GrammarConfidenceScore = @ConfidenceScore,
+                        GrammarEnginesApplied = @EnginesApplied,
+                        GrammarAppliedCorrectionsJson = @CorrectionsJson
                     WHERE DictionaryEntryParsedId = @Id
                     """,
-                    new { Id = r.DictionaryEntryParsedId, Definition = finalText },
+                    new
+                    {
+                        Id = r.DictionaryEntryParsedId,
+                        Definition = finalText,
+                        ConfidenceScore = confidence,
+                        EnginesApplied = engines,
+                        CorrectionsJson = correctionsJson
+                    },
                     commandTimeout: DbTimeoutSeconds);
 
                 updated++;
@@ -203,17 +220,34 @@ public sealed class GrammarFeature : IGrammarFeature, IGrammarCorrector
                 }
 
                 var result = await _corrector.AutoCorrectAsync(r.ExampleText, languageCode, ct);
-                var finalText = string.IsNullOrWhiteSpace(result.CorrectedText) ? r.ExampleText : result.CorrectedText;
+
+                var finalText = string.IsNullOrWhiteSpace(result.CorrectedText)
+                    ? r.ExampleText
+                    : result.CorrectedText;
+
+                var confidence = ComputeConfidenceScore(result);
+                var engines = ComputeEnginesApplied(result);
+                var correctionsJson = BuildCorrectionsJson(result);
 
                 await conn.ExecuteAsync(
                     """
                     UPDATE dbo.DictionaryEntryExample
-                    SET ExampleText = @ExampleText,
+                    SET ExampleText = @Example,
                         GrammarCorrected = 1,
-                        GrammarCorrectionDate = SYSUTCDATETIME()
+                        GrammarCorrectionDate = SYSUTCDATETIME(),
+                        GrammarConfidenceScore = @ConfidenceScore,
+                        GrammarEnginesApplied = @EnginesApplied,
+                        GrammarAppliedCorrectionsJson = @CorrectionsJson
                     WHERE DictionaryEntryExampleId = @Id
                     """,
-                    new { Id = r.DictionaryEntryExampleId, ExampleText = finalText },
+                    new
+                    {
+                        Id = r.DictionaryEntryExampleId,
+                        Example = finalText,
+                        ConfidenceScore = confidence,
+                        EnginesApplied = engines,
+                        CorrectionsJson = correctionsJson
+                    },
                     commandTimeout: DbTimeoutSeconds);
 
                 updated++;
@@ -252,4 +286,41 @@ public sealed class GrammarFeature : IGrammarFeature, IGrammarCorrector
     private sealed record DefinitionRecord(long DictionaryEntryParsedId, string Definition, string Word);
 
     private sealed record ExampleRecord(long DictionaryEntryExampleId, string ExampleText, string Word);
+
+    private static int ComputeConfidenceScore(GrammarCorrectionResult result)
+    {
+        if (result.AppliedCorrections is null || result.AppliedCorrections.Count == 0)
+            return 100;
+
+        var avg = result.AppliedCorrections.Average(x => x.Confidence);
+        return (int)Math.Clamp(Math.Round(avg), 0, 100);
+    }
+
+    private static string ComputeEnginesApplied(GrammarCorrectionResult result)
+    {
+        if (result.AppliedCorrections is null || result.AppliedCorrections.Count == 0)
+            return string.Empty;
+
+        var engines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var c in result.AppliedCorrections)
+        {
+            if (c.RuleId.StartsWith("REGEX_", StringComparison.OrdinalIgnoreCase))
+                engines.Add("CustomRuleEngine");
+            else if (c.RuleId.StartsWith("HUNSPELL_", StringComparison.OrdinalIgnoreCase))
+                engines.Add("Hunspell");
+            else
+                engines.Add("LanguageTool");
+        }
+
+        return string.Join(", ", engines.OrderBy(x => x));
+    }
+
+    private static string BuildCorrectionsJson(GrammarCorrectionResult result)
+    {
+        if (result.AppliedCorrections is null || result.AppliedCorrections.Count == 0)
+            return "[]";
+
+        return System.Text.Json.JsonSerializer.Serialize(result.AppliedCorrections);
+    }
 }

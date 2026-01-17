@@ -14,6 +14,12 @@ internal static class GrammarRegistrationExtensions
         IConfiguration configuration)
     {
         var enabled = configuration.GetValue("Grammar:Enabled", false);
+        if (!enabled)
+        {
+            services.AddSingleton<IGrammarFeature, NoOpGrammarFeature>();
+            services.AddSingleton<IGrammarCorrector, NoOpGrammarCorrector>();
+            return services;
+        }
 
         var connectionString =
             configuration.GetConnectionString("DictionaryImporter")
