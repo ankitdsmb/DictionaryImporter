@@ -23,6 +23,7 @@ public static class BootstrapInfrastructure
             .AddIpa(connectionString)
             .AddParsing(connectionString)
             .AddGrammar(configuration)
+            .AddDistributedMemoryCache()
             .AddAiOrchestration(configuration);
     }
 }

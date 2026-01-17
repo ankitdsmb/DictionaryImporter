@@ -18,15 +18,15 @@ namespace DictionaryImporter.AITextKit.AI.Extensions
                 throw new ArgumentNullException(nameof(configuration));
 
             var aiConfig = LoadConfiguration(configuration, configure);
+
+            // Keep singleton config instance (used by CompleteProviderFactory + infra)
             services.AddSingleton(aiConfig);
 
             services.TryAddSingleton<IProviderFactory, CompleteProviderFactory>();
             services.TryAddSingleton<ICompletionOrchestrator, IntelligentOrchestrator>();
 
             RegisterHttpClients(services, aiConfig);
-
             RegisterAllProviders(services);
-
             RegisterInfrastructure(services, aiConfig);
 
             return services;
@@ -37,8 +37,14 @@ namespace DictionaryImporter.AITextKit.AI.Extensions
             Action<AiOrchestrationConfiguration> configure)
         {
             var aiConfig = new AiOrchestrationConfiguration();
+
+            // ✅ Bind Orchestration section values into aiConfig
             configuration.GetSection("AI:Orchestration").Bind(aiConfig);
 
+            // ✅ Ensure Providers dictionary exists
+            aiConfig.Providers ??= new Dictionary<string, ProviderConfiguration>(StringComparer.OrdinalIgnoreCase);
+
+            // ✅ Bind Providers properly from "AI:Providers"
             var providersSection = configuration.GetSection("AI:Providers");
             if (providersSection.Exists())
             {
@@ -46,22 +52,21 @@ namespace DictionaryImporter.AITextKit.AI.Extensions
                 {
                     var providerConfig = new ProviderConfiguration();
                     providerSection.Bind(providerConfig);
+
                     providerConfig.Name = providerSection.Key;
 
-                    if (providerConfig.Capabilities == null)
+                    providerConfig.Capabilities ??= new ProviderCapabilitiesConfiguration
                     {
-                        providerConfig.Capabilities = new ProviderCapabilitiesConfiguration
-                        {
-                            TextCompletion = true,
-                            SupportedLanguages = new List<string> { "en" },
-                            MaxTokensLimit = 4000
-                        };
-                    }
+                        TextCompletion = true,
+                        SupportedLanguages = new List<string> { "en" },
+                        MaxTokensLimit = 4000
+                    };
 
                     aiConfig.Providers[providerSection.Key] = providerConfig;
                 }
             }
 
+            // ✅ FallbackOrder default
             if (aiConfig.FallbackOrder == null || !aiConfig.FallbackOrder.Any())
             {
                 aiConfig.FallbackOrder = new List<string>
@@ -98,6 +103,7 @@ namespace DictionaryImporter.AITextKit.AI.Extensions
         {
             foreach (var providerConfig in aiConfig.Providers.Values.Where(p => p.IsEnabled))
             {
+                // Named HttpClient (generic)
                 services.AddHttpClient(providerConfig.Name, client =>
                 {
                     var timeoutSeconds = providerConfig.TimeoutSeconds > 0
@@ -112,25 +118,22 @@ namespace DictionaryImporter.AITextKit.AI.Extensions
 
                     if (!string.IsNullOrEmpty(providerConfig.BaseUrl))
                     {
+                        // NOTE: Your BaseUrl values are full endpoints in JSON.
+                        // Providers should handle absolute URIs properly.
                         try
                         {
                             client.BaseAddress = new Uri(providerConfig.BaseUrl);
                         }
-                        catch (UriFormatException ex)
+                        catch (UriFormatException)
                         {
+                            // ignore invalid uri
                         }
                     }
                 })
-                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
-                {
-                    AutomaticDecompression = System.Net.DecompressionMethods.GZip |
-                                           System.Net.DecompressionMethods.Deflate,
-                    UseCookies = false,
-                    AllowAutoRedirect = false,
-                    ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
-                })
+                .ConfigurePrimaryHttpMessageHandler(CreateDefaultHandler)
                 .SetHandlerLifetime(TimeSpan.FromMinutes(5));
 
+                // Typed HttpClients for specific providers
                 switch (providerConfig.Name)
                 {
                     case "OpenRouter":
@@ -167,6 +170,8 @@ namespace DictionaryImporter.AITextKit.AI.Extensions
         {
             var timeoutSeconds = config.TimeoutSeconds > 0 ? config.TimeoutSeconds + 5 : 35;
             client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+
+            client.DefaultRequestHeaders.Clear();
             client.DefaultRequestHeaders.Add("User-Agent", "DictionaryImporter/2.0");
             client.DefaultRequestHeaders.Add("Accept", "application/json");
 
@@ -176,7 +181,9 @@ namespace DictionaryImporter.AITextKit.AI.Extensions
                 {
                     client.BaseAddress = new Uri(config.BaseUrl);
                 }
-                catch (UriFormatException) { }
+                catch (UriFormatException)
+                {
+                }
             }
         }
 
@@ -184,6 +191,8 @@ namespace DictionaryImporter.AITextKit.AI.Extensions
         {
             var timeoutSeconds = config.TimeoutSeconds > 0 ? config.TimeoutSeconds + 5 : 35;
             client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+
+            client.DefaultRequestHeaders.Clear();
             client.DefaultRequestHeaders.Add("User-Agent", "DictionaryImporter/2.0");
             client.DefaultRequestHeaders.Add("Accept", "application/json");
             client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
@@ -194,7 +203,9 @@ namespace DictionaryImporter.AITextKit.AI.Extensions
                 {
                     client.BaseAddress = new Uri(config.BaseUrl);
                 }
-                catch (UriFormatException) { }
+                catch (UriFormatException)
+                {
+                }
             }
         }
 
@@ -202,6 +213,8 @@ namespace DictionaryImporter.AITextKit.AI.Extensions
         {
             var timeoutSeconds = config.TimeoutSeconds > 0 ? config.TimeoutSeconds + 5 : 35;
             client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+
+            client.DefaultRequestHeaders.Clear();
             client.DefaultRequestHeaders.Add("User-Agent", "DictionaryImporter/2.0");
             client.DefaultRequestHeaders.Add("Accept", "application/json");
 
@@ -211,7 +224,9 @@ namespace DictionaryImporter.AITextKit.AI.Extensions
                 {
                     client.BaseAddress = new Uri(config.BaseUrl);
                 }
-                catch (UriFormatException) { }
+                catch (UriFormatException)
+                {
+                }
             }
         }
 
@@ -220,10 +235,12 @@ namespace DictionaryImporter.AITextKit.AI.Extensions
             return new HttpClientHandler
             {
                 AutomaticDecompression = System.Net.DecompressionMethods.GZip |
-                                       System.Net.DecompressionMethods.Deflate,
+                                         System.Net.DecompressionMethods.Deflate,
                 UseCookies = false,
                 AllowAutoRedirect = false,
                 MaxConnectionsPerServer = 50,
+
+                // ✅ SAFE SSL validation (do not use "=> true")
                 ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
                     errors == System.Net.Security.SslPolicyErrors.None
             };
@@ -297,7 +314,6 @@ namespace DictionaryImporter.AITextKit.AI.Extensions
             }
 
             services.TryAddSingleton<ConfigurationValidator>();
-
             services.TryAddSingleton<IApiKeyManager, ConfigurationApiKeyManager>();
         }
 

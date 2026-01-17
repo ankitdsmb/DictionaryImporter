@@ -8,13 +8,16 @@
 
         private readonly Dictionary<string, Type> _providerTypes;
 
+        private readonly Dictionary<string, ICompletionProvider> _providerCache =
+            new(StringComparer.OrdinalIgnoreCase);
+
         public CompleteProviderFactory(
             IServiceProvider serviceProvider,
-            IOptions<AiOrchestrationConfiguration> config,
+            AiOrchestrationConfiguration config,
             ILogger<CompleteProviderFactory> logger)
         {
             _serviceProvider = serviceProvider;
-            _config = config.Value;
+            _config = config;
             _logger = logger;
 
             _providerTypes = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
@@ -45,8 +48,11 @@
 
         public ICompletionProvider CreateProvider(string providerName)
         {
-            if (string.IsNullOrEmpty(providerName))
+            if (string.IsNullOrWhiteSpace(providerName))
                 throw new ArgumentException("Provider name cannot be null or empty", nameof(providerName));
+
+            if (_providerCache.TryGetValue(providerName, out var cached))
+                return cached;
 
             if (!_providerTypes.TryGetValue(providerName, out var providerType))
                 throw new ArgumentException($"Unknown provider: {providerName}", nameof(providerName));
@@ -58,6 +64,7 @@
                     Name = providerName,
                     IsEnabled = false
                 };
+
                 _logger.LogWarning("Using default configuration for provider: {Provider}", providerName);
             }
 
@@ -70,6 +77,8 @@
                     ?? throw new InvalidOperationException($"Failed to create instance of {providerType.Name}");
 
                 _logger.LogDebug("Created provider: {Provider}", providerName);
+
+                _providerCache[providerName] = provider;
                 return provider;
             }
             catch (Exception ex)
@@ -88,10 +97,8 @@
                 try
                 {
                     var provider = CreateProvider(providerName);
-                    if (provider != null && provider.IsEnabled)
-                    {
+                    if (provider.IsEnabled)
                         providers.Add(provider);
-                    }
                 }
                 catch (Exception ex)
                 {
@@ -104,8 +111,20 @@
 
         public IEnumerable<ICompletionProvider> GetProvidersForType(RequestType requestType)
         {
+            var testRequest = new AiRequest
+            {
+                Type = requestType,
+                Prompt = "factory-check",
+                MaxTokens = 1,
+                Context = new RequestContext
+                {
+                    RequestId = "factory-check",
+                    UserId = "system"
+                }
+            };
+
             return GetAllProviders()
-                .Where(p => p.CanHandleRequest(new AiRequest { Type = requestType }))
+                .Where(p => p.CanHandleRequest(testRequest))
                 .OrderBy(p => p.Priority);
         }
 
@@ -116,7 +135,7 @@
 
             foreach (var providerName in _providerTypes.Keys)
             {
-                if (!_config.Providers.TryGetValue(providerName, out var config) || !config.IsEnabled)
+                if (!_config.Providers.TryGetValue(providerName, out var providerConfig) || !providerConfig.IsEnabled)
                 {
                     _logger.LogDebug("Provider {Provider} is disabled", providerName);
                     continue;
@@ -125,32 +144,30 @@
                 try
                 {
                     var provider = CreateProvider(providerName);
-                    if (provider != null)
-                    {
-                        var testRequest = new AiRequest
-                        {
-                            Prompt = "Test",
-                            MaxTokens = 5,
-                            Type = RequestType.TextCompletion,
-                            Context = new RequestContext
-                            {
-                                RequestId = $"test-{Guid.NewGuid()}",
-                                UserId = "system"
-                            }
-                        };
 
-                        var response = await provider.GetCompletionAsync(testRequest, cancellationToken);
-                        if (response.IsSuccess)
+                    var testRequest = new AiRequest
+                    {
+                        Prompt = "Test",
+                        MaxTokens = 5,
+                        Type = RequestType.TextCompletion,
+                        Context = new RequestContext
                         {
-                            validProviders.Add(providerName);
-                            _logger.LogDebug("Provider {Provider} configuration valid", providerName);
+                            RequestId = $"test-{Guid.NewGuid()}",
+                            UserId = "system"
                         }
-                        else
-                        {
-                            invalidProviders.Add(providerName);
-                            _logger.LogWarning("Provider {Provider} configuration invalid: {Error}",
-                                providerName, response.ErrorMessage);
-                        }
+                    };
+
+                    var response = await provider.GetCompletionAsync(testRequest, cancellationToken);
+                    if (response.IsSuccess)
+                    {
+                        validProviders.Add(providerName);
+                        _logger.LogDebug("Provider {Provider} configuration valid", providerName);
+                    }
+                    else
+                    {
+                        invalidProviders.Add(providerName);
+                        _logger.LogWarning("Provider {Provider} configuration invalid: {Error}",
+                            providerName, response.ErrorMessage);
                     }
                 }
                 catch (Exception ex)

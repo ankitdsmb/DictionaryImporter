@@ -1,195 +1,125 @@
-﻿using System.Security.Cryptography;
+﻿using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using DictionaryImporter.AITextKit.AI.Configuration;
+using Microsoft.Extensions.Logging;
 
-namespace DictionaryImporter.AITextKit.AI.Infrastructure.Implementations;
-
-public class ConfigurationApiKeyManager : IApiKeyManager
+namespace DictionaryImporter.AITextKit.AI.Infrastructure.Implementations
 {
-    private readonly AiOrchestrationConfiguration _config;
-    private readonly ILogger<ConfigurationApiKeyManager> _logger;
-    private readonly Dictionary<string, string> _apiKeys = new();
-    private readonly Dictionary<string, List<ApiKeyHistory>> _keyHistory = new();
-
-    public ConfigurationApiKeyManager(
-        IOptions<AiOrchestrationConfiguration> config,
-        ILogger<ConfigurationApiKeyManager> logger)
+    public sealed class ConfigurationApiKeyManager : IApiKeyManager
     {
-        _config = config.Value;
-        _logger = logger;
+        private readonly AiOrchestrationConfiguration _config;
+        private readonly ILogger<ConfigurationApiKeyManager> _logger;
 
-        InitializeApiKeys();
-    }
+        private readonly ConcurrentDictionary<string, string> _keys =
+            new(StringComparer.OrdinalIgnoreCase);
 
-    private void InitializeApiKeys()
-    {
-        foreach (var providerConfig in _config.Providers.Values)
+        public ConfigurationApiKeyManager(
+            AiOrchestrationConfiguration config,
+            ILogger<ConfigurationApiKeyManager> logger)
         {
-            if (!string.IsNullOrEmpty(providerConfig.ApiKey))
-            {
-                _apiKeys[providerConfig.Name] = providerConfig.ApiKey;
+            _config = config ?? throw new ArgumentNullException(nameof(config));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-                var history = new ApiKeyHistory
-                {
-                    ProviderName = providerConfig.Name,
-                    KeyIdentifier = GenerateKeyIdentifier(providerConfig.ApiKey),
-                    KeyType = "Primary",
-                    KeyHash = HashApiKey(providerConfig.ApiKey),
-                    KeyLastFour = GetLastFour(providerConfig.ApiKey),
-                    CreatedAt = DateTime.UtcNow,
-                    ActivatedAt = DateTime.UtcNow,
-                    IsActive = true
-                };
-
-                if (!_keyHistory.ContainsKey(providerConfig.Name))
-                {
-                    _keyHistory[providerConfig.Name] = new List<ApiKeyHistory>();
-                }
-
-                _keyHistory[providerConfig.Name].Add(history);
-            }
+            InitializeKeysFromConfig();
         }
 
-        _logger.LogInformation("Initialized API keys for {Count} providers", _apiKeys.Count);
-    }
-
-    public Task<string> GetCurrentApiKeyAsync(string providerName)
-    {
-        if (_apiKeys.TryGetValue(providerName, out var apiKey))
+        private void InitializeKeysFromConfig()
         {
-            return Task.FromResult(apiKey);
-        }
+            _keys.Clear();
 
-        throw new InvalidOperationException($"No API key configured for provider: {providerName}");
-    }
-
-    public Task<string> GetApiKeyAsync(string providerName, bool useBackup = false)
-    {
-        return GetCurrentApiKeyAsync(providerName);
-    }
-
-    public async Task RotateApiKeyAsync(string providerName)
-    {
-        try
-        {
-            _logger.LogInformation("Rotating API key for provider: {Provider}", providerName);
-
-            var currentKey = await GetCurrentApiKeyAsync(providerName);
-
-            if (_keyHistory.TryGetValue(providerName, out var history))
+            if (_config.Providers == null || _config.Providers.Count == 0)
             {
-                var currentEntry = history.FirstOrDefault(h => h.IsActive);
-                if (currentEntry != null)
-                {
-                    currentEntry.DeactivatedAt = DateTime.UtcNow;
-                    currentEntry.DeactivationReason = "Rotated";
-                    currentEntry.IsActive = false;
-                }
+                _logger.LogWarning("AI provider configurations not loaded. Providers count = 0");
+                _logger.LogInformation("Initialized API keys for 0 providers");
+                return;
             }
 
-            var newKey = GenerateSecureApiKey();
-
-            _apiKeys[providerName] = newKey;
-
-            var newHistory = new ApiKeyHistory
+            foreach (var kvp in _config.Providers)
             {
-                ProviderName = providerName,
-                KeyIdentifier = GenerateKeyIdentifier(newKey),
-                KeyType = "Primary",
-                KeyHash = HashApiKey(newKey),
-                KeyLastFour = GetLastFour(newKey),
-                CreatedAt = DateTime.UtcNow,
-                ActivatedAt = DateTime.UtcNow,
-                IsActive = true
+                var providerName = kvp.Key;
+                var providerConfig = kvp.Value;
+
+                if (providerConfig == null)
+                    continue;
+
+                var apiKey = ResolveApiKey(providerName, providerConfig.ApiKey);
+
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                    _keys[providerName] = apiKey;
+            }
+
+            _logger.LogInformation("Initialized API keys for {Count} providers", _keys.Count);
+        }
+
+        public Task<string> GetCurrentApiKeyAsync(string providerName)
+        {
+            return GetApiKeyAsync(providerName, useFallback: true);
+        }
+
+        public Task<string> GetApiKeyAsync(string providerName, bool useFallback)
+        {
+            if (string.IsNullOrWhiteSpace(providerName))
+                throw new ArgumentException("Provider name cannot be null or empty", nameof(providerName));
+
+            if (_keys.TryGetValue(providerName, out var key) && !string.IsNullOrWhiteSpace(key))
+                return Task.FromResult(key);
+
+            if (useFallback)
+            {
+                var envKey = ResolveApiKey(providerName, configuredKey: null);
+                if (!string.IsNullOrWhiteSpace(envKey))
+                    return Task.FromResult(envKey);
+            }
+
+            throw new InvalidOperationException($"No API key configured for provider: {providerName}");
+        }
+
+        public Task RotateApiKeyAsync(string providerName)
+        {
+            // Config based keys => rotation not supported
+            return Task.CompletedTask;
+        }
+
+        public Task<IEnumerable<ApiKeyInfo>> GetApiKeyHistoryAsync(string providerName)
+        {
+            // Config based keys => no history tracking
+            IEnumerable<ApiKeyInfo> empty = Array.Empty<ApiKeyInfo>();
+            return Task.FromResult(empty);
+        }
+
+        public Task<bool> ValidateApiKeyAsync(string providerName, string apiKey)
+        {
+            if (string.IsNullOrWhiteSpace(providerName))
+                return Task.FromResult(false);
+
+            if (string.IsNullOrWhiteSpace(apiKey))
+                return Task.FromResult(false);
+
+            if (apiKey.StartsWith("${", StringComparison.OrdinalIgnoreCase))
+                return Task.FromResult(false);
+
+            return Task.FromResult(true);
+        }
+
+        private static string ResolveApiKey(string providerName, string configuredKey)
+        {
+            if (!string.IsNullOrWhiteSpace(configuredKey) &&
+                !configuredKey.StartsWith("${", StringComparison.OrdinalIgnoreCase))
+            {
+                return configuredKey.Trim();
+            }
+
+            var envVar = providerName switch
+            {
+                "OpenRouter" => "OPENROUTER_API_KEY",
+                "Gemini" => "GEMINI_API_KEY",
+                "Anthropic" => "ANTHROPIC_API_KEY",
+                _ => providerName.ToUpperInvariant() + "_API_KEY"
             };
 
-            if (!_keyHistory.ContainsKey(providerName))
-            {
-                _keyHistory[providerName] = new List<ApiKeyHistory>();
-            }
-
-            _keyHistory[providerName].Add(newHistory);
-
-            _logger.LogInformation("API key rotated successfully for provider: {Provider}", providerName);
+            return Environment.GetEnvironmentVariable(envVar);
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to rotate API key for provider: {Provider}", providerName);
-            throw;
-        }
-    }
-
-    public Task<IEnumerable<ApiKeyInfo>> GetApiKeyHistoryAsync(string providerName)
-    {
-        if (_keyHistory.TryGetValue(providerName, out var history))
-        {
-            var apiKeyInfos = history.Select(h => new ApiKeyInfo
-            {
-                ProviderName = h.ProviderName,
-                KeyIdentifier = h.KeyIdentifier,
-                KeyType = h.KeyType,
-                CreatedAt = h.CreatedAt,
-                ActivatedAt = h.ActivatedAt,
-                DeactivatedAt = h.DeactivatedAt,
-                DeactivationReason = h.DeactivationReason,
-                IsActive = h.IsActive
-            });
-
-            return Task.FromResult(apiKeyInfos);
-        }
-
-        return Task.FromResult(Enumerable.Empty<ApiKeyInfo>());
-    }
-
-    public Task<bool> ValidateApiKeyAsync(string providerName, string apiKey)
-    {
-        if (_apiKeys.TryGetValue(providerName, out var storedKey))
-        {
-            return Task.FromResult(storedKey == apiKey);
-        }
-
-        return Task.FromResult(false);
-    }
-
-    private string GenerateSecureApiKey()
-    {
-        using var rng = RandomNumberGenerator.Create();
-        var bytes = new byte[32];
-        rng.GetBytes(bytes);
-        return Convert.ToBase64String(bytes);
-    }
-
-    private string GenerateKeyIdentifier(string apiKey)
-    {
-        using var sha256 = SHA256.Create();
-        var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(apiKey));
-        return Convert.ToBase64String(hash, 0, 8).Replace("+", "").Replace("/", "").Replace("=", "");
-    }
-
-    private string HashApiKey(string apiKey)
-    {
-        using var sha256 = SHA256.Create();
-        var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(apiKey));
-        return Convert.ToBase64String(hash);
-    }
-
-    private string GetLastFour(string apiKey)
-    {
-        if (string.IsNullOrEmpty(apiKey) || apiKey.Length < 4)
-            return "****";
-
-        return apiKey.Substring(apiKey.Length - 4);
-    }
-
-    private class ApiKeyHistory
-    {
-        public string ProviderName { get; set; }
-        public string KeyIdentifier { get; set; }
-        public string KeyType { get; set; }
-        public string KeyHash { get; set; }
-        public string KeyLastFour { get; set; }
-        public DateTime CreatedAt { get; set; }
-        public DateTime? ActivatedAt { get; set; }
-        public DateTime? DeactivatedAt { get; set; }
-        public string DeactivationReason { get; set; }
-        public bool IsActive { get; set; }
     }
 }
