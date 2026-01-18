@@ -1,4 +1,11 @@
-﻿using Newtonsoft.Json.Linq;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+using DictionaryImporter.Sources.Kaikki.Models;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace DictionaryImporter.Sources.Kaikki.Parsing
 {
@@ -48,9 +55,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
             }
 
             var synonyms = ExtractSynonyms(parsingData);
-
             var crossRefs = ExtractCrossReferences(parsingData);
-
             var examples = ExtractExamples(sense);
 
             var definition = sense.Glosses != null && sense.Glosses.Count > 0
@@ -299,9 +304,11 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
         private string? ExtractDomain(KaikkiSense sense)
         {
-            if (sense.Categories != null && sense.Categories.Count > 0)
+            // ✅ FIX: Categories is JToken now
+            var categories = sense.Categories.ToStringList();
+            if (categories.Count > 0)
             {
-                foreach (var category in sense.Categories)
+                foreach (var category in categories)
                 {
                     if (!string.IsNullOrWhiteSpace(category))
                     {
@@ -310,6 +317,21 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                         {
                             return cleaned;
                         }
+                    }
+                }
+            }
+
+            // fallback: topics
+            var topics = sense.Topics.ToStringList();
+            if (topics.Count > 0)
+            {
+                var topic = topics.FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(topic))
+                {
+                    var cleaned = CleanGloss(topic);
+                    if (!string.IsNullOrWhiteSpace(cleaned))
+                    {
+                        return cleaned;
                     }
                 }
             }
@@ -350,20 +372,23 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
         private string? ExtractUsageLabel(KaikkiSense sense)
         {
-            if (sense.Tags != null && sense.Tags.Count > 0)
+            var tags = sense.Tags.ToStringList();
+            if (tags.Count == 0)
+                return null;
+
+            foreach (var tag in tags)
             {
-                foreach (var tag in sense.Tags)
+                if (string.IsNullOrWhiteSpace(tag))
+                    continue;
+
+                if (tag.Contains("formal", StringComparison.OrdinalIgnoreCase) ||
+                    tag.Contains("informal", StringComparison.OrdinalIgnoreCase) ||
+                    tag.Contains("slang", StringComparison.OrdinalIgnoreCase) ||
+                    tag.Contains("archaic", StringComparison.OrdinalIgnoreCase) ||
+                    tag.Contains("literary", StringComparison.OrdinalIgnoreCase) ||
+                    tag.Contains("technical", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!string.IsNullOrWhiteSpace(tag))
-                    {
-                        var lowerTag = tag.ToLowerInvariant();
-                        if (lowerTag.Contains("formal") || lowerTag.Contains("informal") ||
-                            lowerTag.Contains("slang") || lowerTag.Contains("archaic") ||
-                            lowerTag.Contains("literary") || lowerTag.Contains("technical"))
-                        {
-                            return tag;
-                        }
-                    }
+                    return tag;
                 }
             }
 
@@ -386,12 +411,16 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                         var tagList = tags.Split(',');
                         foreach (var tag in tagList)
                         {
-                            var trimmed = tag.Trim().ToLowerInvariant();
-                            if (trimmed.Contains("formal") || trimmed.Contains("informal") ||
-                                trimmed.Contains("slang") || trimmed.Contains("archaic") ||
-                                trimmed.Contains("literary") || trimmed.Contains("technical"))
+                            var trimmed = tag.Trim();
+
+                            if (trimmed.Contains("formal", StringComparison.OrdinalIgnoreCase) ||
+                                trimmed.Contains("informal", StringComparison.OrdinalIgnoreCase) ||
+                                trimmed.Contains("slang", StringComparison.OrdinalIgnoreCase) ||
+                                trimmed.Contains("archaic", StringComparison.OrdinalIgnoreCase) ||
+                                trimmed.Contains("literary", StringComparison.OrdinalIgnoreCase) ||
+                                trimmed.Contains("technical", StringComparison.OrdinalIgnoreCase))
                             {
-                                return tag.Trim();
+                                return trimmed;
                             }
                         }
                     }

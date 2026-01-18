@@ -103,6 +103,46 @@ namespace DictionaryImporter.Infrastructure.Parsing
                 foreach (var parsed in parsedDefinitions)
                 {
                     var currentParsed = parsed;
+
+                    // ========== DEFINITION EXTRACTION SECTION ==========
+                    // Extract clean definition from formatted text before processing
+                    if (!string.IsNullOrWhiteSpace(currentParsed.Definition))
+                    {
+                        var extractedDefinition = DefinitionExtractor.ExtractDefinitionFromFormattedText(
+                            currentParsed.Definition);
+
+                        if (!string.IsNullOrWhiteSpace(extractedDefinition))
+                        {
+                            currentParsed.Definition = extractedDefinition;
+                        }
+                        else
+                        {
+                            // Fallback: try extracting from RawFragment if Definition extraction fails
+                            if (!string.IsNullOrWhiteSpace(currentParsed.RawFragment))
+                            {
+                                extractedDefinition = DefinitionExtractor.ExtractDefinitionFromFormattedText(
+                                    currentParsed.RawFragment);
+
+                                if (!string.IsNullOrWhiteSpace(extractedDefinition))
+                                {
+                                    currentParsed.Definition = extractedDefinition;
+                                }
+                            }
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(currentParsed.RawFragment))
+                    {
+                        // If Definition is empty, extract from RawFragment
+                        var extractedDefinition = DefinitionExtractor.ExtractDefinitionFromFormattedText(
+                            currentParsed.RawFragment);
+
+                        if (!string.IsNullOrWhiteSpace(extractedDefinition))
+                        {
+                            currentParsed.Definition = extractedDefinition;
+                        }
+                    }
+                    // ========== END DEFINITION EXTRACTION SECTION ==========
+
                     var inputDefinition =
                         !string.IsNullOrWhiteSpace(currentParsed.Definition)
                             ? currentParsed.Definition
