@@ -10,6 +10,7 @@ public sealed class KaikkiSourceModule : IDictionarySourceModule
         services.AddSingleton<IDataExtractor<KaikkiRawEntry>, KaikkiExtractor>();
         services.AddSingleton<IDataTransformer<KaikkiRawEntry>, KaikkiTransformer>();
         services.AddSingleton<IDictionaryDefinitionParser, KaikkiDefinitionParser>();
+        services.AddSingleton<IDictionaryDefinitionParser, KaikkiDefinitionParser>();
         services.AddSingleton<ImportEngineFactory<KaikkiRawEntry>>();
 
         // Register Kaikki-specific extractors
