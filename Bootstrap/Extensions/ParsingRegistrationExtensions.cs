@@ -31,6 +31,7 @@ namespace DictionaryImporter.Bootstrap.Extensions
             services.AddSingleton<ISynonymExtractor, EnglishChineseSynonymExtractor>();
             services.AddSingleton<ISynonymExtractor, WebsterSynonymExtractor>();
             services.AddSingleton<ISynonymExtractor, CollinsSynonymExtractor>();
+            services.AddSingleton<ISynonymExtractorRegistry, SynonymExtractorRegistry>();
             services.AddSingleton<GenericSynonymExtractor>();
 
             services.AddSingleton<ISynonymExtractorRegistry, SynonymExtractorRegistry>();

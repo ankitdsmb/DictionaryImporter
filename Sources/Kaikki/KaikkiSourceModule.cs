@@ -11,7 +11,6 @@ namespace DictionaryImporter.Sources.Kaikki
             services.AddSingleton<IDataExtractor<KaikkiRawEntry>, KaikkiExtractor>();
             services.AddSingleton<IDataTransformer<KaikkiRawEntry>, KaikkiTransformer>();
             services.AddSingleton<IDictionaryDefinitionParser, KaikkiDefinitionParser>();
-            services.AddSingleton<IDictionaryEntryValidator, KaikkiEntryValidator>();
             services.AddSingleton<ImportEngineFactory<KaikkiRawEntry>>();
         }
 
@@ -23,7 +22,7 @@ namespace DictionaryImporter.Sources.Kaikki
             return new ImportSourceDefinition
             {
                 SourceCode = SourceCode,
-                SourceName = "Kaikki.org Wiktionary",
+                SourceName = "Kaikki Wiktionary Data",
                 OpenStream = () => File.OpenRead(filePath),
                 GraphRebuildMode = GraphRebuildMode.Rebuild
             };

@@ -2,10 +2,8 @@
 {
     public sealed class KaikkiExample
     {
-        [JsonProperty("text")]
         public string Text { get; set; } = null!;
-
-        [JsonProperty("type")]
+        public Dictionary<string, object>? RawData { get; set; }
         public string? Type { get; set; }
     }
 }

@@ -246,15 +246,23 @@ namespace DictionaryImporter.Infrastructure.Parsing
                                 synonymResult.ConfidenceLevel);
                         }
 
+                        // In DictionaryParsedDefinitionProcessor, add more logging:
                         if (validSynonyms.Count > 0)
                         {
-                            await synonymWriter.WriteSynonymsForParsedDefinition(
-                                parsedId,
-                                validSynonyms,
-                                sourceCode,
-                                ct);
+                            logger.LogInformation(
+                                "Found {Count} synonyms for {Headword}: {Synonyms}",
+                                validSynonyms.Count, entry.Word, string.Join(", ", validSynonyms));
 
+                            await synonymWriter.WriteSynonymsForParsedDefinition(
+                                parsedId, validSynonyms, sourceCode, ct);
                             synonymInserted += validSynonyms.Count;
+                        }
+                        else
+                        {
+                            logger.LogDebug(
+                                "No synonyms found for {Headword} | Definition preview: {Preview}",
+                                entry.Word,
+                                currentParsed.Definition?.Substring(0, Math.Min(100, currentParsed.Definition.Length)));
                         }
                     }
 
