@@ -2,8 +2,7 @@
 {
     public sealed class KaikkiForm
     {
-        public string Form { get; set; } = null!;
-
+        public string? Form { get; set; }
         public List<string> Tags { get; set; } = [];
     }
 }

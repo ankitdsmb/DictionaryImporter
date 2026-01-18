@@ -1,4 +1,5 @@
 ﻿using DictionaryImporter.Bootstrap;
+using Serilog;
 
 var configuration = BootstrapConfiguration.Build();
 

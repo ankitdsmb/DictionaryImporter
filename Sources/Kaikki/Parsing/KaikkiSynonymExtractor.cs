@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Sources.Kaikki.Parsing
+﻿namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor
 {
     internal class KaikkiSynonymExtractor : ISynonymExtractor
     {
@@ -18,30 +18,59 @@
         {
             var results = new List<SynonymDetectionResult>();
 
-            if (string.IsNullOrWhiteSpace(definition))
+            if (string.IsNullOrWhiteSpace(headword))
                 return results;
 
             try
             {
-                // Extract synonyms from Kaikki's formatted definition
-                // Kaikki definitions have synonyms in 【Synonyms】section
-                var synonyms = ExtractSynonymsFromDefinition(definition);
-
-                foreach (var synonym in synonyms)
+                // Try to extract from rawDefinition first (JSON)
+                if (!string.IsNullOrWhiteSpace(rawDefinition) &&
+                    rawDefinition.StartsWith("{") && rawDefinition.EndsWith("}"))
                 {
-                    if (string.IsNullOrWhiteSpace(synonym) || synonym == headword)
-                        continue;
+                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    var rawData = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(rawDefinition, options);
 
-                    if (!IsValidHeadword(synonym))
-                        continue;
-
-                    results.Add(new SynonymDetectionResult
+                    if (rawData != null && rawData.TryGetValue("synonyms", out var synonymsElement))
                     {
-                        TargetHeadword = synonym.Trim().ToLowerInvariant(),
-                        ConfidenceLevel = "high", // Kaikki synonyms are explicit
-                        DetectionMethod = "KaikkiExplicitSynonym",
-                        SourceText = $"Explicit synonym: {synonym}"
-                    });
+                        foreach (var synonym in synonymsElement.EnumerateArray())
+                        {
+                            if (synonym.TryGetProperty("word", out var wordProp) &&
+                                wordProp.ValueKind == JsonValueKind.String)
+                            {
+                                var synonymWord = wordProp.GetString();
+                                if (!string.IsNullOrWhiteSpace(synonymWord) &&
+                                    ValidateSynonymPair(headword, synonymWord))
+                                {
+                                    results.Add(new SynonymDetectionResult
+                                    {
+                                        TargetHeadword = synonymWord.ToLowerInvariant(),
+                                        ConfidenceLevel = "high",
+                                        DetectionMethod = "KaikkiExplicitSynonym",
+                                        SourceText = $"Explicit synonym: {synonymWord}"
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Fallback: extract from formatted definition
+                if (results.Count == 0 && !string.IsNullOrWhiteSpace(definition))
+                {
+                    var synonyms = ExtractSynonymsFromDefinition(definition);
+                    foreach (var synonym in synonyms)
+                    {
+                        if (ValidateSynonymPair(headword, synonym))
+                        {
+                            results.Add(new SynonymDetectionResult
+                            {
+                                TargetHeadword = synonym.ToLowerInvariant(),
+                                ConfidenceLevel = "medium",
+                                DetectionMethod = "KaikkiFormattedSynonym",
+                                SourceText = $"Synonym in definition: {synonym}"
+                            });
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -114,7 +143,7 @@
 
             // Check for obvious non-synonyms
             var nonSynonyms = new[] { ("big", "small"), ("hot", "cold"), ("up", "down") };
-            return !nonSynonyms.Any(p => p.Item1 == a && p.Item2 == b || p.Item1 == b && p.Item2 == a);
+            return !nonSynonyms.Any(p => (p.Item1 == a && p.Item2 == b) || (p.Item1 == b && p.Item2 == a));
         }
 
         private bool IsValidHeadword(string word)
@@ -126,8 +155,8 @@
             if (!word.Any(char.IsLetter))
                 return false;
 
-            // Allow letters, hyphens, and apostrophes
-            return Regex.IsMatch(word, @"^[a-z\-']+$");
+            // Allow letters, hyphens, apostrophes, and spaces (for phrases)
+            return Regex.IsMatch(word, @"^[a-z\s\-']+$");
         }
     }
 }

@@ -54,7 +54,6 @@
                 using var doc = JsonDocument.Parse(jsonLine);
                 var root = doc.RootElement;
 
-                // Check if the root has the required properties
                 if (!root.TryGetProperty("word", out var wordProp) ||
                     wordProp.ValueKind != JsonValueKind.String)
                 {
@@ -75,7 +74,10 @@
                     EtymologyText = GetStringProperty(root, "etymology_text"),
                     Sounds = ExtractSounds(root),
                     Senses = ExtractSenses(root),
-                    Forms = ExtractForms(root)
+                    Forms = ExtractForms(root, "forms"),
+                    Translations = ExtractTranslations(root),
+                    HeadTemplates = ExtractHeadTemplates(root),
+                    Hyphenations = ExtractHyphenations(root)
                 };
 
                 return entry;
@@ -85,16 +87,6 @@
                 _logger.LogDebug(ex, "Failed to parse JSON line");
                 return null;
             }
-        }
-
-        private string? GetStringProperty(JsonElement element, string propertyName)
-        {
-            if (element.TryGetProperty(propertyName, out var prop) &&
-                prop.ValueKind == JsonValueKind.String)
-            {
-                return prop.GetString();
-            }
-            return null;
         }
 
         private List<KaikkiSound> ExtractSounds(JsonElement root)
@@ -113,7 +105,10 @@
                 {
                     Ipa = GetStringProperty(sound, "ipa"),
                     Audio = GetStringProperty(sound, "audio"),
-                    Tags = ExtractTags(sound, "tags")
+                    AudioUrl = ExtractAudioUrl(sound),
+                    Tags = ExtractTags(sound, "tags"),
+                    Rhymes = GetStringProperty(sound, "rhymes"),
+                    Enpr = GetStringProperty(sound, "enpr")
                 };
                 sounds.Add(kaikkiSound);
             }
@@ -121,31 +116,18 @@
             return sounds;
         }
 
-        private string? ExtractTags(JsonElement element, string propertyName)
+        private string? ExtractAudioUrl(JsonElement sound)
         {
-            if (!element.TryGetProperty(propertyName, out var tagsProp) ||
-                tagsProp.ValueKind != JsonValueKind.Array)
-            {
-                return null;
-            }
+            // Audio URL might be in different formats
+            var audio = GetStringProperty(sound, "audio");
+            var oggUrl = GetStringProperty(sound, "ogg_url");
+            var mp3Url = GetStringProperty(sound, "mp3_url");
 
-            var tags = new List<string>();
-            foreach (var tag in tagsProp.EnumerateArray())
-            {
-                if (tag.ValueKind == JsonValueKind.String)
-                {
-                    var tagValue = tag.GetString();
-                    if (!string.IsNullOrWhiteSpace(tagValue))
-                    {
-                        tags.Add(tagValue);
-                    }
-                }
-            }
-
-            return tags.Count > 0 ? string.Join(",", tags) : null;
+            return !string.IsNullOrWhiteSpace(mp3Url) ? mp3Url :
+                   !string.IsNullOrWhiteSpace(oggUrl) ? oggUrl :
+                   !string.IsNullOrWhiteSpace(audio) ? $"https:{audio}" : null;
         }
 
-        // Update ExtractSenses method to include synonyms:
         private List<KaikkiSense> ExtractSenses(JsonElement root)
         {
             var senses = new List<KaikkiSense>();
@@ -162,15 +144,246 @@
                 {
                     Glosses = ExtractStringArray(sense, "glosses"),
                     Examples = ExtractExamples(sense),
-                    Synonyms = ExtractSynonyms(sense), // Add this line
+                    Synonyms = ExtractSynonyms(sense),
+                    Antonyms = ExtractAntonyms(sense),
+                    Related = ExtractRelated(sense),
                     Categories = ExtractStringArray(sense, "categories"),
-                    Topics = ExtractStringArray(sense, "topics")
+                    Topics = ExtractStringArray(sense, "topics"),
+                    Tags = ExtractStringArray(sense, "tags"),
+                    Forms = ExtractForms(sense, "forms")
                 };
 
                 senses.Add(kaikkiSense);
             }
 
             return senses;
+        }
+
+        private List<KaikkiSynonym> ExtractSynonyms(JsonElement element)
+        {
+            var synonyms = new List<KaikkiSynonym>();
+
+            if (!element.TryGetProperty("synonyms", out var synonymsProp) ||
+                synonymsProp.ValueKind != JsonValueKind.Array)
+            {
+                return synonyms;
+            }
+
+            foreach (var synonym in synonymsProp.EnumerateArray())
+            {
+                var kaikkiSynonym = new KaikkiSynonym
+                {
+                    Word = GetStringProperty(synonym, "word"),
+                    Sense = GetStringProperty(synonym, "sense"),
+                    Language = GetStringProperty(synonym, "language"),
+                    Tags = ExtractTags(synonym, "tags")
+                };
+
+                if (!string.IsNullOrWhiteSpace(kaikkiSynonym.Word))
+                {
+                    synonyms.Add(kaikkiSynonym);
+                }
+            }
+
+            return synonyms;
+        }
+
+        private List<KaikkiAntonym> ExtractAntonyms(JsonElement element)
+        {
+            var antonyms = new List<KaikkiAntonym>();
+
+            if (!element.TryGetProperty("antonyms", out var antonymsProp) ||
+                antonymsProp.ValueKind != JsonValueKind.Array)
+            {
+                return antonyms;
+            }
+
+            foreach (var antonym in antonymsProp.EnumerateArray())
+            {
+                var kaikkiAntonym = new KaikkiAntonym
+                {
+                    Word = GetStringProperty(antonym, "word"),
+                    Sense = GetStringProperty(antonym, "sense")
+                };
+
+                if (!string.IsNullOrWhiteSpace(kaikkiAntonym.Word))
+                {
+                    antonyms.Add(kaikkiAntonym);
+                }
+            }
+
+            return antonyms;
+        }
+
+        private List<KaikkiRelated> ExtractRelated(JsonElement element)
+        {
+            var related = new List<KaikkiRelated>();
+
+            // Check for various related word fields
+            var relatedTypes = new[] { "related", "see_also", "derived", "coordinate_terms" };
+
+            foreach (var type in relatedTypes)
+            {
+                if (element.TryGetProperty(type, out var relatedProp) &&
+                    relatedProp.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in relatedProp.EnumerateArray())
+                    {
+                        var kaikkiRelated = new KaikkiRelated
+                        {
+                            Word = GetStringProperty(item, "word") ??
+                                  GetStringProperty(item, "text") ??
+                                  (item.ValueKind == JsonValueKind.String ? item.GetString() : null),
+                            Type = type.Replace("_", " "),
+                            Sense = GetStringProperty(item, "sense")
+                        };
+
+                        if (!string.IsNullOrWhiteSpace(kaikkiRelated.Word))
+                        {
+                            related.Add(kaikkiRelated);
+                        }
+                    }
+                }
+            }
+
+            return related;
+        }
+
+        private List<KaikkiExample> ExtractExamples(JsonElement sense)
+        {
+            var examples = new List<KaikkiExample>();
+
+            if (!sense.TryGetProperty("examples", out var examplesProp) ||
+                examplesProp.ValueKind != JsonValueKind.Array)
+            {
+                return examples;
+            }
+
+            foreach (var example in examplesProp.EnumerateArray())
+            {
+                var kaikkiExample = new KaikkiExample
+                {
+                    Text = GetStringProperty(example, "text"),
+                    Translation = GetStringProperty(example, "translation"),
+                    Language = GetStringProperty(example, "language")
+                };
+                examples.Add(kaikkiExample);
+            }
+
+            return examples;
+        }
+
+        private List<KaikkiTranslation> ExtractTranslations(JsonElement root)
+        {
+            var translations = new List<KaikkiTranslation>();
+
+            if (!root.TryGetProperty("translations", out var transProp) ||
+                transProp.ValueKind != JsonValueKind.Array)
+            {
+                return translations;
+            }
+
+            foreach (var translation in transProp.EnumerateArray())
+            {
+                var kaikkiTranslation = new KaikkiTranslation
+                {
+                    Language = GetStringProperty(translation, "lang"),
+                    Code = GetStringProperty(translation, "code"),
+                    Word = GetStringProperty(translation, "word"),
+                    Sense = GetStringProperty(translation, "sense")
+                };
+
+                if (!string.IsNullOrWhiteSpace(kaikkiTranslation.Word))
+                {
+                    translations.Add(kaikkiTranslation);
+                }
+            }
+
+            return translations;
+        }
+
+        private List<KaikkiHeadTemplate> ExtractHeadTemplates(JsonElement root)
+        {
+            var templates = new List<KaikkiHeadTemplate>();
+
+            if (!root.TryGetProperty("head_templates", out var templatesProp) ||
+                templatesProp.ValueKind != JsonValueKind.Array)
+            {
+                return templates;
+            }
+
+            foreach (var template in templatesProp.EnumerateArray())
+            {
+                var headTemplate = new KaikkiHeadTemplate
+                {
+                    Name = GetStringProperty(template, "name"),
+                    Expansion = GetStringProperty(template, "expansion")
+                };
+
+                // Extract args
+                if (template.TryGetProperty("args", out var argsProp) &&
+                    argsProp.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var arg in argsProp.EnumerateObject())
+                    {
+                        headTemplate.Args[arg.Name] = arg.Value.ToString();
+                    }
+                }
+
+                templates.Add(headTemplate);
+            }
+
+            return templates;
+        }
+
+        private List<string> ExtractHyphenations(JsonElement root)
+        {
+            var hyphenations = new List<string>();
+
+            if (!root.TryGetProperty("hyphenations", out var hyphenProp) ||
+                hyphenProp.ValueKind != JsonValueKind.Array)
+            {
+                return hyphenations;
+            }
+
+            foreach (var hyphen in hyphenProp.EnumerateArray())
+            {
+                if (hyphen.TryGetProperty("parts", out var partsProp) &&
+                    partsProp.ValueKind == JsonValueKind.Array)
+                {
+                    var parts = new List<string>();
+                    foreach (var part in partsProp.EnumerateArray())
+                    {
+                        if (part.ValueKind == JsonValueKind.String)
+                        {
+                            parts.Add(part.GetString()!);
+                        }
+                    }
+                    if (parts.Count > 0)
+                    {
+                        hyphenations.Add(string.Join("‧", parts));
+                    }
+                }
+            }
+
+            return hyphenations;
+        }
+
+        // Helper methods (same as before but updated)
+        private string? GetStringProperty(JsonElement element, string propertyName)
+        {
+            if (element.TryGetProperty(propertyName, out var prop) &&
+                prop.ValueKind == JsonValueKind.String)
+            {
+                return prop.GetString();
+            }
+            return null;
+        }
+
+        private string? ExtractTags(JsonElement element, string propertyName)
+        {
+            var tags = ExtractStringArray(element, propertyName);
+            return tags.Count > 0 ? string.Join(",", tags) : null;
         }
 
         private List<string> ExtractStringArray(JsonElement element, string propertyName)
@@ -198,33 +411,11 @@
             return list;
         }
 
-        private List<KaikkiExample> ExtractExamples(JsonElement senseElement)
-        {
-            var examples = new List<KaikkiExample>();
-
-            if (!senseElement.TryGetProperty("examples", out var examplesProp) ||
-                examplesProp.ValueKind != JsonValueKind.Array)
-            {
-                return examples;
-            }
-
-            foreach (var example in examplesProp.EnumerateArray())
-            {
-                var kaikkiExample = new KaikkiExample
-                {
-                    Text = GetStringProperty(example, "text")
-                };
-                examples.Add(kaikkiExample);
-            }
-
-            return examples;
-        }
-
-        private List<KaikkiForm> ExtractForms(JsonElement root)
+        private List<KaikkiForm> ExtractForms(JsonElement element, string propertyName)
         {
             var forms = new List<KaikkiForm>();
 
-            if (!root.TryGetProperty("forms", out var formsProp) ||
+            if (!element.TryGetProperty(propertyName, out var formsProp) ||
                 formsProp.ValueKind != JsonValueKind.Array)
             {
                 return forms;
@@ -243,50 +434,21 @@
             return forms;
         }
 
-        private bool IsValidEntry(KaikkiRawEntry entry)
+        private bool IsValidEntry(KaikkiRawEntry? entry)
         {
+            if (entry == null)
+                return false;
+
             if (string.IsNullOrWhiteSpace(entry.Word))
                 return false;
 
-            if (entry.Senses.Count == 0)
+            if (entry.Senses == null || entry.Senses.Count == 0)
                 return false;
 
-            // Ensure at least one sense has at least one gloss
-            return entry.Senses.Any(s => s.Glosses.Count > 0);
-        }
-
-        private List<KaikkiSynonym> ExtractSynonyms(JsonElement element, string propertyName = "synonyms")
-        {
-            var synonyms = new List<KaikkiSynonym>();
-
-            if (!element.TryGetProperty(propertyName, out var synonymsProp) ||
-                synonymsProp.ValueKind != JsonValueKind.Array)
-            {
-                return synonyms;
-            }
-
-            foreach (var synonym in synonymsProp.EnumerateArray())
-            {
-                var kaikkiSynonym = new KaikkiSynonym
-                {
-                    Word = GetStringProperty(synonym, "word"),
-                    Sense = GetStringProperty(synonym, "sense"),
-                    Language = GetStringProperty(synonym, "language")
-                };
-
-                if (!string.IsNullOrWhiteSpace(kaikkiSynonym.Word))
-                {
-                    synonyms.Add(kaikkiSynonym);
-                }
-            }
-
-            return synonyms;
-        }
-
-        // Also extract top-level synonyms
-        private List<KaikkiSynonym> ExtractEntrySynonyms(JsonElement root)
-        {
-            return ExtractSynonyms(root, "synonyms");
+            return entry.Senses.Any(s => s != null &&
+                                        s.Glosses != null &&
+                                        s.Glosses.Count > 0 &&
+                                        !string.IsNullOrWhiteSpace(s.Glosses[0]));
         }
     }
 }

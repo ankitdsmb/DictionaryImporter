@@ -2,8 +2,9 @@
 {
     public sealed class KaikkiExample
     {
-        public string Text { get; set; } = null!;
+        public string? Text { get; set; }
+        public string? Translation { get; set; }
+        public string? Language { get; set; }
         public Dictionary<string, object>? RawData { get; set; }
-        public string? Type { get; set; }
     }
 }

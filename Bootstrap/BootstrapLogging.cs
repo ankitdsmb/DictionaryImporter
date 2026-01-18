@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Bootstrap
+﻿using Serilog;
+
+namespace DictionaryImporter.Bootstrap
 {
     public static class BootstrapLogging
     {
