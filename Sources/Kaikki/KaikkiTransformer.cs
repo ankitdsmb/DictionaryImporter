@@ -1,217 +1,280 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Text.RegularExpressions;
-using DictionaryImporter.Sources.Kaikki.Models;
-using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-
-namespace DictionaryImporter.Sources.Kaikki
+﻿namespace DictionaryImporter.Sources.Kaikki
 {
-    public sealed class KaikkiTransformer(ILogger<KaikkiTransformer> logger) : IDataTransformer<KaikkiRawEntry>
+    public sealed class KaikkiTransformer : IDataTransformer<KaikkiRawEntry>
     {
+        private readonly ILogger<KaikkiTransformer> _logger;
+
+        public KaikkiTransformer(ILogger<KaikkiTransformer> logger)
+        {
+            _logger = logger;
+        }
+
         public IEnumerable<DictionaryEntry> Transform(KaikkiRawEntry raw)
         {
-            if (raw == null)
-            {
-                logger.LogWarning("Received null KaikkiRawEntry");
+            if (raw == null || raw.Senses.Count == 0)
                 yield break;
-            }
-
-            if (raw.Senses == null || raw.Senses.Count == 0)
-            {
-                logger.LogDebug("No senses found for word: {Word}", raw.Word);
-                yield break;
-            }
-
-            var normalizedWord = NormalizeWord(raw.Word);
-            if (string.IsNullOrWhiteSpace(normalizedWord))
-            {
-                logger.LogDebug("Empty normalized word for: {Word}", raw.Word);
-                yield break;
-            }
 
             var senseNumber = 1;
+            var pronunciationInfo = ExtractPronunciationInfo(raw.Sounds);
+            var audioUrl = ExtractPrimaryAudioUrl(raw.Sounds);
 
-            foreach (var sense in raw.Senses)
+            foreach (var sense in raw.Senses.Where(s => s.Glosses != null && s.Glosses.Count > 0))
             {
-                if (sense.Glosses == null || sense.Glosses.Count == 0)
+                foreach (var gloss in sense.Glosses)
                 {
-                    logger.LogDebug("Empty gloss for word: {Word}, sense: {SenseNumber}", raw.Word, senseNumber);
-                    senseNumber++;
-                    continue;
+                    if (string.IsNullOrWhiteSpace(gloss))
+                        continue;
+
+                    var fullDefinition = BuildFullDefinition(
+                        gloss,
+                        sense,
+                        raw,
+                        pronunciationInfo,
+                        audioUrl,
+                        senseNumber);
+
+                    var entry = new DictionaryEntry
+                    {
+                        Word = raw.Word,
+                        NormalizedWord = NormalizeWord(raw.Word),
+                        PartOfSpeech = raw.Pos,
+                        Definition = fullDefinition,
+                        SenseNumber = senseNumber++,
+                        SourceCode = "KAIKKI",
+                        CreatedUtc = DateTime.UtcNow,
+                        RawFragment = BuildRawFragment(raw, sense, gloss) // Store raw data for later parsing
+                    };
+
+                    yield return entry;
                 }
-
-                var definition = BuildDefinition(raw, sense, senseNumber);
-
-                var rawFragment = BuildRawFragment(raw, sense, senseNumber);
-
-                var entry = new DictionaryEntry
-                {
-                    Word = raw.Word,
-                    NormalizedWord = normalizedWord,
-                    PartOfSpeech = NormalizePartOfSpeech(raw.PartOfSpeech),
-                    Definition = definition,
-                    Etymology = raw.EtymologyText,
-                    SenseNumber = senseNumber,
-                    SourceCode = "KAIKKI",
-                    CreatedUtc = DateTime.UtcNow
-                };
-
-                yield return entry;
-                senseNumber++;
             }
         }
 
-        private string BuildDefinition(KaikkiRawEntry raw, KaikkiSense sense, int senseNumber)
+        private string BuildFullDefinition(
+            string gloss,
+            KaikkiSense sense,
+            KaikkiRawEntry raw,
+            PronunciationInfo pronunciation,
+            string? audioUrl,
+            int senseNumber)
         {
-            var sections = new List<string>();
+            var parts = new List<string>();
 
-            // Collect all sections without numbering
-            if (!string.IsNullOrWhiteSpace(raw.PartOfSpeech))
+            // Add Pronunciation section
+            if (!string.IsNullOrWhiteSpace(pronunciation.Ipa) ||
+                !string.IsNullOrWhiteSpace(pronunciation.Rhymes) ||
+                !string.IsNullOrWhiteSpace(pronunciation.Enpr))
             {
-                sections.Add($"【POS】{NormalizePartOfSpeech(raw.PartOfSpeech)}");
+                parts.Add("【Pronunciation】");
+                if (!string.IsNullOrWhiteSpace(pronunciation.Ipa))
+                    parts.Add($"IPA: {pronunciation.Ipa}");
+                if (!string.IsNullOrWhiteSpace(pronunciation.Rhymes))
+                    parts.Add($"Rhymes: {pronunciation.Rhymes}");
+                if (!string.IsNullOrWhiteSpace(pronunciation.Enpr))
+                    parts.Add($"Pronunciation: {pronunciation.Enpr}");
+                if (!string.IsNullOrWhiteSpace(audioUrl))
+                    parts.Add($"Audio: {audioUrl}");
             }
 
-            var ipa = ExtractIpa(raw);
-            if (!string.IsNullOrWhiteSpace(ipa))
+            // Add Part of Speech
+            if (!string.IsNullOrWhiteSpace(raw.Pos))
             {
-                sections.Add($"【Pronunciation】{ipa}");
+                parts.Add($"【POS】{NormalizePos(raw.Pos)}");
             }
 
-            if (!string.IsNullOrWhiteSpace(raw.EtymologyText))
+            // Add Hyphenation if available
+            if (raw.Hyphenations.Count > 0)
             {
-                sections.Add($"【Etymology】{CleanText(raw.EtymologyText)}");
+                parts.Add($"【Hyphenation】{string.Join("; ", raw.Hyphenations.Take(2))}");
             }
 
-            if (raw.Senses.Count > 1)
-            {
-                sections.Add($"【Sense {senseNumber}】");
-            }
+            // Add Sense number
+            parts.Add($"【Sense {senseNumber}】");
 
-            var glossText = string.Join("; ", sense.Glosses.Select(CleanText));
-            if (!string.IsNullOrWhiteSpace(glossText))
-            {
-                sections.Add(glossText);
-            }
+            // Add the main definition
+            parts.Add(gloss);
 
-            var categories = sense.Categories.ToStringList();
-            if (categories.Count > 0)
+            // Add Synonyms
+            if (sense.Synonyms != null && sense.Synonyms.Count > 0)
             {
-                var categoriesText = string.Join(", ", categories.Select(CleanText));
-                if (!string.IsNullOrWhiteSpace(categoriesText))
+                parts.Add("【Synonyms】");
+                var validSynonyms = sense.Synonyms
+                    .Where(s => !string.IsNullOrWhiteSpace(s.Word))
+                    .Take(5)
+                    .ToList();
+
+                foreach (var synonym in validSynonyms)
                 {
-                    sections.Add($"【Categories】{categoriesText}");
-                }
-            }
-
-            var topics = sense.Topics.ToStringList();
-            if (topics.Count > 0)
-            {
-                var topicsText = string.Join(", ", topics.Select(CleanText));
-                if (!string.IsNullOrWhiteSpace(topicsText))
-                {
-                    sections.Add($"【Topics】{topicsText}");
-                }
-            }
-
-            if (sense.Examples != null && sense.Examples.Count > 0)
-            {
-                var exampleText = new StringBuilder("【Examples】");
-                foreach (var example in sense.Examples.Take(5))
-                {
-                    var cleaned = CleanText(example.Text);
-                    if (!string.IsNullOrWhiteSpace(cleaned))
+                    var synonymText = synonym.Word!;
+                    if (!string.IsNullOrWhiteSpace(synonym.Sense))
                     {
-                        exampleText.Append($"\n• {cleaned}");
+                        synonymText += $" ({synonym.Sense})";
+                    }
+                    parts.Add($"• {synonymText}");
+                }
+            }
+
+            // Add Antonyms
+            if (sense.Antonyms != null && sense.Antonyms.Count > 0)
+            {
+                parts.Add("【Antonyms】");
+                var validAntonyms = sense.Antonyms
+                    .Where(a => !string.IsNullOrWhiteSpace(a.Word))
+                    .Take(3)
+                    .ToList();
+
+                foreach (var antonym in validAntonyms)
+                {
+                    parts.Add($"• {antonym.Word}");
+                }
+            }
+
+            // Add Related words (cross-references)
+            if (sense.Related != null && sense.Related.Count > 0)
+            {
+                parts.Add("【Related】");
+                foreach (var related in sense.Related.Take(5))
+                {
+                    if (!string.IsNullOrWhiteSpace(related.Word))
+                    {
+                        var relatedText = related.Word;
+                        if (!string.IsNullOrWhiteSpace(related.Type))
+                        {
+                            relatedText += $" [{related.Type}]";
+                        }
+                        parts.Add($"• {relatedText}");
                     }
                 }
-                sections.Add(exampleText.ToString());
             }
 
-            var tags = sense.Tags.ToStringList();
-            if (tags.Count > 0)
+            // Add Examples
+            if (sense.Examples != null && sense.Examples.Count > 0)
             {
-                var tagsText = string.Join(", ", tags.Select(CleanText));
-                if (!string.IsNullOrWhiteSpace(tagsText))
+                parts.Add("【Examples】");
+                var validExamples = sense.Examples
+                    .Where(e => !string.IsNullOrWhiteSpace(e.Text))
+                    .Take(3)
+                    .ToList();
+
+                foreach (var example in validExamples)
                 {
-                    sections.Add($"【Tags】{tagsText}");
+                    var exampleText = CleanExampleText(example.Text!);
+                    if (!string.IsNullOrWhiteSpace(example.Translation))
+                    {
+                        exampleText += $" | {CleanExampleText(example.Translation)}";
+                    }
+                    parts.Add($"• {exampleText}");
                 }
             }
 
-            if (raw.Synonyms != null && raw.Synonyms.Count > 0)
+            // Add Forms (alternative forms, plural, etc.)
+            if (sense.Forms != null && sense.Forms.Count > 0)
             {
-                var synonyms = string.Join(", ", raw.Synonyms.Select(s => s.Word).Distinct());
-                if (!string.IsNullOrWhiteSpace(synonyms))
+                parts.Add("【Forms】");
+                var validForms = sense.Forms
+                    .Where(f => !string.IsNullOrWhiteSpace(f.Form))
+                    .Take(5)
+                    .ToList();
+
+                foreach (var form in validForms)
                 {
-                    sections.Add($"【Synonyms】{synonyms}");
+                    var formText = form.Form!;
+                    if (form.Tags.Count > 0)
+                    {
+                        formText += $" [{string.Join(", ", form.Tags)}]";
+                    }
+                    parts.Add($"• {formText}");
                 }
             }
 
-            if (raw.Antonyms != null && raw.Antonyms.Count > 0)
+            // Add Etymology
+            if (!string.IsNullOrWhiteSpace(raw.EtymologyText))
             {
-                var antonyms = string.Join(", ", raw.Antonyms.Select(s => s.Word).Distinct());
-                if (!string.IsNullOrWhiteSpace(antonyms))
+                parts.Add("【Etymology】");
+                var cleanedEtymology = CleanEtymologyText(raw.EtymologyText);
+                if (!string.IsNullOrWhiteSpace(cleanedEtymology))
                 {
-                    sections.Add($"【Antonyms】{antonyms}");
+                    parts.Add(cleanedEtymology);
                 }
             }
 
-            if (raw.Derived != null && raw.Derived.Count > 0)
+            // Add Categories/Topics
+            if ((sense.Categories != null && sense.Categories.Count > 0) ||
+                (sense.Topics != null && sense.Topics.Count > 0))
             {
-                var derived = string.Join(", ", raw.Derived.Select(d => d.Word).Distinct());
-                if (!string.IsNullOrWhiteSpace(derived))
+                parts.Add("【Domain】");
+                if (sense.Categories != null && sense.Categories.Count > 0)
                 {
-                    sections.Add($"【Derived】{derived}");
+                    parts.Add($"Categories: {string.Join(", ", sense.Categories.Take(3))}");
+                }
+                if (sense.Topics != null && sense.Topics.Count > 0)
+                {
+                    parts.Add($"Topics: {string.Join(", ", sense.Topics.Take(3))}");
                 }
             }
 
-            // Apply numbering ONLY HERE, at the very end
-            var sb = new StringBuilder();
-            for (int i = 0; i < sections.Count; i++)
+            // Add Tags
+            if (sense.Tags != null && sense.Tags.Count > 0)
             {
-                sb.AppendLine($"{i + 1}) {sections[i]}");
+                parts.Add($"【Tags】{string.Join(", ", sense.Tags.Take(3))}");
             }
 
-            return sb.ToString().Trim();
+            return string.Join("\n", parts);
         }
 
-        private string BuildRawFragment(KaikkiRawEntry raw, KaikkiSense sense, int senseNumber)
+        private string BuildRawFragment(KaikkiRawEntry raw, KaikkiSense sense, string gloss)
         {
-            var parsingData = new
+            // Store structured data as JSON for later parsing
+            var rawData = new
             {
-                Word = raw.Word,
-                PartOfSpeech = raw.PartOfSpeech,
-                Sense = sense,
-                Sounds = raw.Sounds,
-                Etymology = raw.EtymologyText,
-                Synonyms = raw.Synonyms,
-                Antonyms = raw.Antonyms,
-                Derived = raw.Derived,
-                SenseNumber = senseNumber
+                word = raw.Word,
+                pos = raw.Pos,
+                sense = gloss,
+                synonyms = sense.Synonyms?.Select(s => new { s.Word, s.Sense, s.Language }),
+                antonyms = sense.Antonyms?.Select(a => new { a.Word, a.Sense }),
+                related = sense.Related?.Select(r => new { r.Word, r.Type, r.Sense }),
+                examples = sense.Examples?.Select(e => new { e.Text, e.Translation, e.Language }),
+                forms = sense.Forms?.Select(f => new { f.Form, f.Tags }),
+                categories = sense.Categories,
+                topics = sense.Topics,
+                tags = sense.Tags,
+                etymology = raw.EtymologyText,
+                translations = raw.Translations?.Select(t => new { t.Language, t.Code, t.Word, t.Sense })
             };
 
-            return JsonConvert.SerializeObject(parsingData, Formatting.Indented);
+            return JsonSerializer.Serialize(rawData, new JsonSerializerOptions
+            {
+                WriteIndented = false,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            });
         }
 
-        private string? ExtractIpa(KaikkiRawEntry raw)
+        private record PronunciationInfo(string? Ipa, string? Rhymes, string? Enpr);
+
+        private PronunciationInfo ExtractPronunciationInfo(List<KaikkiSound> sounds)
         {
-            if (raw.Sounds == null || raw.Sounds.Count == 0)
+            if (sounds == null || sounds.Count == 0)
+                return new PronunciationInfo(null, null, null);
+
+            var primarySound = sounds.FirstOrDefault(s =>
+                s.Tags != null &&
+                (s.Tags.Contains("Received-Pronunciation") || s.Tags.Contains("UK")))
+                ?? sounds.FirstOrDefault(s => s.Tags != null && s.Tags.Contains("US"))
+                ?? sounds.FirstOrDefault();
+
+            return new PronunciationInfo(
+                primarySound?.Ipa,
+                primarySound?.Rhymes,
+                primarySound?.Enpr);
+        }
+
+        private string? ExtractPrimaryAudioUrl(List<KaikkiSound> sounds)
+        {
+            if (sounds == null || sounds.Count == 0)
                 return null;
 
-            foreach (var sound in raw.Sounds)
-            {
-                if (!string.IsNullOrWhiteSpace(sound.Ipa))
-                {
-                    var ipa = sound.Ipa.Trim();
-                    if (!ipa.StartsWith("/") && !ipa.StartsWith("["))
-                        ipa = "/" + ipa + "/";
-                    return ipa;
-                }
-            }
-
-            return null;
+            var soundWithAudio = sounds.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s.AudioUrl));
+            return soundWithAudio?.AudioUrl;
         }
 
         private static string NormalizeWord(string word)
@@ -220,100 +283,76 @@ namespace DictionaryImporter.Sources.Kaikki
                 return string.Empty;
 
             return word.ToLowerInvariant()
-                .Replace("★", "")
-                .Replace("☆", "")
-                .Replace("●", "")
-                .Replace("○", "")
-                .Replace("▶", "")
+                .Replace("(", "")
+                .Replace(")", "")
+                .Replace("[", "")
+                .Replace("]", "")
+                .Replace("{", "")
+                .Replace("}", "")
                 .Trim();
         }
 
-        private static string? NormalizePartOfSpeech(string? pos)
+        private static string NormalizePos(string? pos)
         {
             if (string.IsNullOrWhiteSpace(pos))
-                return null;
+                return "unk";
 
             var normalized = pos.Trim().ToLowerInvariant();
 
-            normalized = Regex.Replace(normalized, @"\{\{.*?\}\}", string.Empty);
-
             return normalized switch
             {
-                "noun" => "noun",
-                "verb" => "verb",
-                "adj" => "adj",
-                "adjective" => "adj",
-                "adv" => "adv",
-                "adverb" => "adv",
-                "prep" => "preposition",
-                "preposition" => "preposition",
-                "pron" => "pronoun",
-                "pronoun" => "pronoun",
-                "conj" => "conjunction",
-                "conjunction" => "conjunction",
-                "interj" => "exclamation",
-                "interjection" => "exclamation",
-                "exclamation" => "exclamation",
-                "abbr" => "abbreviation",
-                "abbreviation" => "abbreviation",
-                "pref" => "prefix",
-                "prefix" => "prefix",
-                "suf" => "suffix",
-                "suffix" => "suffix",
-                "num" => "numeral",
-                "numeral" => "numeral",
-                "art" => "determiner",
-                "article" => "determiner",
-                "determiner" => "determiner",
-                "aux" => "auxiliary",
-                "auxiliary" => "auxiliary",
-                "modal" => "modal",
-                "part" => "particle",
-                "particle" => "particle",
+                "n" or "noun" => "noun",
+                "v" or "verb" => "verb",
+                "adj" or "adjective" => "adj",
+                "adv" or "adverb" => "adv",
+                "prep" or "preposition" => "preposition",
+                "pron" or "pronoun" => "pronoun",
+                "conj" or "conjunction" => "conjunction",
+                "interj" or "interjection" => "exclamation",
+                "num" or "numeral" => "numeral",
+                "det" or "determiner" => "determiner",
+                "part" or "particle" => "particle",
                 "phrase" => "phrase",
-                "symbol" => "symbol",
-                "character" => "character",
-                "letter" => "letter",
-                _ => normalized.Length > 20 ? null : normalized
+                "proverb" => "proverb",
+                "prefix" => "prefix",
+                "suffix" => "suffix",
+                "abbreviation" or "abbr" => "abbreviation",
+                _ => normalized
             };
         }
 
-        private static string CleanText(string text)
+        private static string CleanExampleText(string example)
         {
-            if (string.IsNullOrWhiteSpace(text))
+            if (string.IsNullOrWhiteSpace(example))
                 return string.Empty;
 
-            // Remove wiki markup
-            text = Regex.Replace(text, @"\{\{.*?\}\}", string.Empty);
-            text = Regex.Replace(text, @"\[\[.*?\]\]", string.Empty);
-            text = Regex.Replace(text, @"'''(.*?)'''", "$1");
-            text = Regex.Replace(text, @"''(.*?)''", "$1");
+            // Remove quotation marks if present
+            example = example.Trim('"', '\'', '`', '«', '»', '「', '」', '『', '』');
 
-            // Remove HTML tags
-            text = Regex.Replace(text, @"<.*?>", string.Empty);
+            // Ensure proper ending punctuation
+            if (!example.EndsWith(".") && !example.EndsWith("!") && !example.EndsWith("?"))
+            {
+                example += ".";
+            }
 
-            // Decode HTML entities
-            text = Regex.Replace(text, @"&lt;", "<");
-            text = Regex.Replace(text, @"&gt;", ">");
-            text = Regex.Replace(text, @"&amp;", "&");
-            text = Regex.Replace(text, @"&quot;", "\"");
-            text = Regex.Replace(text, @"&apos;", "'");
+            return example.Trim();
+        }
 
-            // Remove leftover wiki/markup characters
-            text = Regex.Replace(text, @"\|\|", " ");
-            text = Regex.Replace(text, @"\{\||\|\}", " ");
-            text = Regex.Replace(text, @"\{\{|\}\}", " ");
+        private static string CleanEtymologyText(string etymology)
+        {
+            if (string.IsNullOrWhiteSpace(etymology))
+                return string.Empty;
 
-            // Remove any existing numbering at the start (e.g., "1) ", "2) ")
-            text = Regex.Replace(text, @"^\d+\)\s*", "");
+            // Extract only the plain text etymology, remove tree structure
+            var lines = etymology.Split('\n')
+                .Where(line => !line.StartsWith("Proto-") &&
+                              !line.StartsWith("Etymology tree") &&
+                              !line.Contains("der.") &&
+                              !line.Contains("lbor."))
+                .Select(line => line.Trim())
+                .Where(line => !string.IsNullOrWhiteSpace(line));
 
-            // Remove bullet points at the beginning
-            text = Regex.Replace(text, @"^[•\-\*]\s*", "");
-
-            // Normalize whitespace
-            text = Regex.Replace(text, @"\s+", " ").Trim();
-
-            return text;
+            return string.Join(" ", lines.Take(3)); // Limit to first 3 relevant lines
         }
     }
 }

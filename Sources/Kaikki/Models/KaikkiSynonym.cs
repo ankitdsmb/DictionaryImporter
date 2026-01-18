@@ -2,13 +2,9 @@
 {
     public sealed class KaikkiSynonym
     {
-        [JsonProperty("word")]
-        public string Word { get; set; } = null!;
-
-        [JsonProperty("sense")]
+        public string? Word { get; set; }
         public string? Sense { get; set; }
-
-        [JsonProperty("alt")]
-        public string? Alternative { get; set; }
+        public string? Language { get; set; }
+        public string? Tags { get; set; }
     }
 }

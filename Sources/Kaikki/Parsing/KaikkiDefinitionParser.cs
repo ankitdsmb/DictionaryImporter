@@ -1,153 +1,312 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.RegularExpressions;
-using DictionaryImporter.Sources.Kaikki.Models;
-using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-
-namespace DictionaryImporter.Sources.Kaikki.Parsing
+﻿namespace DictionaryImporter.Sources.Kaikki.Parsing
 {
-    public sealed class KaikkiDefinitionParser(ILogger<KaikkiDefinitionParser> logger) : IDictionaryDefinitionParser
+    public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
     {
+        private readonly ILogger<KaikkiDefinitionParser> _logger;
+        private readonly JsonSerializerOptions _jsonOptions;
+
+        public KaikkiDefinitionParser(ILogger<KaikkiDefinitionParser> logger)
+        {
+            _logger = logger;
+            _jsonOptions = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+        }
+
         public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
         {
-            if (string.IsNullOrWhiteSpace(entry.RawFragment))
+            if (string.IsNullOrWhiteSpace(entry.Definition))
             {
-                return ParseFromDefinition(entry);
+                return new List<ParsedDefinition>
+                {
+                    new ParsedDefinition
+                    {
+                        MeaningTitle = entry.Word ?? "unnamed sense",
+                        Definition = string.Empty,
+                        RawFragment = entry.Definition ?? string.Empty,
+                        SenseNumber = entry.SenseNumber
+                    }
+                };
             }
 
             try
             {
-                return ParseFromRawFragment(entry);
+                // Try to extract structured data from RawFragment first
+                if (!string.IsNullOrWhiteSpace(entry.RawFragment) &&
+                    entry.RawFragment.StartsWith("{") && entry.RawFragment.EndsWith("}"))
+                {
+                    return ParseFromRawFragment(entry);
+                }
+                else
+                {
+                    return ParseFromFormattedDefinition(entry);
+                }
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to parse Kaikki raw fragment for: {Word}", entry.Word);
-                return ParseFromDefinition(entry);
+                _logger.LogError(ex, "Failed to parse Kaikki definition for entry: {Word}", entry.Word);
+                return new List<ParsedDefinition>
+                {
+                    new ParsedDefinition
+                    {
+                        MeaningTitle = entry.Word ?? "unnamed sense",
+                        Definition = entry.Definition ?? string.Empty,
+                        RawFragment = entry.Definition ?? string.Empty,
+                        SenseNumber = entry.SenseNumber
+                    }
+                };
             }
         }
 
         private IEnumerable<ParsedDefinition> ParseFromRawFragment(DictionaryEntry entry)
         {
-            var parsingData = JsonConvert.DeserializeObject<JObject>(entry.RawFragment);
-            if (parsingData == null)
-            {
-                logger.LogWarning("Failed to deserialize Kaikki raw fragment for: {Word}", entry.Word);
-                return ParseFromDefinition(entry);
-            }
+            var rawData = JsonSerializer.Deserialize<KaikkiRawData>(entry.RawFragment!, _jsonOptions);
+            if (rawData == null)
+                return ParseFromFormattedDefinition(entry);
 
-            var word = parsingData["Word"]?.Value<string>() ?? entry.Word;
-            var partOfSpeech = parsingData["PartOfSpeech"]?.Value<string>();
-            var senseNumber = parsingData["SenseNumber"]?.Value<int>() ?? entry.SenseNumber;
-
-            var senseToken = parsingData["Sense"];
-            if (senseToken == null)
-            {
-                return ParseFromDefinition(entry);
-            }
-
-            var sense = senseToken.ToObject<KaikkiSense>();
-            if (sense == null)
-            {
-                return ParseFromDefinition(entry);
-            }
-
-            var synonyms = ExtractSynonyms(parsingData);
-            var crossRefs = ExtractCrossReferences(parsingData);
-            var examples = ExtractExamples(sense);
-
-            var definition = sense.Glosses != null && sense.Glosses.Count > 0
-                ? string.Join("; ", sense.Glosses.Select(CleanGloss))
-                : entry.Definition;
-
-            var parsedDefinition = new ParsedDefinition
-            {
-                MeaningTitle = word,
-                Definition = definition,
-                RawFragment = entry.RawFragment,
-                SenseNumber = senseNumber,
-                Domain = ExtractDomain(sense),
-                UsageLabel = ExtractUsageLabel(sense),
-                CrossReferences = crossRefs,
-                Synonyms = synonyms,
-                Alias = ExtractAlias(parsingData)
-            };
-
-            if (examples.Count > 0)
-            {
-                parsedDefinition.Examples = examples;
-
-                if (!string.IsNullOrWhiteSpace(parsedDefinition.Definition))
-                {
-                    parsedDefinition.Definition += "\n【Examples】";
-                    foreach (var example in examples.Take(3))
-                    {
-                        parsedDefinition.Definition += $"\n• {example}";
-                    }
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(partOfSpeech))
-            {
-                parsedDefinition.PartOfSpeech = NormalizePartOfSpeech(partOfSpeech);
-            }
-
-            return new List<ParsedDefinition> { parsedDefinition };
-        }
-
-        private IEnumerable<ParsedDefinition> ParseFromDefinition(DictionaryEntry entry)
-        {
-            var parsed = new ParsedDefinition
+            var parsedDef = new ParsedDefinition
             {
                 MeaningTitle = entry.Word ?? "unnamed sense",
-                Definition = entry.Definition ?? string.Empty,
-                RawFragment = entry.RawFragment ?? string.Empty,
+                Definition = rawData.Sense ?? ExtractMainDefinition(entry.Definition),
+                RawFragment = entry.Definition,
                 SenseNumber = entry.SenseNumber,
-                Domain = ExtractDomainFromText(entry.Definition),
-                UsageLabel = ExtractUsageLabelFromText(entry.Definition),
-                CrossReferences = ExtractCrossReferencesFromText(entry.Definition),
-                Synonyms = ExtractSynonymsFromText(entry.Definition),
-                Alias = null
+                Domain = ExtractDomainFromRawData(rawData),
+                UsageLabel = rawData.Pos
             };
 
-            var examples = ExtractExamplesFromText(entry.Definition);
-            if (examples.Count > 0)
-            {
-                parsed.Examples = examples;
-            }
+            // Extract cross-references from synonyms, antonyms, and related words
+            parsedDef.CrossReferences = ExtractCrossReferences(rawData);
 
-            return new List<ParsedDefinition> { parsed };
+            // Extract synonyms
+            parsedDef.Synonyms = ExtractSynonymsFromRawData(rawData);
+
+            // Extract alias (alternative forms)
+            parsedDef.Alias = ExtractAliasFromRawData(rawData);
+
+            return new List<ParsedDefinition> { parsedDef };
         }
 
-        private List<string> ExtractExamples(KaikkiSense sense)
+        private IEnumerable<ParsedDefinition> ParseFromFormattedDefinition(DictionaryEntry entry)
         {
-            var examples = new List<string>();
+            var cleanDefinition = ExtractMainDefinition(entry.Definition);
+            var synonyms = ExtractSynonymsFromDefinition(entry.Definition);
+            var crossRefs = ExtractCrossReferencesFromDefinition(entry.Definition);
+            var examples = ExtractExamplesFromDefinition(entry.Definition);
+            var etymology = ExtractEtymologyFromDefinition(entry.Definition);
 
-            if (sense.Examples == null)
-                return examples;
-
-            foreach (var example in sense.Examples)
+            var parsedDef = new ParsedDefinition
             {
-                if (!string.IsNullOrWhiteSpace(example.Text))
+                MeaningTitle = entry.Word ?? "unnamed sense",
+                Definition = cleanDefinition,
+                RawFragment = entry.Definition,
+                SenseNumber = entry.SenseNumber,
+                Domain = ExtractDomain(entry.Definition),
+                UsageLabel = ExtractUsageLabel(entry.Definition),
+                CrossReferences = crossRefs,
+                Synonyms = synonyms.Count > 0 ? synonyms : null
+            };
+
+            // Add examples if found
+            if (examples.Count > 0)
+            {
+                parsedDef.Examples = examples;
+            }
+
+            return new List<ParsedDefinition> { parsedDef };
+        }
+
+        private string ExtractMainDefinition(string definition)
+        {
+            var lines = definition.Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => !string.IsNullOrWhiteSpace(line))
+                .ToList();
+
+            // Find the main definition line (not starting with markers)
+            var mainDefinition = lines.FirstOrDefault(line =>
+                !line.StartsWith("【Pronunciation】") &&
+                !line.StartsWith("【POS】") &&
+                !line.StartsWith("【Hyphenation】") &&
+                !line.StartsWith("【Sense") &&
+                !line.StartsWith("【Synonyms】") &&
+                !line.StartsWith("【Antonyms】") &&
+                !line.StartsWith("【Related】") &&
+                !line.StartsWith("【Examples】") &&
+                !line.StartsWith("【Forms】") &&
+                !line.StartsWith("【Etymology】") &&
+                !line.StartsWith("【Domain】") &&
+                !line.StartsWith("【Tags】") &&
+                !line.StartsWith("• "));
+
+            return mainDefinition ?? definition;
+        }
+
+        private List<string> ExtractSynonymsFromDefinition(string definition)
+        {
+            var synonyms = new List<string>();
+
+            if (!definition.Contains("【Synonyms】"))
+                return synonyms;
+
+            var lines = definition.Split('\n');
+            var inSynonymsSection = false;
+
+            foreach (var line in lines)
+            {
+                var trimmedLine = line.Trim();
+
+                if (trimmedLine.StartsWith("【Synonyms】"))
                 {
-                    var cleaned = CleanExampleText(example.Text);
-                    if (!string.IsNullOrWhiteSpace(cleaned))
+                    inSynonymsSection = true;
+                    continue;
+                }
+
+                if (inSynonymsSection)
+                {
+                    if (trimmedLine.StartsWith("【")) // New section started
+                        break;
+
+                    if (trimmedLine.StartsWith("• "))
                     {
-                        examples.Add(cleaned);
+                        var synonym = trimmedLine.Substring(2).Trim();
+
+                        // Remove any parenthetical sense info
+                        var parenIndex = synonym.IndexOf('(');
+                        if (parenIndex > 0)
+                            synonym = synonym.Substring(0, parenIndex).Trim();
+
+                        if (!string.IsNullOrWhiteSpace(synonym))
+                            synonyms.Add(synonym);
                     }
                 }
             }
 
-            return examples;
+            return synonyms;
         }
 
-        private List<string> ExtractExamplesFromText(string? definition)
+        private List<CrossReference> ExtractCrossReferencesFromDefinition(string definition)
+        {
+            var crossRefs = new List<CrossReference>();
+
+            // Extract from Related section
+            if (definition.Contains("【Related】"))
+            {
+                var lines = definition.Split('\n');
+                var inRelatedSection = false;
+
+                foreach (var line in lines)
+                {
+                    var trimmedLine = line.Trim();
+
+                    if (trimmedLine.StartsWith("【Related】"))
+                    {
+                        inRelatedSection = true;
+                        continue;
+                    }
+
+                    if (inRelatedSection)
+                    {
+                        if (trimmedLine.StartsWith("【")) // New section started
+                            break;
+
+                        if (trimmedLine.StartsWith("• "))
+                        {
+                            var related = trimmedLine.Substring(2).Trim();
+
+                            // Extract word and type
+                            var word = related;
+                            var type = "Related";
+
+                            var bracketIndex = related.IndexOf('[');
+                            if (bracketIndex > 0)
+                            {
+                                word = related.Substring(0, bracketIndex).Trim();
+                                type = related.Substring(bracketIndex + 1,
+                                    related.IndexOf(']') - bracketIndex - 1).Trim();
+                            }
+
+                            if (!string.IsNullOrWhiteSpace(word))
+                            {
+                                crossRefs.Add(new CrossReference
+                                {
+                                    TargetWord = word,
+                                    ReferenceType = type
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            return crossRefs;
+        }
+
+        private List<CrossReference> ExtractCrossReferences(KaikkiRawData rawData)
+        {
+            var crossRefs = new List<CrossReference>();
+
+            // Add related words
+            if (rawData.Related != null)
+            {
+                foreach (var related in rawData.Related)
+                {
+                    if (!string.IsNullOrWhiteSpace(related.Word))
+                    {
+                        crossRefs.Add(new CrossReference
+                        {
+                            TargetWord = related.Word,
+                            ReferenceType = related.Type ?? "Related"
+                        });
+                    }
+                }
+            }
+
+            return crossRefs;
+        }
+
+        private List<string> ExtractSynonymsFromRawData(KaikkiRawData rawData)
+        {
+            var synonyms = new List<string>();
+
+            if (rawData.Synonyms != null)
+            {
+                foreach (var synonym in rawData.Synonyms)
+                {
+                    if (!string.IsNullOrWhiteSpace(synonym.Word))
+                    {
+                        synonyms.Add(synonym.Word);
+                    }
+                }
+            }
+
+            return synonyms;
+        }
+
+        private string? ExtractAliasFromRawData(KaikkiRawData rawData)
+        {
+            if (rawData.Forms != null && rawData.Forms.Count > 0)
+            {
+                var forms = rawData.Forms
+                    .Where(f => !string.IsNullOrWhiteSpace(f.Form))
+                    .Select(f => f.Form!)
+                    .Distinct()
+                    .ToList();
+
+                if (forms.Count > 0)
+                {
+                    return string.Join(", ", forms.Take(3));
+                }
+            }
+
+            return null;
+        }
+
+        private List<string> ExtractExamplesFromDefinition(string definition)
         {
             var examples = new List<string>();
 
-            if (string.IsNullOrWhiteSpace(definition))
+            if (!definition.Contains("【Examples】"))
                 return examples;
 
             var lines = definition.Split('\n');
@@ -155,9 +314,9 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
             foreach (var line in lines)
             {
-                var trimmed = line.Trim();
+                var trimmedLine = line.Trim();
 
-                if (trimmed.StartsWith("【Examples】"))
+                if (trimmedLine.StartsWith("【Examples】"))
                 {
                     inExamplesSection = true;
                     continue;
@@ -165,18 +324,20 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
                 if (inExamplesSection)
                 {
-                    if (trimmed.StartsWith("【") || string.IsNullOrEmpty(trimmed))
-                    {
+                    if (trimmedLine.StartsWith("【")) // New section started
                         break;
-                    }
 
-                    if (trimmed.StartsWith("•"))
+                    if (trimmedLine.StartsWith("• "))
                     {
-                        var example = trimmed.Substring(1).Trim();
+                        var example = trimmedLine.Substring(2).Trim();
+
+                        // Remove translation part if present
+                        var pipeIndex = example.IndexOf('|');
+                        if (pipeIndex > 0)
+                            example = example.Substring(0, pipeIndex).Trim();
+
                         if (!string.IsNullOrWhiteSpace(example))
-                        {
                             examples.Add(example);
-                        }
                     }
                 }
             }
@@ -184,343 +345,137 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
             return examples;
         }
 
-        private List<string>? ExtractSynonyms(JObject parsingData)
+        private string? ExtractEtymologyFromDefinition(string definition)
         {
-            var synonyms = new List<string>();
-
-            var synonymsToken = parsingData["Synonyms"];
-            if (synonymsToken != null)
-            {
-                var synonymsList = synonymsToken.ToObject<List<KaikkiSynonym>>();
-                if (synonymsList != null)
-                {
-                    foreach (var synonym in synonymsList)
-                    {
-                        if (!string.IsNullOrWhiteSpace(synonym.Word))
-                        {
-                            synonyms.Add(synonym.Word.ToLowerInvariant());
-                        }
-                    }
-                }
-            }
-
-            return synonyms.Count > 0 ? synonyms.Distinct().ToList() : null;
-        }
-
-        private List<string>? ExtractSynonymsFromText(string? definition)
-        {
-            if (string.IsNullOrWhiteSpace(definition))
-                return null;
-
-            var synonyms = new List<string>();
-
-            var lines = definition.Split('\n');
-            foreach (var line in lines)
-            {
-                if (line.StartsWith("【Synonyms】"))
-                {
-                    var synonymsText = line["【Synonyms】".Length..].Trim();
-                    if (!string.IsNullOrWhiteSpace(synonymsText))
-                    {
-                        var words = synonymsText.Split(',');
-                        foreach (var word in words)
-                        {
-                            var trimmed = word.Trim();
-                            if (!string.IsNullOrWhiteSpace(trimmed))
-                            {
-                                synonyms.Add(trimmed.ToLowerInvariant());
-                            }
-                        }
-                    }
-                    break;
-                }
-            }
-
-            return synonyms.Count > 0 ? synonyms : null;
-        }
-
-        private List<CrossReference> ExtractCrossReferences(JObject parsingData)
-        {
-            var crossRefs = new List<CrossReference>();
-
-            var derivedToken = parsingData["Derived"];
-            if (derivedToken != null)
-            {
-                var derivedList = derivedToken.ToObject<List<KaikkiDerived>>();
-                if (derivedList != null)
-                {
-                    foreach (var derived in derivedList)
-                    {
-                        if (!string.IsNullOrWhiteSpace(derived.Word))
-                        {
-                            crossRefs.Add(new CrossReference
-                            {
-                                TargetWord = derived.Word,
-                                ReferenceType = "Derived"
-                            });
-                        }
-                    }
-                }
-            }
-
-            return crossRefs;
-        }
-
-        private List<CrossReference> ExtractCrossReferencesFromText(string? definition)
-        {
-            var crossRefs = new List<CrossReference>();
-
-            if (string.IsNullOrWhiteSpace(definition))
-                return crossRefs;
-
-            var lines = definition.Split('\n');
-            foreach (var line in lines)
-            {
-                if (line.StartsWith("【Derived】"))
-                {
-                    var derivedText = line["【Derived】".Length..].Trim();
-                    if (!string.IsNullOrWhiteSpace(derivedText))
-                    {
-                        var words = derivedText.Split(',');
-                        foreach (var word in words)
-                        {
-                            var trimmed = word.Trim();
-                            if (!string.IsNullOrWhiteSpace(trimmed))
-                            {
-                                crossRefs.Add(new CrossReference
-                                {
-                                    TargetWord = trimmed,
-                                    ReferenceType = "Derived"
-                                });
-                            }
-                        }
-                    }
-                    break;
-                }
-            }
-
-            return crossRefs;
-        }
-
-        private string? ExtractDomain(KaikkiSense sense)
-        {
-            // ✅ FIX: Categories is JToken now
-            var categories = sense.Categories.ToStringList();
-            if (categories.Count > 0)
-            {
-                foreach (var category in categories)
-                {
-                    if (!string.IsNullOrWhiteSpace(category))
-                    {
-                        var cleaned = CleanGloss(category);
-                        if (!string.IsNullOrWhiteSpace(cleaned))
-                        {
-                            return cleaned;
-                        }
-                    }
-                }
-            }
-
-            // fallback: topics
-            var topics = sense.Topics.ToStringList();
-            if (topics.Count > 0)
-            {
-                var topic = topics.FirstOrDefault();
-                if (!string.IsNullOrWhiteSpace(topic))
-                {
-                    var cleaned = CleanGloss(topic);
-                    if (!string.IsNullOrWhiteSpace(cleaned))
-                    {
-                        return cleaned;
-                    }
-                }
-            }
-
-            return null;
-        }
-
-        private string? ExtractDomainFromText(string? definition)
-        {
-            if (string.IsNullOrWhiteSpace(definition))
+            if (!definition.Contains("【Etymology】"))
                 return null;
 
             var lines = definition.Split('\n');
+            var inEtymologySection = false;
+            var etymologyLines = new List<string>();
+
             foreach (var line in lines)
             {
-                if (line.StartsWith("【Categories】"))
+                var trimmedLine = line.Trim();
+
+                if (trimmedLine.StartsWith("【Etymology】"))
                 {
-                    var categories = line["【Categories】".Length..].Trim();
-                    if (!string.IsNullOrWhiteSpace(categories))
-                    {
-                        var firstCategory = categories.Split(',').FirstOrDefault()?.Trim();
-                        return firstCategory;
-                    }
-                }
-                else if (line.StartsWith("【Topics】"))
-                {
-                    var topics = line["【Topics】".Length..].Trim();
-                    if (!string.IsNullOrWhiteSpace(topics))
-                    {
-                        var firstTopic = topics.Split(',').FirstOrDefault()?.Trim();
-                        return firstTopic;
-                    }
-                }
-            }
-
-            return null;
-        }
-
-        private string? ExtractUsageLabel(KaikkiSense sense)
-        {
-            var tags = sense.Tags.ToStringList();
-            if (tags.Count == 0)
-                return null;
-
-            foreach (var tag in tags)
-            {
-                if (string.IsNullOrWhiteSpace(tag))
+                    inEtymologySection = true;
                     continue;
-
-                if (tag.Contains("formal", StringComparison.OrdinalIgnoreCase) ||
-                    tag.Contains("informal", StringComparison.OrdinalIgnoreCase) ||
-                    tag.Contains("slang", StringComparison.OrdinalIgnoreCase) ||
-                    tag.Contains("archaic", StringComparison.OrdinalIgnoreCase) ||
-                    tag.Contains("literary", StringComparison.OrdinalIgnoreCase) ||
-                    tag.Contains("technical", StringComparison.OrdinalIgnoreCase))
-                {
-                    return tag;
                 }
-            }
 
-            return null;
-        }
-
-        private string? ExtractUsageLabelFromText(string? definition)
-        {
-            if (string.IsNullOrWhiteSpace(definition))
-                return null;
-
-            var lines = definition.Split('\n');
-            foreach (var line in lines)
-            {
-                if (line.StartsWith("【Tags】"))
+                if (inEtymologySection)
                 {
-                    var tags = line["【Tags】".Length..].Trim();
-                    if (!string.IsNullOrWhiteSpace(tags))
+                    if (trimmedLine.StartsWith("【")) // New section started
+                        break;
+
+                    if (!trimmedLine.StartsWith("• "))
                     {
-                        var tagList = tags.Split(',');
-                        foreach (var tag in tagList)
-                        {
-                            var trimmed = tag.Trim();
-
-                            if (trimmed.Contains("formal", StringComparison.OrdinalIgnoreCase) ||
-                                trimmed.Contains("informal", StringComparison.OrdinalIgnoreCase) ||
-                                trimmed.Contains("slang", StringComparison.OrdinalIgnoreCase) ||
-                                trimmed.Contains("archaic", StringComparison.OrdinalIgnoreCase) ||
-                                trimmed.Contains("literary", StringComparison.OrdinalIgnoreCase) ||
-                                trimmed.Contains("technical", StringComparison.OrdinalIgnoreCase))
-                            {
-                                return trimmed;
-                            }
-                        }
+                        etymologyLines.Add(trimmedLine);
                     }
-                    break;
                 }
             }
 
-            return null;
+            return etymologyLines.Count > 0 ? string.Join(" ", etymologyLines) : null;
         }
 
-        private string? ExtractAlias(JObject parsingData)
+        private string? ExtractDomain(string definition)
         {
-            return null;
-        }
-
-        private string CleanGloss(string gloss)
-        {
-            if (string.IsNullOrWhiteSpace(gloss))
-                return string.Empty;
-
-            gloss = Regex.Replace(gloss, @"\{\{.*?\}\}", string.Empty);
-            gloss = Regex.Replace(gloss, @"\[\[.*?\]\]", string.Empty);
-            gloss = Regex.Replace(gloss, @"'''(.*?)'''", "$1");
-            gloss = Regex.Replace(gloss, @"''(.*?)''", "$1");
-
-            gloss = gloss.Replace("&lt;", "<")
-                .Replace("&gt;", ">")
-                .Replace("&amp;", "&")
-                .Replace("&quot;", "\"");
-
-            return gloss.Trim();
-        }
-
-        private string CleanExampleText(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return string.Empty;
-
-            text = CleanGloss(text);
-
-            text = text.Trim();
-            if (!text.EndsWith(".") && !text.EndsWith("!") && !text.EndsWith("?"))
-            {
-                text += ".";
-            }
-
-            if (text.Length > 0 && char.IsLower(text[0]))
-            {
-                text = char.ToUpper(text[0]) + text.Substring(1);
-            }
-
-            return text;
-        }
-
-        private string? NormalizePartOfSpeech(string? pos)
-        {
-            if (string.IsNullOrWhiteSpace(pos))
+            if (!definition.Contains("【Domain】"))
                 return null;
 
-            var normalized = pos.Trim().ToLowerInvariant();
-
-            return normalized switch
+            var domainMatch = Regex.Match(definition, @"【Domain】(.+?)(?=\n【|$)");
+            if (domainMatch.Success)
             {
-                "noun" => "noun",
-                "verb" => "verb",
-                "adj" => "adj",
-                "adjective" => "adj",
-                "adv" => "adv",
-                "adverb" => "adv",
-                "prep" => "preposition",
-                "preposition" => "preposition",
-                "pron" => "pronoun",
-                "pronoun" => "pronoun",
-                "conj" => "conjunction",
-                "conjunction" => "conjunction",
-                "interj" => "exclamation",
-                "interjection" => "exclamation",
-                "exclamation" => "exclamation",
-                "abbr" => "abbreviation",
-                "abbreviation" => "abbreviation",
-                "pref" => "prefix",
-                "prefix" => "prefix",
-                "suf" => "suffix",
-                "suffix" => "suffix",
-                "num" => "numeral",
-                "numeral" => "numeral",
-                "art" => "determiner",
-                "article" => "determiner",
-                "determiner" => "determiner",
-                "aux" => "auxiliary",
-                "auxiliary" => "auxiliary",
-                "modal" => "modal",
-                "part" => "particle",
-                "particle" => "particle",
-                "phrase" => "phrase",
-                "symbol" => "symbol",
-                "character" => "character",
-                "letter" => "letter",
-                _ => normalized
-            };
+                return domainMatch.Groups[1].Value.Trim();
+            }
+            return null;
+        }
+
+        private string? ExtractDomainFromRawData(KaikkiRawData rawData)
+        {
+            var domainParts = new List<string>();
+
+            if (rawData.Categories != null && rawData.Categories.Count > 0)
+            {
+                domainParts.Add($"Categories: {string.Join(", ", rawData.Categories.Take(2))}");
+            }
+
+            if (rawData.Topics != null && rawData.Topics.Count > 0)
+            {
+                domainParts.Add($"Topics: {string.Join(", ", rawData.Topics.Take(2))}");
+            }
+
+            return domainParts.Count > 0 ? string.Join("; ", domainParts) : null;
+        }
+
+        private string? ExtractUsageLabel(string definition)
+        {
+            var posMatch = Regex.Match(definition, @"【POS】(.+)");
+            if (posMatch.Success)
+            {
+                return posMatch.Groups[1].Value.Trim();
+            }
+            return null;
+        }
+
+        // Helper classes for raw data deserialization
+        private class KaikkiRawData
+        {
+            public string? Word { get; set; }
+            public string? Pos { get; set; }
+            public string? Sense { get; set; }
+            public List<KaikkiRawSynonym>? Synonyms { get; set; }
+            public List<KaikkiRawAntonym>? Antonyms { get; set; }
+            public List<KaikkiRawRelated>? Related { get; set; }
+            public List<KaikkiRawExample>? Examples { get; set; }
+            public List<KaikkiRawForm>? Forms { get; set; }
+            public List<string>? Categories { get; set; }
+            public List<string>? Topics { get; set; }
+            public List<string>? Tags { get; set; }
+            public string? Etymology { get; set; }
+            public List<KaikkiRawTranslation>? Translations { get; set; }
+        }
+
+        private class KaikkiRawSynonym
+        {
+            public string? Word { get; set; }
+            public string? Sense { get; set; }
+            public string? Language { get; set; }
+        }
+
+        private class KaikkiRawAntonym
+        {
+            public string? Word { get; set; }
+            public string? Sense { get; set; }
+        }
+
+        private class KaikkiRawRelated
+        {
+            public string? Word { get; set; }
+            public string? Type { get; set; }
+            public string? Sense { get; set; }
+        }
+
+        private class KaikkiRawExample
+        {
+            public string? Text { get; set; }
+            public string? Translation { get; set; }
+            public string? Language { get; set; }
+        }
+
+        private class KaikkiRawForm
+        {
+            public string? Form { get; set; }
+            public List<string>? Tags { get; set; }
+        }
+
+        private class KaikkiRawTranslation
+        {
+            public string? Language { get; set; }
+            public string? Code { get; set; }
+            public string? Word { get; set; }
+            public string? Sense { get; set; }
         }
     }
 }

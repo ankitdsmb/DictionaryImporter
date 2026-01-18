@@ -52,5 +52,4 @@ global using DictionaryImporter.Sources.Gutenberg.Parsing;
 global using DictionaryImporter.Sources.Kaikki.Models;
 global using Microsoft.Extensions.Options;
 global using Newtonsoft.Json;
-global using Serilog;
 global using JsonSerializer = System.Text.Json.JsonSerializer;
