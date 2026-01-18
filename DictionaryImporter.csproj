@@ -48,40 +48,52 @@
     <None Update="appsettings.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Data\century21 - Copy.txt">
+    <None Update="Resources\DataSource\Dictionaries\century21.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Data\century21.txt">
+    <None Update="Resources\DataSource\Dictionaries\Collins.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Data\Collins.txt">
+    <None Update="Resources\DataSource\Dictionaries\dictionary_1.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Data\dictionary_1.json">
+    <None Update="Resources\DataSource\Dictionaries\kaikki.sample.5000.jsonl">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Data\dictionary_1_complete.json">
+    <None Update="Resources\DataSource\Dictionaries\oxford.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Data\GutenbergWebsterSource.txt">
+    <None Update="Resources\DataSource\Dictionaries\test\century21.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Data\IPA\en_UK.txt">
+    <None Update="Resources\DataSource\Dictionaries\test\Collins.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Data\IPA\en_US.txt">
+    <None Update="Resources\DataSource\Dictionaries\test\dictionary_1.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Data\GutenbergWebsterSource_test.txt">
+    <None Update="Resources\DataSource\Dictionaries\test\GutenbergWebsterSource.txt">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\DataSource\Dictionaries\TheEnglishChineseDictionary.txt">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\DataSource\IPA\en_UK.txt">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\DataSource\IPA\en_US.txt">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\DataSource\Dictionaries\GutenbergWebsterSource.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="Data\kaikki.org-dictionary-English-words.jsonl">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Data\oxford.txt">
+    <None Update="Resources\DataSource\Dictionaries\test\oxford.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Data\TheEnglishChineseDictionary.txt">
+    <None Update="Resources\DataSource\Dictionaries\test\TheEnglishChineseDictionary.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="Gateway\Grammar\Configuration\grammar-rules.json">
