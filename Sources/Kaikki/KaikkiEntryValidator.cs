@@ -1,31 +1,36 @@
-﻿namespace DictionaryImporter.Sources.Kaikki
+﻿namespace DictionaryImporter.Sources.Kaikki.Validation
 {
     public sealed class KaikkiEntryValidator : IDictionaryEntryValidator
     {
+        private readonly ILogger<KaikkiEntryValidator> _logger;
+
+        public KaikkiEntryValidator(ILogger<KaikkiEntryValidator> logger)
+        {
+            _logger = logger;
+        }
+
         public ValidationResult Validate(DictionaryEntry entry)
         {
             if (string.IsNullOrWhiteSpace(entry.Word))
                 return ValidationResult.Invalid("Word missing");
 
-            if (string.IsNullOrWhiteSpace(entry.Definition))
-                return ValidationResult.Invalid("Definition missing");
+            // For Kaikki, we need to check if it's actually an English dictionary entry
+            if (!string.IsNullOrWhiteSpace(entry.RawFragment) &&
+                entry.RawFragment.Contains("\"lang_code\":\"en\""))
+            {
+                // This is an English entry
+                return ValidationResult.Valid();
+            }
 
-            if (string.IsNullOrWhiteSpace(entry.NormalizedWord))
-                return ValidationResult.Invalid("NormalizedWord missing");
+            // Check if it has English definitions
+            if (!string.IsNullOrWhiteSpace(entry.Definition) &&
+                entry.Definition.Length > 5)
+            {
+                return ValidationResult.Valid();
+            }
 
-            if (entry.Word.Length > 200)
-                return ValidationResult.Invalid("Word too long");
-
-            if (entry.Definition.Length < 3)
-                return ValidationResult.Invalid("Definition too short");
-
-            if (string.IsNullOrWhiteSpace(entry.SourceCode))
-                return ValidationResult.Invalid("SourceCode missing");
-
-            if (entry.SenseNumber <= 0)
-                return ValidationResult.Invalid("Invalid sense number");
-
-            return ValidationResult.Valid();
+            _logger.LogDebug("Skipping non-English Kaikki entry: {Word}", entry.Word);
+            return ValidationResult.Invalid("Not an English dictionary entry");
         }
     }
 }

@@ -17,5 +17,12 @@ namespace DictionaryImporter.Sources.Kaikki.Models
         public List<string> Tags { get; set; } = [];
         public List<KaikkiForm> Forms { get; set; } = [];
         public Dictionary<string, object>? RawData { get; set; }
+
+        public int SenseNumber { get; set; }
+        public string PartOfSpeech { get; set; } = null!;
+        public string Definition { get; set; } = null!;
+        public string? GrammarInfo { get; set; }
+        public string? DomainLabel { get; set; }
+        public string? UsageNote { get; set; }
     }
 }

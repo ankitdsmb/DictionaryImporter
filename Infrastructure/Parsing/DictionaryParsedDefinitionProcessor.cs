@@ -535,9 +535,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
             public int AudioExtracted { get; set; }
         }
 
-        /// <summary>
-        /// Extracts Kaikki-specific data from JSON fragments
-        /// </summary>
+        // Inside DictionaryParsedDefinitionProcessor class
         private class KaikkiDataExtractor
         {
             private readonly ILogger _logger;
@@ -553,14 +551,10 @@ namespace DictionaryImporter.Infrastructure.Parsing
             }
 
             public async Task<(int IpaCount, int AudioCount)> ExtractAndSavePronunciationAsync(
-                DictionaryEntry entry,
-                string rawFragment,
-                string sourceCode,
-                string connectionString,
-                CancellationToken ct)
+                DictionaryEntry entry, string rawFragment, string sourceCode,
+                string connectionString, CancellationToken ct)
             {
-                if (sourceCode != "KAIKKI" || !IsJson(rawFragment))
-                    return (0, 0);
+                if (sourceCode != "KAIKKI" || !IsJson(rawFragment)) return (0, 0);
 
                 try
                 {
@@ -585,9 +579,18 @@ namespace DictionaryImporter.Infrastructure.Parsing
                         }
 
                         // Extract audio URL
-                        if (sound.TryGetProperty("audio", out var audioProp) && audioProp.ValueKind == JsonValueKind.String)
+                        if (sound.TryGetProperty("mp3_url", out var mp3Prop) && mp3Prop.ValueKind == JsonValueKind.String)
                         {
-                            var audio = audioProp.GetString();
+                            var audio = mp3Prop.GetString();
+                            if (!string.IsNullOrWhiteSpace(audio))
+                            {
+                                await SaveAudioUrlAsync(entry, audio, connectionString, ct);
+                                audioCount++;
+                            }
+                        }
+                        else if (sound.TryGetProperty("ogg_url", out var oggProp) && oggProp.ValueKind == JsonValueKind.String)
+                        {
+                            var audio = oggProp.GetString();
                             if (!string.IsNullOrWhiteSpace(audio))
                             {
                                 await SaveAudioUrlAsync(entry, audio, connectionString, ct);
@@ -606,71 +609,77 @@ namespace DictionaryImporter.Infrastructure.Parsing
             }
 
             private async Task SaveIpaPronunciationAsync(
-                DictionaryEntry entry,
-                string ipa,
-                string connectionString,
-                CancellationToken ct)
+                DictionaryEntry entry, string ipa, string connectionString, CancellationToken ct)
             {
-                await using var conn = new SqlConnection(connectionString);
+                try
+                {
+                    await using var conn = new SqlConnection(connectionString);
+                    var canonicalWordId = await conn.ExecuteScalarAsync<long?>(
+                        """
+                SELECT CanonicalWordId
+                FROM dbo.CanonicalWord
+                WHERE NormalizedWord = @NormalizedWord
+                """,
+                        new { entry.NormalizedWord });
 
-                var canonicalWordId = await conn.ExecuteScalarAsync<long?>(
-                    """
-                    SELECT CanonicalWordId
-                    FROM dbo.CanonicalWord
-                    WHERE NormalizedWord = @NormalizedWord
-                    """,
-                    new { entry.NormalizedWord });
+                    if (!canonicalWordId.HasValue)
+                        return;
 
-                if (!canonicalWordId.HasValue)
-                    return;
+                    var normalizedIpa = CoreIpaNormalizer.Normalize(ipa);
 
-                var normalizedIpa = CoreIpaNormalizer.Normalize(ipa);
-
-                await conn.ExecuteAsync(
-                    """
-                    IF NOT EXISTS (
-                        SELECT 1
-                        FROM dbo.CanonicalWordPronunciation
-                        WHERE CanonicalWordId = @CanonicalWordId
-                        AND Ipa = @Ipa
-                    )
-                    BEGIN
-                        INSERT INTO dbo.CanonicalWordPronunciation
-                        (CanonicalWordId, LocaleCode, Ipa, CreatedUtc)
-                        VALUES (@CanonicalWordId, 'en', @Ipa, SYSUTCDATETIME())
-                    END
-                    """,
-                    new { canonicalWordId, Ipa = normalizedIpa });
+                    await conn.ExecuteAsync(
+                        """
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.CanonicalWordPronunciation
+                    WHERE CanonicalWordId = @CanonicalWordId
+                    AND Ipa = @Ipa
+                )
+                BEGIN
+                    INSERT INTO dbo.CanonicalWordPronunciation
+                    (CanonicalWordId, LocaleCode, Ipa, CreatedUtc)
+                    VALUES (@CanonicalWordId, 'en', @Ipa, SYSUTCDATETIME())
+                END
+                """,
+                        new { canonicalWordId, Ipa = normalizedIpa });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to save IPA pronunciation for word: {Word}", entry.Word);
+                }
             }
 
             private async Task SaveAudioUrlAsync(
-                DictionaryEntry entry,
-                string audioUrl,
-                string connectionString,
-                CancellationToken ct)
+                DictionaryEntry entry, string audioUrl, string connectionString, CancellationToken ct)
             {
-                if (!audioUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                    audioUrl = $"https:{audioUrl}";
+                try
+                {
+                    if (!audioUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                        audioUrl = $"https:{audioUrl}";
 
-                await EnsureAudioTableExistsAsync(connectionString);
+                    await EnsureAudioTableExistsAsync(connectionString);
 
-                await using var conn = new SqlConnection(connectionString);
-
-                await conn.ExecuteAsync(
-                    """
-                    IF NOT EXISTS (
-                        SELECT 1
-                        FROM dbo.WordAudio
-                        WHERE Word = @Word
-                        AND AudioUrl = @AudioUrl
-                    )
-                    BEGIN
-                        INSERT INTO dbo.WordAudio
-                        (Word, AudioUrl, SourceCode, CreatedUtc)
-                        VALUES (@Word, @AudioUrl, @SourceCode, SYSUTCDATETIME())
-                    END
-                    """,
-                    new { entry.Word, AudioUrl = audioUrl, entry.SourceCode });
+                    await using var conn = new SqlConnection(connectionString);
+                    await conn.ExecuteAsync(
+                        """
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.WordAudio
+                    WHERE Word = @Word
+                    AND AudioUrl = @AudioUrl
+                )
+                BEGIN
+                    INSERT INTO dbo.WordAudio
+                    (Word, AudioUrl, SourceCode, CreatedUtc)
+                    VALUES (@Word, @AudioUrl, @SourceCode, SYSUTCDATETIME())
+                END
+                """,
+                        new { entry.Word, AudioUrl = audioUrl, entry.SourceCode });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to save audio URL for word: {Word}", entry.Word);
+                }
             }
 
             private async Task EnsureAudioTableExistsAsync(string connectionString)
@@ -680,24 +689,24 @@ namespace DictionaryImporter.Infrastructure.Parsing
                     await using var conn = new SqlConnection(connectionString);
                     await conn.ExecuteAsync(
                         """
-                        IF NOT EXISTS (
-                            SELECT 1
-                            FROM INFORMATION_SCHEMA.TABLES
-                            WHERE TABLE_NAME = 'WordAudio'
-                        )
-                        BEGIN
-                            CREATE TABLE dbo.WordAudio (
-                                WordAudioId bigint IDENTITY(1,1) PRIMARY KEY,
-                                Word nvarchar(200) NOT NULL,
-                                AudioUrl nvarchar(500) NOT NULL,
-                                SourceCode nvarchar(50) NOT NULL,
-                                CreatedUtc datetime2 NOT NULL DEFAULT SYSUTCDATETIME()
-                            )
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_NAME = 'WordAudio'
+                )
+                BEGIN
+                    CREATE TABLE dbo.WordAudio (
+                        WordAudioId bigint IDENTITY(1,1) PRIMARY KEY,
+                        Word nvarchar(200) NOT NULL,
+                        AudioUrl nvarchar(500) NOT NULL,
+                        SourceCode nvarchar(50) NOT NULL,
+                        CreatedUtc datetime2 NOT NULL DEFAULT SYSUTCDATETIME()
+                    )
 
-                            CREATE INDEX IX_WordAudio_Word ON dbo.WordAudio (Word)
-                            CREATE INDEX IX_WordAudio_SourceCode ON dbo.WordAudio (SourceCode)
-                        END
-                        """);
+                    CREATE INDEX IX_WordAudio_Word ON dbo.WordAudio (Word)
+                    CREATE INDEX IX_WordAudio_SourceCode ON dbo.WordAudio (SourceCode)
+                END
+                """);
                 }
                 catch
                 {
@@ -705,59 +714,10 @@ namespace DictionaryImporter.Infrastructure.Parsing
                 }
             }
 
-            public async Task<int> ExtractCrossReferencesFromJsonAsync(
-                long parsedId,
-                string rawFragment,
-                SqlDictionaryEntryCrossReferenceWriter crossRefWriter,
-                CancellationToken ct)
-            {
-                if (!IsJson(rawFragment))
-                    return 0;
-
-                try
-                {
-                    var rawData = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(rawFragment, _jsonOptions);
-                    if (rawData == null || !rawData.TryGetValue("related", out var relatedElement))
-                        return 0;
-
-                    var count = 0;
-                    foreach (var related in relatedElement.EnumerateArray())
-                    {
-                        if (related.TryGetProperty("word", out var wordProp) && wordProp.ValueKind == JsonValueKind.String)
-                        {
-                            var word = wordProp.GetString();
-                            var type = "related";
-
-                            if (related.TryGetProperty("type", out var typeProp) && typeProp.ValueKind == JsonValueKind.String)
-                                type = typeProp.GetString()!;
-
-                            if (!string.IsNullOrWhiteSpace(word))
-                            {
-                                await crossRefWriter.WriteAsync(
-                                    parsedId,
-                                    new CrossReference { TargetWord = word, ReferenceType = type },
-                                    ct);
-                                count++;
-                            }
-                        }
-                    }
-                    return count;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Failed to extract cross-references from JSON");
-                    return 0;
-                }
-            }
-
             public async Task<int> ExtractAliasesFromJsonAsync(
-                long parsedId,
-                string rawFragment,
-                SqlDictionaryAliasWriter aliasWriter,
-                CancellationToken ct)
+                long parsedId, string rawFragment, SqlDictionaryAliasWriter aliasWriter, CancellationToken ct)
             {
-                if (!IsJson(rawFragment))
-                    return 0;
+                if (!IsJson(rawFragment)) return 0;
 
                 try
                 {
@@ -778,6 +738,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
                             }
                         }
                     }
+
                     return count;
                 }
                 catch (Exception ex)
@@ -787,12 +748,56 @@ namespace DictionaryImporter.Infrastructure.Parsing
                 }
             }
 
+            public async Task<int> ExtractCrossReferencesFromJsonAsync(
+                long parsedId, string rawFragment, SqlDictionaryEntryCrossReferenceWriter crossRefWriter, CancellationToken ct)
+            {
+                if (!IsJson(rawFragment)) return 0;
+
+                try
+                {
+                    var rawData = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(rawFragment, _jsonOptions);
+                    if (rawData == null || !rawData.TryGetValue("related", out var relatedElement))
+                        return 0;
+
+                    var count = 0;
+                    foreach (var related in relatedElement.EnumerateArray())
+                    {
+                        if (related.TryGetProperty("word", out var wordProp) && wordProp.ValueKind == JsonValueKind.String)
+                        {
+                            var word = wordProp.GetString();
+                            var type = "related";
+
+                            if (related.TryGetProperty("sense", out var senseProp) && senseProp.ValueKind == JsonValueKind.String)
+                                type = senseProp.GetString() ?? "related";
+
+                            if (!string.IsNullOrWhiteSpace(word))
+                            {
+                                await crossRefWriter.WriteAsync(
+                                    parsedId,
+                                    new CrossReference
+                                    {
+                                        TargetWord = word,
+                                        ReferenceType = type
+                                    },
+                                    ct);
+                                count++;
+                            }
+                        }
+                    }
+
+                    return count;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to extract cross-references from JSON");
+                    return 0;
+                }
+            }
+
             public List<string> ExtractExamplesFromJson(string rawFragment)
             {
                 var examples = new List<string>();
-
-                if (!IsJson(rawFragment))
-                    return examples;
+                if (!IsJson(rawFragment)) return examples;
 
                 try
                 {
@@ -820,8 +825,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
 
             public string? ExtractDefinitionFromJson(string rawFragment)
             {
-                if (!IsJson(rawFragment))
-                    return null;
+                if (!IsJson(rawFragment)) return null;
 
                 try
                 {
@@ -840,11 +844,44 @@ namespace DictionaryImporter.Infrastructure.Parsing
                 return null;
             }
 
+            public bool IsEnglishEntry(string rawFragment)
+            {
+                if (!IsJson(rawFragment)) return false;
+
+                try
+                {
+                    var rawData = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(rawFragment, _jsonOptions);
+                    if (rawData == null) return false;
+
+                    // Check for English language
+                    if (rawData.TryGetValue("lang_code", out var langCode))
+                    {
+                        if (langCode.ValueKind == JsonValueKind.String)
+                            return langCode.GetString() == "en";
+                    }
+
+                    if (rawData.TryGetValue("lang", out var lang))
+                    {
+                        if (lang.ValueKind == JsonValueKind.String)
+                        {
+                            var langStr = lang.GetString();
+                            return langStr == "English" || langStr?.Contains("english", StringComparison.OrdinalIgnoreCase) == true;
+                        }
+                    }
+
+                    return false;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
             private static bool IsJson(string text)
             {
                 return !string.IsNullOrWhiteSpace(text) &&
-                       text.StartsWith("{") &&
-                       text.EndsWith("}");
+                       text.Trim().StartsWith("{") &&
+                       text.Trim().EndsWith("}");
             }
         }
 
