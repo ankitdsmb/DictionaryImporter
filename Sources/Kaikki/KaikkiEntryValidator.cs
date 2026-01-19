@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Sources.Kaikki.Validation
+﻿namespace DictionaryImporter.Sources.Kaikki
 {
     public sealed class KaikkiEntryValidator : IDictionaryEntryValidator
     {
@@ -14,23 +14,26 @@
             if (string.IsNullOrWhiteSpace(entry.Word))
                 return ValidationResult.Invalid("Word missing");
 
-            // For Kaikki, we need to check if it's actually an English dictionary entry
-            if (!string.IsNullOrWhiteSpace(entry.RawFragment) &&
-                entry.RawFragment.Contains("\"lang_code\":\"en\""))
+            // If RawFragment exists, use it as the source of truth
+            if (!string.IsNullOrWhiteSpace(entry.RawFragment))
             {
-                // This is an English entry
-                return ValidationResult.Valid();
+                var isEnglish =
+                    entry.RawFragment.Contains("\"lang_code\":\"en\"", StringComparison.OrdinalIgnoreCase) ||
+                    entry.RawFragment.Contains("\"lang_code\": \"en\"", StringComparison.OrdinalIgnoreCase);
+
+                if (isEnglish)
+                    return ValidationResult.Valid();
+
+                _logger.LogDebug("Skipping non-English Kaikki entry: {Word}", entry.Word);
+                return ValidationResult.Invalid("Not an English dictionary entry");
             }
 
-            // Check if it has English definitions
-            if (!string.IsNullOrWhiteSpace(entry.Definition) &&
-                entry.Definition.Length > 5)
-            {
+            // Fallback only when raw fragment is missing
+            if (!string.IsNullOrWhiteSpace(entry.Definition) && entry.Definition.Length > 5)
                 return ValidationResult.Valid();
-            }
 
-            _logger.LogDebug("Skipping non-English Kaikki entry: {Word}", entry.Word);
-            return ValidationResult.Invalid("Not an English dictionary entry");
+            _logger.LogDebug("Skipping Kaikki entry due to missing content: {Word}", entry.Word);
+            return ValidationResult.Invalid("Insufficient entry content");
         }
     }
 }

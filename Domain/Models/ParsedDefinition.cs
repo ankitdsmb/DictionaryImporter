@@ -9,8 +9,8 @@
         public string MeaningTitle { get; set; } = null!;
 
         public int? SenseNumber { get; set; }
-        public string Definition { get; set; } = null!;
-        public string RawFragment { get; set; } = null!;
+        public string? Definition { get; set; } = null!;
+        public string? RawFragment { get; set; } = null!;
 
         public string? Domain { get; set; }
 

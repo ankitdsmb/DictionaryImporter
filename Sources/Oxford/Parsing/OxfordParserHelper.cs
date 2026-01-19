@@ -1,6 +1,6 @@
 ﻿namespace DictionaryImporter.Sources.Oxford.Parsing
 {
-    public static class OxfordParserHelper
+    public static class OxfordSourceDataHelper
     {
         public static bool TryParseHeadwordLine(string line,
             out string headword,

@@ -1,10 +1,21 @@
-﻿using HtmlAgilityPack;
+﻿using System.Collections.Generic;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
+using DictionaryImporter.Sources.Common.Helper;
+using HtmlAgilityPack;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Century21
 {
-    public sealed class Country21Extractor(ILogger<Country21Extractor> logger) : IDataExtractor<Century21RawEntry>
+    public sealed class Century21Extractor(ILogger<Century21Extractor> logger) : IDataExtractor<Century21RawEntry>
     {
-        public async IAsyncEnumerable<Century21RawEntry> ExtractAsync(Stream stream, [EnumeratorCancellation] CancellationToken ct)
+        private const string SourceCode = "CENTURY21";
+
+        public async IAsyncEnumerable<Century21RawEntry> ExtractAsync(
+            Stream stream,
+            [EnumeratorCancellation] CancellationToken ct)
         {
             using var reader = new StreamReader(stream);
             var htmlContent = await reader.ReadToEndAsync(ct);
@@ -12,11 +23,12 @@ namespace DictionaryImporter.Sources.Century21
             var doc = new HtmlDocument();
             doc.LoadHtml(htmlContent);
 
-            var wordBlocks = doc.DocumentNode.SelectNodes("//div[@class='word_block']");
+            // ✅ FIX: works even if multiple classes exist
+            var wordBlocks = doc.DocumentNode.SelectNodes("//div[contains(@class,'word_block')]");
 
             if (wordBlocks == null)
             {
-                logger.LogWarning("No word blocks found in Country21 source");
+                logger.LogWarning("No word blocks found in Century21 source");
                 yield break;
             }
 
@@ -27,6 +39,10 @@ namespace DictionaryImporter.Sources.Century21
                 var entry = ParseWordBlock(block);
                 if (entry != null)
                 {
+                    // ✅ STRICT: stop reading once max reached
+                    if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
+                        yield break;
+
                     logger.LogDebug("Extracted entry: {Headword}", entry.Headword);
                     yield return entry;
                 }
@@ -41,25 +57,31 @@ namespace DictionaryImporter.Sources.Century21
                 if (headwordNode == null)
                     return null;
 
-                var headword = CleanText(headwordNode.InnerText);
+                var headword = Century21HtmlTextHelper.CleanText(headwordNode.InnerText);
 
                 var phoneticsNode = block.SelectSingleNode(".//span[@class='phonetics']");
-                var phonetics = phoneticsNode != null ? CleanText(phoneticsNode.InnerText) : null;
+                var phonetics = phoneticsNode != null
+                    ? Century21HtmlTextHelper.CleanText(phoneticsNode.InnerText)
+                    : null;
 
                 var basicDef = block.SelectSingleNode(".//div[@class='basic_def']");
                 var posNode = basicDef?.SelectSingleNode(".//span[@class='pos']");
-                var pos = posNode != null ? CleanText(posNode.InnerText) : null;
+                var pos = posNode != null
+                    ? Century21HtmlTextHelper.CleanText(posNode.InnerText)
+                    : null;
 
                 var definitionNode = basicDef?.SelectSingleNode(".//span[@class='definition']");
-                var definition = definitionNode != null ? CleanText(definitionNode.InnerText) : null;
+                var definition = definitionNode != null
+                    ? Century21HtmlTextHelper.CleanText(definitionNode.InnerText)
+                    : null;
 
                 var grammarNode = basicDef?.SelectSingleNode(".//span[@class='gram']");
-                var grammarInfo = grammarNode != null ? CleanText(grammarNode.InnerText) : null;
+                var grammarInfo = grammarNode != null
+                    ? Century21HtmlTextHelper.CleanText(grammarNode.InnerText)
+                    : null;
 
                 var examples = ExtractExamples(basicDef);
-
                 var variants = ExtractVariants(block);
-
                 var idioms = ExtractIdioms(block);
 
                 if (string.IsNullOrWhiteSpace(headword) || string.IsNullOrWhiteSpace(definition))
@@ -104,8 +126,8 @@ namespace DictionaryImporter.Sources.Century21
                 {
                     examples.Add(new Country21Example
                     {
-                        English = CleanText(englishNode.InnerText),
-                        Chinese = chineseNode != null ? CleanText(chineseNode.InnerText) : null
+                        English = Century21HtmlTextHelper.CleanText(englishNode.InnerText),
+                        Chinese = chineseNode != null ? Century21HtmlTextHelper.CleanText(chineseNode.InnerText) : null
                     });
                 }
             }
@@ -130,10 +152,11 @@ namespace DictionaryImporter.Sources.Century21
                 {
                     var variant = new Country21Variant
                     {
-                        PartOfSpeech = posNode != null ? CleanText(posNode.InnerText) : null,
-                        Definition = CleanText(definitionNode.InnerText),
+                        PartOfSpeech = posNode != null ? Century21HtmlTextHelper.CleanText(posNode.InnerText) : null,
+                        Definition = Century21HtmlTextHelper.CleanText(definitionNode.InnerText),
                         Examples = ExtractExamples(variantNode)
                     };
+
                     variants.Add(variant);
                 }
             }
@@ -158,31 +181,16 @@ namespace DictionaryImporter.Sources.Century21
                 {
                     var idiom = new Country21Idiom
                     {
-                        Headword = CleanText(headwordNode.InnerText),
-                        Definition = CleanText(definitionNode.InnerText),
+                        Headword = Century21HtmlTextHelper.CleanText(headwordNode.InnerText),
+                        Definition = Century21HtmlTextHelper.CleanText(definitionNode.InnerText),
                         Examples = ExtractExamples(idiomNode)
                     };
+
                     idioms.Add(idiom);
                 }
             }
 
             return idioms;
-        }
-
-        private static string CleanText(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return string.Empty;
-
-            text = Regex.Replace(text, @"\s+", " ");
-            text = text.Replace("&nbsp;", " ")
-                .Replace("&lt;", "<")
-                .Replace("&gt;", ">")
-                .Replace("&amp;", "&")
-                .Replace("&quot;", "\"")
-                .Replace("&apos;", "'");
-
-            return text.Trim();
         }
     }
 }

@@ -47,7 +47,6 @@ global using DictionaryImporter.Infrastructure.Qa;
 global using DictionaryImporter.Infrastructure.Verification;
 global using DictionaryImporter.Sources;
 global using DictionaryImporter.Sources.Century21.Models;
-global using DictionaryImporter.Sources.Collins.parsing;
 global using DictionaryImporter.Sources.Gutenberg.Parsing;
 global using DictionaryImporter.Sources.Kaikki.Models;
 global using Microsoft.Extensions.Options;

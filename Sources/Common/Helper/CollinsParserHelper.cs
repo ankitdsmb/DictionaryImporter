@@ -1,10 +1,10 @@
-﻿namespace DictionaryImporter.Sources.Collins.parsing
+﻿namespace DictionaryImporter.Sources.Common.Helper
 {
     /// <summary>
     ///     Static helper class for Collins dictionary parsing operations.
     ///     Contains regex patterns and helper methods for text extraction and cleaning.
     /// </summary>
-    public static class CollinsParserHelper
+    public static class CollinsSourceDataHelper
     {
         #region Compiled Regex Patterns (Optimized for Performance)
 

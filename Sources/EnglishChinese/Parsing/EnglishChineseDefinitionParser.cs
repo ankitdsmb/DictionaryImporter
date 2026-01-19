@@ -1,72 +1,35 @@
-﻿namespace DictionaryImporter.Sources.EnglishChinese.Parsing
+﻿using DictionaryImporter.Sources.Common.Helper;
+using DictionaryImporter.Sources.Common.Parsing;
+
+namespace DictionaryImporter.Sources.EnglishChinese.Parsing
 {
-    public sealed class EnglishChineseDefinitionParser
-        : IDictionaryDefinitionParser
+    public sealed class EnglishChineseDefinitionParser : ISourceDictionaryDefinitionParser
     {
-        private static readonly Regex IpaRegex =
-            new(@"/[^/]+/",
-                RegexOptions.Compiled);
+        public string SourceCode => "ENG_CHN";
 
-        private static readonly Regex EnglishSyllableRegex =
-            new(
-                @"^\s*[A-Za-z]+(?:·[A-Za-z]+)+\s*",
-                RegexOptions.Compiled);
-
-        private static readonly Regex PosRegex =
-            new(
-                @"^\s*(n\.|v\.|a\.|adj\.|ad\.|adv\.|vt\.|vi\.|abbr\.)\s+",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        private static readonly Regex PosOnlyRegex =
-            new(
-                @"^\s*(n\.|v\.|a\.|adj\.|ad\.|adv\.|vt\.|vi\.|abbr\.)\s*$",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        public IEnumerable<ParsedDefinition> Parse(
-            DictionaryEntry entry)
+        public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
         {
-            var working = entry.Definition;
-
-            if (string.IsNullOrWhiteSpace(working))
-                yield break;
-
-            working = IpaRegex.Replace(working, string.Empty);
-
-            working = EnglishSyllableRegex.Replace(working, string.Empty);
-
-            working = PosRegex.Replace(working, string.Empty);
-
-            if (!string.IsNullOrWhiteSpace(entry.Word))
+            if (string.IsNullOrWhiteSpace(entry.Definition))
             {
-                var hw = Regex.Escape(entry.Word);
-                working = Regex.Replace(
-                    working,
-                    @"^\s*" + hw + @"\s+",
-                    string.Empty,
-                    RegexOptions.IgnoreCase);
-            }
-
-            working = working.Replace("⬄", "");
-
-            working = Regex.Replace(working, @"\s+", " ").Trim();
-
-            if (string.IsNullOrWhiteSpace(working) || PosOnlyRegex.IsMatch(working))
-            {
-                yield return new ParsedDefinition
-                {
-                    Definition = null,
-                    RawFragment = entry.Definition,
-                    SenseNumber = entry.SenseNumber
-                };
+                yield return SourceDataHelper.CreateFallbackParsedDefinition(entry);
                 yield break;
             }
 
-            yield return new ParsedDefinition
+            var cleanedDefinition = TextProcessingHelper.CleanDefinition(
+                entry.Definition,
+                entry.Word,
+                '⬄');
+
+            if (!TextProcessingHelper.IsValidDefinition(cleanedDefinition))
             {
-                Definition = working,
-                RawFragment = entry.Definition,
-                SenseNumber = entry.SenseNumber
-            };
+                yield return SourceDataHelper.CreateFallbackParsedDefinition(entry);
+                yield break;
+            }
+
+            // ✅ ensure returned object has CrossReferences list initialized (never null)
+            var parsed = TextProcessingHelper.CreateParsedDefinition(entry, cleanedDefinition);
+
+            yield return parsed;
         }
     }
 }

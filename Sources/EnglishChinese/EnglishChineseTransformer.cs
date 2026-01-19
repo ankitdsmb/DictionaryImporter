@@ -1,49 +1,62 @@
-﻿namespace DictionaryImporter.Sources.EnglishChinese
+﻿using DictionaryImporter.Sources.Common.Helper;
+
+namespace DictionaryImporter.Sources.EnglishChinese
 {
-    public sealed class EnglishChineseTransformer
+    public sealed class EnglishChineseTransformer(ILogger<EnglishChineseTransformer> logger)
         : IDataTransformer<EnglishChineseRawEntry>
     {
-        public IEnumerable<DictionaryEntry> Transform(
-            EnglishChineseRawEntry raw)
+        private const string SourceCode = "ENG_CHN";
+
+        public IEnumerable<DictionaryEntry> Transform(EnglishChineseRawEntry raw)
         {
+            if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
+                yield break;
+
+            // SAFETY: do not crash pipeline if raw is unexpectedly null
             if (raw == null)
-                throw new ArgumentNullException(nameof(raw));
-
-            var idx = raw.RawLine.IndexOf('⬄');
-            if (idx < 0 || idx == raw.RawLine.Length - 1)
                 yield break;
 
-            var rhs = raw.RawLine.Substring(idx + 1).Trim();
-
-            if (rhs.Length == 0)
-                yield break;
-
-            yield return new DictionaryEntry
-            {
-                Word = raw.Headword,
-                NormalizedWord = Normalize(raw.Headword),
-                Definition = rhs,
-                SenseNumber = 1,
-                SourceCode = "ENG_CHN",
-                CreatedUtc = DateTime.UtcNow
-            };
+            foreach (var entry in ProcessEnglishChineseEntry(raw))
+                yield return entry;
         }
 
-        private static string Normalize(string input)
+        private IEnumerable<DictionaryEntry> ProcessEnglishChineseEntry(EnglishChineseRawEntry raw)
         {
-            if (string.IsNullOrWhiteSpace(input))
-                return input;
+            var entries = new List<DictionaryEntry>();
 
-            var s = input.ToLowerInvariant();
+            try
+            {
+                var idx = raw.RawLine.IndexOf('⬄');
 
-            s = s.Replace("(", "")
-                .Replace(")", "");
+                if (idx >= 0 && idx < raw.RawLine.Length - 1)
+                {
+                    var rhs = raw.RawLine[(idx + 1)..].Trim();
 
-            s = s.Replace(",", " ");
+                    if (!string.IsNullOrEmpty(rhs))
+                    {
+                        entries.Add(new DictionaryEntry
+                        {
+                            Word = raw.Headword,
+                            NormalizedWord = SourceDataHelper.NormalizeWord(raw.Headword), // FIX
+                            Definition = rhs,
+                            RawFragment = raw.RawLine, // FIX
+                            SenseNumber = 1,
+                            SourceCode = SourceCode,
+                            CreatedUtc = DateTime.UtcNow
+                        });
+                    }
+                }
 
-            s = Regex.Replace(s, @"\s+", " ").Trim();
+                SourceDataHelper.LogProgress(logger, SourceCode, SourceDataHelper.GetCurrentCount(SourceCode));
+            }
+            catch (Exception ex)
+            {
+                // SAFETY: log and continue (no rethrow)
+                SourceDataHelper.HandleError(logger, ex, SourceCode, "transforming");
+            }
 
-            return s;
+            foreach (var entry in entries)
+                yield return entry;
         }
     }
 }

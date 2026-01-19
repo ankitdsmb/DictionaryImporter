@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing
+﻿using System.Text.RegularExpressions;
+
+namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
     internal static class WebsterUsageExtractor
     {
@@ -12,7 +14,9 @@
             if (string.IsNullOrWhiteSpace(definition))
                 return null;
 
-            var match = UsageRegex.Match(definition);
+            var text = definition.TrimStart();
+
+            var match = UsageRegex.Match(text);
             if (!match.Success)
                 return null;
 
@@ -22,21 +26,19 @@
                     .TrimEnd('.')
                     .ToLowerInvariant();
 
-            var usage =
-                raw switch
-                {
-                    "obs" => "obsolete",
-                    "r" => "rare",
-                    "archaic" => "archaic",
-                    _ => null
-                };
+            var usage = raw switch
+            {
+                "obs" => "obsolete",
+                "r" => "rare",
+                "archaic" => "archaic",
+                _ => null
+            };
 
             if (usage == null)
                 return null;
 
-            definition =
-                definition.Substring(match.Length)
-                    .TrimStart();
+            text = text.Substring(match.Length).TrimStart();
+            definition = text;
 
             return usage;
         }

@@ -1,7 +1,8 @@
-﻿namespace DictionaryImporter.Sources.Collins
+﻿using DictionaryImporter.Sources.Common;
+
+namespace DictionaryImporter.Sources.Collins
 {
-    public sealed class CollinsEntryValidator
-        : IDictionaryEntryValidator
+    public sealed class CollinsEntryValidator : IDictionaryEntryValidator
     {
         public ValidationResult Validate(DictionaryEntry entry)
         {

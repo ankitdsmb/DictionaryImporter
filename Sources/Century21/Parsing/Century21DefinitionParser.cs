@@ -1,68 +1,82 @@
-﻿using HtmlAgilityPack;
+﻿using System.Text.RegularExpressions;
+using DictionaryImporter.Sources.Common.Helper;
+using DictionaryImporter.Sources.Common.Parsing;
+using HtmlAgilityPack;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Century21.Parsing
 {
-    public sealed class Century21DefinitionParser(ILogger<Century21DefinitionParser> logger) : IDictionaryDefinitionParser
+    public sealed class Century21DefinitionParser(
+        ILogger<Century21DefinitionParser> logger)
+        : ISourceDictionaryDefinitionParser
     {
+        public string SourceCode => "CENTURY21";
+
         public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
         {
+            // ✅ Never return empty list
             if (string.IsNullOrWhiteSpace(entry.RawFragment))
-            {
-                return new List<ParsedDefinition>
-                {
-                    new ParsedDefinition
-                    {
-                        MeaningTitle = entry.Word ?? "unnamed sense",
-                        Definition = entry.Definition ?? string.Empty,
-                        RawFragment = entry.Definition ?? string.Empty,
-                        SenseNumber = entry.SenseNumber,
-                        Domain = null,
-                        UsageLabel = null,
-                        CrossReferences = new List<CrossReference>(),
-                        Synonyms = null,
-                        Alias = null
-                    }
-                };
-            }
+                return new List<ParsedDefinition> { CreateFallback(entry) };
 
             try
             {
-                return ParseHtmlContent(entry.RawFragment, entry.Word, entry.SenseNumber);
+                var parsed = ParseHtmlContent(
+                    entry.RawFragment,
+                    entry.Word,
+                    entry.SenseNumber);
+
+                // ✅ If nothing parsed, return fallback definition
+                var list = parsed.ToList();
+                if (list.Count == 0)
+                    return new List<ParsedDefinition> { CreateFallback(entry) };
+
+                return list;
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to parse Century21 HTML for entry: {Word}", entry.Word);
+                logger.LogError(ex,
+                    "Failed to parse Century21 HTML for entry: {Word}",
+                    entry.Word);
 
-                return new List<ParsedDefinition>
-                {
-                    new ParsedDefinition
-                    {
-                        MeaningTitle = entry.Word ?? "unnamed sense",
-                        Definition = entry.Definition ?? string.Empty,
-                        RawFragment = entry.RawFragment,
-                        SenseNumber = entry.SenseNumber,
-                        Domain = null,
-                        UsageLabel = null,
-                        CrossReferences = new List<CrossReference>(),
-                        Synonyms = null,
-                        Alias = null
-                    }
-                };
+                return new List<ParsedDefinition> { CreateFallback(entry) };
             }
         }
 
-        private IEnumerable<ParsedDefinition> ParseHtmlContent(string htmlContent, string? entryWord, int senseNumber)
+        private ParsedDefinition CreateFallback(DictionaryEntry entry)
+        {
+            return new ParsedDefinition
+            {
+                MeaningTitle = entry.Word ?? "unnamed sense",
+                Definition = entry.Definition ?? string.Empty,
+                RawFragment = entry.RawFragment ?? entry.Definition ?? string.Empty,
+                SenseNumber = entry.SenseNumber,
+                Domain = null,
+                UsageLabel = null,
+                CrossReferences = new List<CrossReference>(),
+                Synonyms = null,
+                Alias = null
+            };
+        }
+
+        private IEnumerable<ParsedDefinition> ParseHtmlContent(
+            string htmlContent,
+            string? entryWord,
+            int senseNumber)
         {
             var results = new List<ParsedDefinition>();
 
             var htmlDoc = new HtmlDocument();
             htmlDoc.LoadHtml(htmlContent);
 
-            var wordBlocks = htmlDoc.DocumentNode.SelectNodes("//div[@class='word_block']");
+            var wordBlocks =
+                htmlDoc.DocumentNode.SelectNodes("//div[@class='word_block']");
 
             if (wordBlocks == null || wordBlocks.Count == 0)
             {
-                logger.LogWarning("No word blocks found in Century21 HTML for: {Word}", entryWord);
+                logger.LogWarning(
+                    "No word blocks found in Century21 HTML for: {Word}",
+                    entryWord);
+
                 return results;
             }
 
@@ -71,47 +85,50 @@ namespace DictionaryImporter.Sources.Century21.Parsing
                 try
                 {
                     var blockResults = ParseWordBlock(wordBlock, entryWord, senseNumber);
-                    results.AddRange(blockResults);
+
+                    if (blockResults.Count > 0)
+                        results.AddRange(blockResults);
                 }
                 catch (Exception ex)
                 {
-                    logger.LogError(ex, "Failed to parse word block for entry: {Word}", entryWord);
+                    logger.LogError(ex,
+                        "Failed to parse word block for entry: {Word}",
+                        entryWord);
                 }
             }
 
             return results;
         }
 
-        private List<ParsedDefinition> ParseWordBlock(HtmlNode wordBlock, string? entryWord, int baseSenseNumber)
+        private List<ParsedDefinition> ParseWordBlock(
+            HtmlNode wordBlock,
+            string? entryWord,
+            int baseSenseNumber)
         {
             var results = new List<ParsedDefinition>();
 
             var englishHeadword = ExtractEnglishHeadword(wordBlock);
             if (string.IsNullOrWhiteSpace(englishHeadword))
-            {
                 englishHeadword = entryWord ?? "unnamed";
-            }
 
             var ipaPronunciation = ExtractIpaPronunciation(wordBlock);
-
             var partOfSpeech = ExtractPartOfSpeech(wordBlock);
 
             var englishDefinitions = ExtractEnglishDefinitions(wordBlock);
-
             var englishExamples = ExtractEnglishExamples(wordBlock);
-
             var grammarInfo = ExtractGrammarInfo(wordBlock);
 
             var variants = ExtractVariants(wordBlock);
-
             var idioms = ExtractIdioms(wordBlock);
 
             var senseNumber = baseSenseNumber;
+
+            // Main definitions
             if (englishDefinitions.Count > 0)
             {
                 foreach (var definition in englishDefinitions)
                 {
-                    var parsedDef = CreateParsedDefinition(
+                    results.Add(CreateParsedDefinition(
                         englishHeadword,
                         definition,
                         partOfSpeech,
@@ -119,14 +136,13 @@ namespace DictionaryImporter.Sources.Century21.Parsing
                         grammarInfo,
                         englishExamples,
                         senseNumber++,
-                        wordBlock.OuterHtml
-                    );
-                    results.Add(parsedDef);
+                        wordBlock.OuterHtml));
                 }
             }
             else
             {
-                var parsedDef = CreateParsedDefinition(
+                // Still return something
+                results.Add(CreateParsedDefinition(
                     englishHeadword,
                     string.Empty,
                     partOfSpeech,
@@ -134,74 +150,74 @@ namespace DictionaryImporter.Sources.Century21.Parsing
                     grammarInfo,
                     englishExamples,
                     senseNumber++,
-                    wordBlock.OuterHtml
-                );
-                results.Add(parsedDef);
+                    wordBlock.OuterHtml));
             }
 
+            // Variants
             foreach (var variant in variants)
             {
-                if (variant.EnglishDefinitions.Count > 0)
+                if (variant.EnglishDefinitions.Count <= 0)
+                    continue;
+
+                foreach (var definition in variant.EnglishDefinitions)
                 {
-                    foreach (var definition in variant.EnglishDefinitions)
-                    {
-                        var parsedDef = CreateParsedDefinition(
-                            englishHeadword,
-                            definition,
-                            variant.PartOfSpeech,
-                            ipaPronunciation, variant.GrammarInfo,
-                            variant.EnglishExamples,
-                            senseNumber++,
-                            wordBlock.OuterHtml
-                        );
-                        results.Add(parsedDef);
-                    }
+                    results.Add(CreateParsedDefinition(
+                        englishHeadword,
+                        definition,
+                        variant.PartOfSpeech,
+                        ipaPronunciation,
+                        variant.GrammarInfo,
+                        variant.EnglishExamples,
+                        senseNumber++,
+                        wordBlock.OuterHtml));
                 }
             }
 
+            // Idioms
             foreach (var idiom in idioms)
             {
-                if (!string.IsNullOrWhiteSpace(idiom.EnglishHeadword) &&
-                    !string.IsNullOrWhiteSpace(idiom.EnglishDefinition))
+                if (string.IsNullOrWhiteSpace(idiom.EnglishHeadword) ||
+                    string.IsNullOrWhiteSpace(idiom.EnglishDefinition))
+                    continue;
+
+                var parsedDef = new ParsedDefinition
                 {
-                    var parsedDef = new ParsedDefinition
-                    {
-                        MeaningTitle = idiom.EnglishHeadword,
-                        Definition = idiom.EnglishDefinition,
-                        RawFragment = $"Idiom: {idiom.EnglishHeadword} - {idiom.EnglishDefinition}",
-                        SenseNumber = 1,
-                        Domain = null,
-                        UsageLabel = "idiom",
-                        CrossReferences = new List<CrossReference>(),
-                        Synonyms = null,
-                        Alias = null
-                    };
-                    results.Add(parsedDef);
-                }
+                    MeaningTitle = idiom.EnglishHeadword,
+                    Definition = SourceDataHelper.NormalizeDefinition(idiom.EnglishDefinition),
+                    RawFragment = $"Idiom: {idiom.EnglishHeadword} - {idiom.EnglishDefinition}",
+                    SenseNumber = 1,
+                    Domain = null,
+                    UsageLabel = "idiom",
+                    CrossReferences = new List<CrossReference>(),
+                    Synonyms = null,
+                    Alias = null
+                };
+
+                if (idiom.EnglishExamples.Count > 0)
+                    parsedDef.Examples = idiom.EnglishExamples;
+
+                results.Add(parsedDef);
             }
 
             return results;
         }
 
-        #region Field Extraction Methods - Each Field Separate
+        #region Field Extraction Methods
 
-        /// <summary>
-        /// Extracts the English headword from the word block
-        /// </summary>
         private string ExtractEnglishHeadword(HtmlNode wordBlock)
         {
             try
             {
-                var headwordNode = wordBlock.SelectSingleNode(".//span[@class='headword']");
+                var headwordNode =
+                    wordBlock.SelectSingleNode(".//span[@class='headword']");
+
                 if (headwordNode == null)
                     return string.Empty;
 
                 var headword = headwordNode.InnerText.Trim();
 
                 headword = Regex.Replace(headword, @"\s+\d+$", string.Empty);
-
                 headword = Regex.Replace(headword, @"[^A-Za-z\s\-\']", string.Empty);
-
                 headword = Regex.Replace(headword, @"\s+", " ").Trim();
 
                 return headword;
@@ -213,22 +229,23 @@ namespace DictionaryImporter.Sources.Century21.Parsing
             }
         }
 
-        /// <summary>
-        /// Extracts IPA pronunciation from the word block
-        /// </summary>
         private string? ExtractIpaPronunciation(HtmlNode wordBlock)
         {
             try
             {
-                var soundNotation = wordBlock.SelectSingleNode(".//div[@class='sound_notation']");
+                var soundNotation =
+                    wordBlock.SelectSingleNode(".//div[@class='sound_notation']");
+
                 if (soundNotation != null)
                 {
-                    var phoneticsNode = soundNotation.SelectSingleNode(".//span[@class='phonetics']");
+                    var phoneticsNode =
+                        soundNotation.SelectSingleNode(".//span[@class='phonetics']");
+
                     if (phoneticsNode != null)
                     {
                         var ipa = phoneticsNode.InnerText.Trim();
 
-                        if (ContainsIpaCharacters(ipa))
+                        if (Century21TextHelper.ContainsIpaCharacters(ipa))
                         {
                             if (!ipa.StartsWith("/") && !ipa.StartsWith("["))
                                 ipa = "/" + ipa + "/";
@@ -247,9 +264,6 @@ namespace DictionaryImporter.Sources.Century21.Parsing
             }
         }
 
-        /// <summary>
-        /// Extracts part of speech from the word block
-        /// </summary>
         private string? ExtractPartOfSpeech(HtmlNode wordBlock)
         {
             try
@@ -261,7 +275,7 @@ namespace DictionaryImporter.Sources.Century21.Parsing
                     if (posNode != null)
                     {
                         var pos = posNode.InnerText.Trim();
-                        return NormalizePartOfSpeech(pos);
+                        return SourceDataHelper.NormalizePartOfSpeech(pos);
                     }
                 }
 
@@ -274,9 +288,6 @@ namespace DictionaryImporter.Sources.Century21.Parsing
             }
         }
 
-        /// <summary>
-        /// Extracts English definitions by analyzing examples and patterns
-        /// </summary>
         private List<string> ExtractEnglishDefinitions(HtmlNode wordBlock)
         {
             var definitions = new List<string>();
@@ -284,16 +295,18 @@ namespace DictionaryImporter.Sources.Century21.Parsing
             try
             {
                 var englishExamples = ExtractEnglishExamples(wordBlock);
+
+                // Infer definition from first example (your existing logic)
                 if (englishExamples.Count > 0)
                 {
                     var firstExample = englishExamples.First();
                     if (firstExample.Length > 20)
                     {
-                        var inferredDefinition = InferDefinitionFromExample(firstExample);
+                        var inferredDefinition =
+                            Century21TextHelper.InferDefinitionFromExample(firstExample);
+
                         if (!string.IsNullOrWhiteSpace(inferredDefinition))
-                        {
                             definitions.Add(inferredDefinition);
-                        }
                     }
                 }
 
@@ -303,32 +316,30 @@ namespace DictionaryImporter.Sources.Century21.Parsing
                     foreach (var span in definitionSpans)
                     {
                         var text = span.InnerText.Trim();
-                        if (IsPrimarilyEnglish(text) && text.Length > 3)
+
+                        if (Century21TextHelper.IsPrimarilyEnglish(text) && text.Length > 3)
                         {
-                            text = RemoveChineseMarkers(text);
-                            text = CleanEnglishText(text);
+                            text = Century21TextHelper.RemoveChineseMarkers(text);
+                            text = Century21TextHelper.CleanEnglishText(text);
 
                             if (!string.IsNullOrWhiteSpace(text))
-                            {
                                 definitions.Add(text);
-                            }
                         }
                     }
                 }
 
-                definitions = definitions.Distinct().Where(d => !string.IsNullOrWhiteSpace(d)).ToList();
+                return definitions
+                    .Distinct()
+                    .Where(d => !string.IsNullOrWhiteSpace(d))
+                    .ToList();
             }
             catch (Exception ex)
             {
                 logger.LogDebug(ex, "Failed to extract English definitions");
+                return definitions;
             }
-
-            return definitions;
         }
 
-        /// <summary>
-        /// Extracts English examples only (no Chinese)
-        /// </summary>
         private List<string> ExtractEnglishExamples(HtmlNode wordBlock)
         {
             var examples = new List<string>();
@@ -341,12 +352,16 @@ namespace DictionaryImporter.Sources.Century21.Parsing
                     foreach (var node in englishExampleNodes)
                     {
                         var example = node.InnerText.Trim();
-                        if (!string.IsNullOrWhiteSpace(example) && IsPrimarilyEnglish(example))
-                        {
-                            example = CleanEnglishText(example);
 
-                            if (example.Length > 5 && !example.EndsWith(".") &&
-                                !example.EndsWith("!") && !example.EndsWith("?"))
+                        if (!string.IsNullOrWhiteSpace(example) &&
+                            Century21TextHelper.IsPrimarilyEnglish(example))
+                        {
+                            example = Century21TextHelper.CleanEnglishText(example);
+
+                            if (example.Length > 5 &&
+                                !example.EndsWith(".") &&
+                                !example.EndsWith("!") &&
+                                !example.EndsWith("?"))
                             {
                                 example += ".";
                             }
@@ -364,9 +379,6 @@ namespace DictionaryImporter.Sources.Century21.Parsing
             return examples.Distinct().ToList();
         }
 
-        /// <summary>
-        /// Extracts grammar information (like plural forms)
-        /// </summary>
         private string? ExtractGrammarInfo(HtmlNode wordBlock)
         {
             try
@@ -375,10 +387,8 @@ namespace DictionaryImporter.Sources.Century21.Parsing
                 if (grammarNode != null)
                 {
                     var grammar = grammarNode.InnerText.Trim();
-                    if (IsPrimarilyEnglish(grammar))
-                    {
-                        return CleanEnglishText(grammar);
-                    }
+                    if (Century21TextHelper.IsPrimarilyEnglish(grammar))
+                        return Century21TextHelper.CleanEnglishText(grammar);
                 }
 
                 return null;
@@ -390,9 +400,6 @@ namespace DictionaryImporter.Sources.Century21.Parsing
             }
         }
 
-        /// <summary>
-        /// Extracts variant forms (different parts of speech or forms)
-        /// </summary>
         private List<VariantInfo> ExtractVariants(HtmlNode wordBlock)
         {
             var variants = new List<VariantInfo>();
@@ -413,17 +420,14 @@ namespace DictionaryImporter.Sources.Century21.Parsing
 
                                 var posNode = variantNode.SelectSingleNode(".//span[@class='pos']");
                                 if (posNode != null)
-                                {
-                                    variant.PartOfSpeech = NormalizePartOfSpeech(posNode.InnerText.Trim());
-                                }
+                                    variant.PartOfSpeech = SourceDataHelper.NormalizePartOfSpeech(posNode.InnerText.Trim());
 
                                 variant.EnglishDefinitions = ExtractEnglishDefinitions(variantNode);
-
                                 variant.EnglishExamples = ExtractEnglishExamples(variantNode);
-
                                 variant.GrammarInfo = ExtractGrammarInfo(variantNode);
 
-                                if (variant.EnglishDefinitions.Count > 0 || variant.EnglishExamples.Count > 0)
+                                if (variant.EnglishDefinitions.Count > 0 ||
+                                    variant.EnglishExamples.Count > 0)
                                 {
                                     variants.Add(variant);
                                 }
@@ -440,9 +444,6 @@ namespace DictionaryImporter.Sources.Century21.Parsing
             return variants;
         }
 
-        /// <summary>
-        /// Extracts idioms and phrases
-        /// </summary>
         private List<IdiomInfo> ExtractIdioms(HtmlNode wordBlock)
         {
             var idioms = new List<IdiomInfo>();
@@ -463,18 +464,14 @@ namespace DictionaryImporter.Sources.Century21.Parsing
 
                                 var headwordNode = idiomNode.SelectSingleNode(".//span[@class='headword']");
                                 if (headwordNode != null)
-                                {
                                     idiom.EnglishHeadword = ExtractEnglishHeadword(idiomNode);
-                                }
 
                                 var definitionNode = idiomNode.SelectSingleNode(".//span[@class='definition']");
                                 if (definitionNode != null)
                                 {
                                     var definition = definitionNode.InnerText.Trim();
-                                    if (IsPrimarilyEnglish(definition))
-                                    {
-                                        idiom.EnglishDefinition = CleanEnglishText(definition);
-                                    }
+                                    if (Century21TextHelper.IsPrimarilyEnglish(definition))
+                                        idiom.EnglishDefinition = Century21TextHelper.CleanEnglishText(definition);
                                 }
 
                                 idiom.EnglishExamples = ExtractEnglishExamples(idiomNode);
@@ -503,204 +500,10 @@ namespace DictionaryImporter.Sources.Century21.Parsing
             return idioms;
         }
 
-        #endregion Field Extraction Methods - Each Field Separate
-
-        #region Text Processing Helper Methods
-
-        /// <summary>
-        /// Cleans and normalizes English text
-        /// </summary>
-        private string CleanEnglishText(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return string.Empty;
-
-            text = DecodeHtmlEntities(text);
-
-            text = RemoveChineseCharacters(text);
-
-            text = RemoveChineseMarkers(text);
-
-            text = Regex.Replace(text, "<.*?>", string.Empty);
-
-            text = Regex.Replace(text, @"\s+", " ").Trim();
-
-            return text;
-        }
-
-        /// <summary>
-        /// Removes Chinese characters from text
-        /// </summary>
-        private string RemoveChineseCharacters(string text)
-        {
-            return Regex.Replace(text, @"[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3000-\u303F\uff00-\uffef]", string.Empty);
-        }
-
-        /// <summary>
-        /// Removes Chinese-specific punctuation and markers
-        /// </summary>
-        private string RemoveChineseMarkers(string text)
-        {
-            return text.Replace("〈", "")
-                .Replace("〉", "")
-                .Replace("《", "")
-                .Replace("》", "")
-                .Replace("。", ". ")
-                .Replace("，", ", ")
-                .Replace("；", "; ")
-                .Replace("：", ": ")
-                .Replace("？", "? ")
-                .Replace("！", "! ")
-                .Replace("（", "(")
-                .Replace("）", ")")
-                .Replace("【", "[")
-                .Replace("】", "]")
-                .Trim();
-        }
-
-        /// <summary>
-        /// Decodes HTML entities
-        /// </summary>
-        private string DecodeHtmlEntities(string text)
-        {
-            return text.Replace("&nbsp;", " ")
-                .Replace("&lt;", "<")
-                .Replace("&gt;", ">")
-                .Replace("&amp;", "&")
-                .Replace("&quot;", "\"")
-                .Replace("&apos;", "'")
-                .Replace("&#39;", "'");
-        }
-
-        /// <summary>
-        /// Normalizes part of speech tags
-        /// </summary>
-        private string NormalizePartOfSpeech(string pos)
-        {
-            if (string.IsNullOrWhiteSpace(pos))
-                return "unk";
-
-            var normalized = pos.Trim().ToLowerInvariant();
-
-            if (normalized.EndsWith("."))
-                normalized = normalized[..^1];
-
-            return normalized switch
-            {
-                "n" => "noun",
-                "v" => "verb",
-                "vt" => "verb",
-                "vi" => "verb",
-                "adj" => "adj",
-                "a" => "adj",
-                "adv" => "adv",
-                "ad" => "adv",
-                "prep" => "preposition",
-                "pron" => "pronoun",
-                "conj" => "conjunction",
-                "interj" => "exclamation",
-                "exclam" => "exclamation",
-                "abbr" => "abbreviation",
-                "pref" => "prefix",
-                "suf" => "suffix",
-                "s" => "suffix",
-                "num" => "numeral",
-                "art" => "determiner",
-                "det" => "determiner",
-                "aux" => "auxiliary",
-                "modal" => "modal",
-                "phrase" => "phrase",
-                "phr" => "phrase",
-                "idm" => "idiom",
-                "idiom" => "idiom",
-                _ => normalized
-            };
-        }
-
-        /// <summary>
-        /// Checks if text contains primarily English characters
-        /// </summary>
-        private bool IsPrimarilyEnglish(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return false;
-
-            var englishChars = 0;
-            var totalChars = 0;
-
-            foreach (var c in text)
-            {
-                if (char.IsWhiteSpace(c) || char.IsPunctuation(c))
-                    continue;
-
-                totalChars++;
-
-                if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-                    (c >= '0' && c <= '9') || c == '/' || c == '[' || c == ']' ||
-                    c == '(' || c == ')' || c == '-' || c == '\'')
-                {
-                    englishChars++;
-                }
-            }
-
-            if (totalChars == 0)
-                return false;
-
-            return (englishChars * 100 / totalChars) > 70;
-        }
-
-        /// <summary>
-        /// Checks if text contains IPA characters
-        /// </summary>
-        private bool ContainsIpaCharacters(string text)
-        {
-            return Regex.IsMatch(text, @"[\/\[\]ˈˌːɑæəɛɪɔʊʌθðŋʃʒʤʧɡɜɒɫɾɹɻʲ̃]");
-        }
-
-        /// <summary>
-        /// Infers definition from example sentence
-        /// </summary>
-        private string InferDefinitionFromExample(string example)
-        {
-            if (string.IsNullOrWhiteSpace(example))
-                return string.Empty;
-
-            if (example.Contains(" means "))
-            {
-                var match = Regex.Match(example, @"(\w+)\s+means\s+(.+)", RegexOptions.IgnoreCase);
-                if (match.Success && match.Groups.Count > 2)
-                    return $"{match.Groups[1].Value} means {match.Groups[2].Value}";
-            }
-
-            if (example.Contains(" is "))
-            {
-                var match = Regex.Match(example, @"(\w+)\s+is\s+(.+)", RegexOptions.IgnoreCase);
-                if (match.Success && match.Groups.Count > 2)
-                    return $"{match.Groups[1].Value} is {match.Groups[2].Value}";
-            }
-
-            if (example.Contains(" refers to "))
-            {
-                var match = Regex.Match(example, @"(\w+)\s+refers to\s+(.+)", RegexOptions.IgnoreCase);
-                if (match.Success && match.Groups.Count > 2)
-                    return $"{match.Groups[1].Value} refers to {match.Groups[2].Value}";
-            }
-
-            if (example.Length > 10 && example.Length < 100)
-            {
-                return example;
-            }
-
-            return string.Empty;
-        }
-
-        #endregion Text Processing Helper Methods
+        #endregion Field Extraction Methods
 
         #region Helper Methods
 
-        /// <summary>
-        /// Creates a ParsedDefinition object with all extracted information
-        /// </summary>
         private ParsedDefinition CreateParsedDefinition(
             string englishHeadword,
             string englishDefinition,
@@ -714,7 +517,7 @@ namespace DictionaryImporter.Sources.Century21.Parsing
             var parsed = new ParsedDefinition
             {
                 MeaningTitle = englishHeadword,
-                Definition = englishDefinition,
+                Definition = SourceDataHelper.NormalizeDefinition(englishDefinition ?? string.Empty),
                 RawFragment = rawFragment,
                 SenseNumber = senseNumber,
                 Domain = null,
@@ -725,28 +528,13 @@ namespace DictionaryImporter.Sources.Century21.Parsing
             };
 
             if (englishExamples.Count > 0)
-            {
                 parsed.Examples = englishExamples;
 
-                if (!string.IsNullOrWhiteSpace(parsed.Definition))
-                {
-                    parsed.Definition += "\n\nExamples:";
-                    foreach (var example in englishExamples.Take(3))
-                    {
-                        parsed.Definition += $"\n• {example}";
-                    }
-                }
-            }
-
             if (!string.IsNullOrWhiteSpace(ipaPronunciation))
-            {
                 parsed.Definition = $"Pronunciation: {ipaPronunciation}\n" + parsed.Definition;
-            }
 
             if (!string.IsNullOrWhiteSpace(partOfSpeech) && partOfSpeech != "unk")
-            {
                 parsed.Definition = $"({partOfSpeech}) " + parsed.Definition;
-            }
 
             return parsed;
         }
@@ -755,7 +543,7 @@ namespace DictionaryImporter.Sources.Century21.Parsing
 
         #region Helper Classes
 
-        private class VariantInfo
+        private sealed class VariantInfo
         {
             public string? PartOfSpeech { get; set; }
             public List<string> EnglishDefinitions { get; set; } = [];
@@ -763,10 +551,10 @@ namespace DictionaryImporter.Sources.Century21.Parsing
             public string? GrammarInfo { get; set; }
         }
 
-        private class IdiomInfo
+        private sealed class IdiomInfo
         {
-            public string EnglishHeadword { get; set; } = null!;
-            public string EnglishDefinition { get; set; } = null!;
+            public string EnglishHeadword { get; set; } = string.Empty;
+            public string EnglishDefinition { get; set; } = string.Empty;
             public List<string> EnglishExamples { get; set; } = [];
         }
 

@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Orchestration
+﻿using DictionaryImporter.Sources.Common.Helper;
+
+namespace DictionaryImporter.Orchestration
 {
     public sealed class ImportOrchestrator(
         Func<IDictionaryEntryValidator> validatorFactory,
@@ -43,6 +45,8 @@
 
                 try
                 {
+                    SourceDataHelper.ResetProcessingState(source.SourceCode);
+
                     // Always run import/merge (and stop early for ImportOnly)
                     await RunImportMergeAsync(source, mode, ct);
 

@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor
+﻿using DictionaryImporter.Sources.Common.Helper;
+
+namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor
 {
     public sealed class CollinsExampleExtractor : IExampleExtractor
     {
@@ -26,7 +28,7 @@
                     }
                 }
 
-            examples.AddRange(CollinsParserHelper.ExtractExamples(parsed.RawFragment).ToList());
+            examples.AddRange(CollinsSourceDataHelper.ExtractExamples(parsed.RawFragment).ToList());
             return examples
                 .Where(e => !string.IsNullOrWhiteSpace(e))
                 .Select(e => e.Trim())

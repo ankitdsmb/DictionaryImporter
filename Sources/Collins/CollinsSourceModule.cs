@@ -1,4 +1,10 @@
-﻿namespace DictionaryImporter.Sources.Collins
+﻿using System;
+using System.IO;
+using DictionaryImporter.Sources.Collins.Parsing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace DictionaryImporter.Sources.Collins
 {
     public sealed class CollinsSourceModule : IDictionarySourceModule
     {
@@ -19,12 +25,20 @@
             services.AddSingleton<
                 IDictionaryDefinitionParser,
                 CollinsDefinitionParser>();
+
+            services.AddSingleton<
+                IDictionaryEntryValidator,
+                CollinsEntryValidator>();
         }
 
         public ImportSourceDefinition BuildSource(IConfiguration config)
         {
-            var filePath = config["Sources:Collins:FilePath"]
-                           ?? throw new InvalidOperationException("Collins file path not configured");
+            var filePath =
+                config["Sources:Collins:FilePath"]
+                ?? throw new InvalidOperationException("Collins file path not configured");
+
+            if (!File.Exists(filePath))
+                throw new FileNotFoundException($"Collins source file not found: {filePath}", filePath);
 
             return new ImportSourceDefinition
             {

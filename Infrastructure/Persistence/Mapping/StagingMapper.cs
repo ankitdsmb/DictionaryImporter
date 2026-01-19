@@ -11,6 +11,7 @@
                 PartOfSpeech = e.PartOfSpeech,
                 Definition = e.Definition,
                 Etymology = e.Etymology,
+                RawFragment = e.RawFragment,
                 SenseNumber = e.SenseNumber,
                 SourceCode = e.SourceCode,
                 CreatedUtc = e.CreatedUtc

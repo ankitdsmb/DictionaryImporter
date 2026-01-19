@@ -1,5 +1,7 @@
 ﻿using DictionaryImporter.Core.Text;
 using DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
+using DictionaryImporter.Sources.Common.Parsing;
+using DictionaryImporter.Sources.Oxford.Parsing;
 using WebsterEtymologyExtractor =
     DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor.WebsterEtymologyExtractor;
 using WebsterSynonymExtractor = DictionaryImporter.Infrastructure.Parsing.SynonymExtractor.WebsterSynonymExtractor;
@@ -61,7 +63,7 @@ namespace DictionaryImporter.Bootstrap.Extensions
             services.AddSingleton(sp =>
                 new DictionaryParsedDefinitionProcessor(
                     connectionString,
-                    sp.GetRequiredService<IDictionaryDefinitionParser>(),
+                    sp.GetRequiredService<IDictionaryDefinitionParserResolver>(),
                     sp.GetRequiredService<SqlParsedDefinitionWriter>(),
                     sp.GetRequiredService<SqlDictionaryEntryCrossReferenceWriter>(),
                     sp.GetRequiredService<SqlDictionaryAliasWriter>(),

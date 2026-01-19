@@ -1,4 +1,9 @@
-﻿namespace DictionaryImporter.Sources.StructuredJson
+﻿using System;
+using System.IO;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace DictionaryImporter.Sources.StructuredJson
 {
     public sealed class StructuredJsonSourceModule
         : IDictionarySourceModule
@@ -16,6 +21,8 @@
             services.AddSingleton<
                 IDataTransformer<StructuredJsonRawEntry>,
                 StructuredJsonTransformer>();
+
+            services.AddSingleton<ImportEngineFactory<StructuredJsonRawEntry>>();
         }
 
         public ImportSourceDefinition BuildSource(
@@ -25,6 +32,9 @@
                 config["Sources:StructuredJson:FilePath"]
                 ?? throw new InvalidOperationException(
                     "StructuredJson file path not configured");
+
+            if (!File.Exists(filePath))
+                throw new FileNotFoundException($"StructuredJson source file not found: {filePath}", filePath);
 
             return new ImportSourceDefinition
             {

@@ -1,8 +1,18 @@
-﻿namespace DictionaryImporter.Sources.StructuredJson
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
+using System.Threading;
+using DictionaryImporter.Sources.Common.Helper;
+
+namespace DictionaryImporter.Sources.StructuredJson
 {
     public sealed class StructuredJsonExtractor
         : IDataExtractor<StructuredJsonRawEntry>
     {
+        private const string SourceCode = "STRUCT_JSON";
+
         public async IAsyncEnumerable<StructuredJsonRawEntry> ExtractAsync(
             Stream stream,
             [EnumeratorCancellation] CancellationToken ct)
@@ -19,17 +29,51 @@
             {
                 ct.ThrowIfCancellationRequested();
 
+                // ✅ early stop (before processing more keys)
+                if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, null))
+                    yield break;
+
                 var entry = kvp.Value;
+                if (entry == null)
+                    continue;
+
+                var word = entry.OriginalCasedWord;
+                var normalizedWord = entry.TransliteratedWord;
+
+                if (string.IsNullOrWhiteSpace(word))
+                    continue;
+
+                if (string.IsNullOrWhiteSpace(normalizedWord))
+                    normalizedWord = SourceDataHelper.NormalizeWord(word);
+
+                if (entry.Definitions == null || entry.Definitions.Count == 0)
+                    continue;
 
                 foreach (var def in entry.Definitions)
+                {
+                    ct.ThrowIfCancellationRequested();
+
+                    // ✅ keep existing strict stop here too (counts yielded senses accurately)
+                    if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, null))
+                        yield break;
+
+                    if (def == null)
+                        continue;
+
+                    if (string.IsNullOrWhiteSpace(def.Definition))
+                        continue;
+
+                    var senseNumber = def.Sequence > 0 ? def.Sequence : 1;
+
                     yield return new StructuredJsonRawEntry
                     {
-                        Word = entry.OriginalCasedWord,
-                        NormalizedWord = entry.TransliteratedWord,
+                        Word = word,
+                        NormalizedWord = normalizedWord,
                         Definition = def.Definition,
                         PartOfSpeech = def.PartOfSpeech,
-                        SenseNumber = def.Sequence
+                        SenseNumber = senseNumber
                     };
+                }
             }
         }
     }

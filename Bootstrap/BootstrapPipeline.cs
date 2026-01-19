@@ -1,5 +1,12 @@
 ﻿using DictionaryImporter.Core.Pipeline.Steps;
 using DictionaryImporter.Infrastructure.OneTimeTasks;
+using DictionaryImporter.Sources.Century21.Parsing;
+using DictionaryImporter.Sources.Collins.Parsing;
+using DictionaryImporter.Sources.Common.Parsing;
+using DictionaryImporter.Sources.EnglishChinese.Parsing;
+using DictionaryImporter.Sources.Kaikki.Parsing;
+using DictionaryImporter.Sources.Oxford.Parsing;
+using DictionaryImporter.Sources.StructuredJson.Parsing;
 
 namespace DictionaryImporter.Bootstrap
 {
@@ -12,16 +19,6 @@ namespace DictionaryImporter.Bootstrap
                 ?? throw new InvalidOperationException(
                     "Connection string 'DictionaryImporter' not configured");
 
-            //services.Configure<DatabaseOptions>(o =>
-            //{
-            //    o.ConnectionString = connectionString
-            //                         ?? throw new InvalidOperationException(
-            //                             "Connection string 'DictionaryImporter' not configured");
-            //});
-
-            // ------------------------------------------------------------
-            // Import engine factories (Singleton is fine)
-            // ------------------------------------------------------------
             services.AddSingleton<ImportEngineFactory<KaikkiRawEntry>>();
             services.AddSingleton<ImportEngineFactory<GutenbergRawEntry>>();
             services.AddSingleton<ImportEngineFactory<StructuredJsonRawEntry>>();
@@ -30,54 +27,44 @@ namespace DictionaryImporter.Bootstrap
             services.AddSingleton<ImportEngineFactory<OxfordRawEntry>>();
             services.AddSingleton<ImportEngineFactory<Century21RawEntry>>();
 
-            // Provide factories as Func<T>
             services.AddSingleton<Func<ImportEngineFactory<KaikkiRawEntry>>>(sp =>
-                () => sp.GetRequiredService<ImportEngineFactory<KaikkiRawEntry>>());
+                sp.GetRequiredService<ImportEngineFactory<KaikkiRawEntry>>);
 
             services.AddSingleton<Func<ImportEngineFactory<GutenbergRawEntry>>>(sp =>
-                () => sp.GetRequiredService<ImportEngineFactory<GutenbergRawEntry>>());
+                sp.GetRequiredService<ImportEngineFactory<GutenbergRawEntry>>);
 
             services.AddSingleton<Func<ImportEngineFactory<StructuredJsonRawEntry>>>(sp =>
-                () => sp.GetRequiredService<ImportEngineFactory<StructuredJsonRawEntry>>());
+                sp.GetRequiredService<ImportEngineFactory<StructuredJsonRawEntry>>);
 
             services.AddSingleton<Func<ImportEngineFactory<EnglishChineseRawEntry>>>(sp =>
-                () => sp.GetRequiredService<ImportEngineFactory<EnglishChineseRawEntry>>());
+                sp.GetRequiredService<ImportEngineFactory<EnglishChineseRawEntry>>);
 
             services.AddSingleton<Func<ImportEngineFactory<CollinsRawEntry>>>(sp =>
-                () => sp.GetRequiredService<ImportEngineFactory<CollinsRawEntry>>());
+                sp.GetRequiredService<ImportEngineFactory<CollinsRawEntry>>);
 
             services.AddSingleton<Func<ImportEngineFactory<OxfordRawEntry>>>(sp =>
-                () => sp.GetRequiredService<ImportEngineFactory<OxfordRawEntry>>());
+                sp.GetRequiredService<ImportEngineFactory<OxfordRawEntry>>);
 
             services.AddSingleton<Func<ImportEngineFactory<Century21RawEntry>>>(sp =>
-                () => sp.GetRequiredService<ImportEngineFactory<Century21RawEntry>>());
+                sp.GetRequiredService<ImportEngineFactory<Century21RawEntry>>);
 
-            // ------------------------------------------------------------
-            // Registry + Extractors
-            // ------------------------------------------------------------
             services.AddSingleton<IImportEngineRegistry, ImportEngineRegistry>();
 
             services.AddSingleton<IEtymologyExtractor, OxfordEtymologyExtractor>();
             services.AddSingleton<IExampleExtractor, OxfordExampleExtractor>();
             services.AddSingleton<ISynonymExtractor, OxfordSynonymExtractor>();
 
-            // ------------------------------------------------------------
-            // Validators + Merge factories
-            // ------------------------------------------------------------
             services.AddSingleton<Func<IDictionaryEntryValidator>>(sp =>
-                () => sp.GetRequiredService<IDictionaryEntryValidator>());
+                sp.GetRequiredService<IDictionaryEntryValidator>);
 
             services.AddSingleton<Func<IDataMergeExecutor>>(sp =>
-                () => sp.GetRequiredService<IDataMergeExecutor>());
+                sp.GetRequiredService<IDataMergeExecutor>);
 
             services.AddSingleton<IDataMergeExecutor>(sp =>
                 new SqlDictionaryEntryMergeExecutor(
                     connectionString,
                     sp.GetRequiredService<ILogger<SqlDictionaryEntryMergeExecutor>>()));
 
-            // ------------------------------------------------------------
-            // Parsing / Enrichment / IPA services (Singleton OK because they use connectionString)
-            // ------------------------------------------------------------
             services.AddSingleton<DictionaryEntryLinguisticEnricher>(sp =>
                 new DictionaryEntryLinguisticEnricher(
                     connectionString,
@@ -107,35 +94,35 @@ namespace DictionaryImporter.Bootstrap
                     connectionString,
                     sp.GetRequiredService<ILogger<CanonicalWordOrthographicSyllableEnricher>>()));
 
-            // ------------------------------------------------------------
-            // One-time tasks
-            // ------------------------------------------------------------
             services.AddSingleton<IOneTimeDatabaseTask>(
                 new EditorialIpaMigrationTask(connectionString));
 
             services.AddSingleton<IOneTimeDatabaseTask>(
                 new PromoteIpaFromNotesTask(connectionString));
 
+            // Register ALL source parsers
+            services.AddSingleton<ISourceDictionaryDefinitionParser, KaikkiDefinitionParser>();
+            services.AddSingleton<ISourceDictionaryDefinitionParser, GutenbergDefinitionParser>();
+
+            services.AddSingleton<ISourceDictionaryDefinitionParser, Century21DefinitionParser>();
+            services.AddSingleton<ISourceDictionaryDefinitionParser, CollinsDefinitionParser>();
+            services.AddSingleton<ISourceDictionaryDefinitionParser, EnglishChineseDefinitionParser>();
+            services.AddSingleton<ISourceDictionaryDefinitionParser, OxfordDefinitionParser>();
+            services.AddSingleton<ISourceDictionaryDefinitionParser, StructuredJsonDefinitionParser>();
+
+            // Resolver
+            services.AddSingleton<IDictionaryDefinitionParserResolver, DictionaryDefinitionParserResolver>();
+
             services.AddSingleton<OneTimeTaskRunner>();
 
-            // ------------------------------------------------------------
-            // AI Step + Repository
-            // IMPORTANT: Repository must be Scoped (DB access per scope)
-            // ------------------------------------------------------------
             services.AddScoped<IAiAnnotationRepository, SqlAiAnnotationRepository>();
             services.AddScoped<AiEnhancementStep>();
 
-            // ------------------------------------------------------------
-            // Pipeline Options + Engine
-            // ------------------------------------------------------------
             services.Configure<ImportPipelineOptions>(configuration.GetSection("ImportPipeline"));
 
             services.AddScoped<ImportPipelineOrderResolver>();
             services.AddScoped<ImportPipelineRunner>();
 
-            // ------------------------------------------------------------
-            // Pipeline steps (Scoped is correct)
-            // ------------------------------------------------------------
             services.AddScoped<IImportPipelineStep, CanonicalizationPipelineStep>();
             services.AddScoped<IImportPipelineStep, ParsingPipelineStep>();
             services.AddScoped<IImportPipelineStep, LinguisticsPipelineStep>();
@@ -150,18 +137,13 @@ namespace DictionaryImporter.Bootstrap
             services.AddScoped<IImportPipelineStep, IpaSyllablesPipelineStep>();
             services.AddScoped<IImportPipelineStep, VerificationPipelineStep>();
 
-            // ------------------------------------------------------------
-            // QA checks
-            // ------------------------------------------------------------
+            services.AddScoped<IParsedDefinitionProcessor, DictionaryParsedDefinitionProcessor>();
+
             foreach (var qa in KnownQaChecks.CreateAll(connectionString))
                 services.AddSingleton<IQaCheck>(qa);
 
             services.AddSingleton<QaRunner>();
 
-            // ------------------------------------------------------------
-            // Orchestrator MUST NOT be Singleton (it depends on Scoped services)
-            // Use Scoped or Transient. Scoped is safest.
-            // ------------------------------------------------------------
             services.AddScoped<ImportOrchestrator>();
         }
 

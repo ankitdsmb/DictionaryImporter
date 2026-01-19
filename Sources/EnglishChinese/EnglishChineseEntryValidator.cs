@@ -1,6 +1,8 @@
-﻿namespace DictionaryImporter.Sources.Century21
+﻿using DictionaryImporter.Sources.Common;
+
+namespace DictionaryImporter.Sources.EnglishChinese
 {
-    public sealed class Country21EntryValidator : IDictionaryEntryValidator
+    public sealed class EnglishChineseEntryValidator : IDictionaryEntryValidator
     {
         public ValidationResult Validate(DictionaryEntry entry)
         {
@@ -12,12 +14,6 @@
 
             if (string.IsNullOrWhiteSpace(entry.NormalizedWord))
                 return ValidationResult.Invalid("NormalizedWord missing");
-
-            if (entry.Word.Length > 200)
-                return ValidationResult.Invalid("Word too long");
-
-            if (entry.Definition.Length < 5)
-                return ValidationResult.Invalid("Definition too short");
 
             return ValidationResult.Valid();
         }

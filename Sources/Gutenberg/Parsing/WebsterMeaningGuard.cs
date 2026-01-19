@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing
+﻿using System.Text.RegularExpressions;
+
+namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
     internal static class WebsterMeaningGuard
     {

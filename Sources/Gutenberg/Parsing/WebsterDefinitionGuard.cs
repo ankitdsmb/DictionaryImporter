@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing
+﻿using System.Text.RegularExpressions;
+
+namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
     internal static class WebsterDefinitionGuard
     {
@@ -17,6 +19,10 @@
                 return false;
 
             definition = definition.Trim();
+
+            // SAFE: reject too-short garbage
+            if (definition.Length < 3)
+                return false;
 
             if (EtymologyRegex.IsMatch(definition))
                 return false;

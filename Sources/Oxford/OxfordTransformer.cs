@@ -1,29 +1,68 @@
-﻿using DictionaryImporter.Sources.Oxford.Parsing;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+using DictionaryImporter.Sources.Common.Helper;
+using DictionaryImporter.Sources.Oxford.Parsing;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Oxford
 {
-    public sealed class OxfordTransformer : IDataTransformer<OxfordRawEntry>
+    public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger)
+        : IDataTransformer<OxfordRawEntry>
     {
-        public IEnumerable<DictionaryEntry> Transform(OxfordRawEntry raw)
+        private const string SourceCode = "ENG_OXFORD";
+
+        public IEnumerable<DictionaryEntry> Transform(OxfordRawEntry? raw)
         {
             if (raw == null || !raw.Senses.Any())
                 yield break;
 
-            foreach (var sense in raw.Senses)
+            foreach (var entry in ProcessOxfordEntry(raw))
             {
-                var fullDefinition = BuildFullDefinition(raw, sense);
+                // FIX: apply limit per produced DictionaryEntry (not per raw entry)
+                if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
+                    yield break;
 
-                yield return new DictionaryEntry
-                {
-                    Word = raw.Headword,
-                    NormalizedWord = NormalizeWord(raw.Headword),
-                    PartOfSpeech = OxfordParserHelper.NormalizePartOfSpeech(raw.PartOfSpeech),
-                    Definition = fullDefinition,
-                    SenseNumber = sense.SenseNumber,
-                    SourceCode = "ENG_OXFORD",
-                    CreatedUtc = DateTime.UtcNow
-                };
+                yield return entry;
             }
+        }
+
+        private IEnumerable<DictionaryEntry> ProcessOxfordEntry(OxfordRawEntry raw)
+        {
+            var entries = new List<DictionaryEntry>();
+
+            try
+            {
+                var normalizedWord = NormalizeWord(raw.Headword);
+                var normalizedPos = OxfordSourceDataHelper.NormalizePartOfSpeech(raw.PartOfSpeech);
+
+                entries.AddRange(from sense in raw.Senses
+                                 let fullDefinition = BuildFullDefinition(raw, sense)
+                                 select new DictionaryEntry
+                                 {
+                                     Word = raw.Headword,
+                                     NormalizedWord = normalizedWord,
+                                     PartOfSpeech = normalizedPos,
+                                     Definition = fullDefinition,
+
+                                     // FIX: keep RawFragment truly "raw" so parsers/extractors can rely on it
+                                     // Safest is the original sense definition text
+                                     RawFragment = sense.Definition,
+                                     SenseNumber = sense.SenseNumber,
+                                     SourceCode = SourceCode,
+                                     CreatedUtc = DateTime.UtcNow
+                                 });
+
+                SourceDataHelper.LogProgress(logger, SourceCode, SourceDataHelper.GetCurrentCount(SourceCode));
+            }
+            catch (Exception ex)
+            {
+                SourceDataHelper.HandleError(logger, ex, SourceCode, "transforming");
+            }
+
+            foreach (var entry in entries)
+                yield return entry;
         }
 
         private static string BuildFullDefinition(OxfordRawEntry entry, OxfordSenseRaw sense)
@@ -68,20 +107,10 @@ namespace DictionaryImporter.Sources.Oxford
             if (string.IsNullOrWhiteSpace(word))
                 return word;
 
-            word = word.Replace("★", "")
-                .Replace("☆", "")
-                .Replace("●", "")
-                .Replace("○", "")
-                .Replace("▶", "")
-                .Trim();
-
-            word = word.ToLowerInvariant();
-
-            word = Regex.Replace(word, @"[^\p{L}\-']", " ");
-
-            word = Regex.Replace(word, @"\s+", " ").Trim();
-
-            return word;
+            word = SourceDataHelper.NormalizeWord(word);
+            // allow digits too for words like "24-7", "3d", "mp3"
+            word = Regex.Replace(word, @"[^\p{L}\p{N}\-']", " ");
+            return Regex.Replace(word, @"\s+", " ").Trim();
         }
     }
 }

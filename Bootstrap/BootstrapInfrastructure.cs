@@ -10,10 +10,15 @@ namespace DictionaryImporter.Bootstrap
             var connectionString = configuration.GetConnectionString("DictionaryImporter")
                                    ?? throw new InvalidOperationException("Connection string 'DictionaryImporter' not configured");
 
-            services.AddIpaConfiguration(configuration);
+            BootstrapLogging.Register(services);
 
+            // Add SQL batching
+            services.AddSqlBatching(connectionString);
+
+            // Modified AddPersistence to skip IDictionaryEntrySynonymWriter registration
             services
-                .AddPersistence(connectionString)
+                .AddIpaConfiguration(configuration)
+                .AddPersistenceWithoutSynonymWriter(connectionString)
                 .AddCanonical(connectionString)
                 .AddValidation(connectionString)
                 .AddLinguistics()

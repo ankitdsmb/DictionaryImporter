@@ -1,4 +1,10 @@
-﻿namespace DictionaryImporter.Sources.Oxford
+﻿using System;
+using System.IO;
+using DictionaryImporter.Sources.Oxford.Parsing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace DictionaryImporter.Sources.Oxford
 {
     public sealed class OxfordSourceModule : IDictionarySourceModule
     {
@@ -27,8 +33,12 @@
 
         public ImportSourceDefinition BuildSource(IConfiguration config)
         {
-            var filePath = config["Sources:Oxford:FilePath"]
-                           ?? throw new InvalidOperationException("Oxford file path not configured");
+            var filePath =
+                config["Sources:Oxford:FilePath"]
+                ?? throw new InvalidOperationException("Oxford file path not configured");
+
+            if (!File.Exists(filePath))
+                throw new FileNotFoundException($"Oxford source file not found: {filePath}", filePath);
 
             return new ImportSourceDefinition
             {

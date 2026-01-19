@@ -1,4 +1,6 @@
-﻿using DictionaryImporter.Sources.Kaikki;
+﻿// In KaikkiSourceModule.cs - Ensure all extractors are registered
+
+using DictionaryImporter.Sources.Kaikki;
 using DictionaryImporter.Sources.Kaikki.Parsing;
 
 public sealed class KaikkiSourceModule : IDictionarySourceModule
@@ -10,13 +12,14 @@ public sealed class KaikkiSourceModule : IDictionarySourceModule
         services.AddSingleton<IDataExtractor<KaikkiRawEntry>, KaikkiExtractor>();
         services.AddSingleton<IDataTransformer<KaikkiRawEntry>, KaikkiTransformer>();
         services.AddSingleton<IDictionaryDefinitionParser, KaikkiDefinitionParser>();
-        services.AddSingleton<IDictionaryDefinitionParser, KaikkiDefinitionParser>();
-        services.AddSingleton<ImportEngineFactory<KaikkiRawEntry>>();
 
         // Register Kaikki-specific extractors
         services.AddSingleton<IEtymologyExtractor, KaikkiEtymologyExtractor>();
         services.AddSingleton<IExampleExtractor, KaikkiExampleExtractor>();
         services.AddSingleton<ISynonymExtractor, KaikkiSynonymExtractor>();
+
+        // Register the factory
+        services.AddSingleton<ImportEngineFactory<KaikkiRawEntry>>();
     }
 
     public ImportSourceDefinition BuildSource(IConfiguration config)

@@ -116,7 +116,8 @@ namespace DictionaryImporter.Core.Pipeline
                 Etymology = entry.Etymology,
                 SenseNumber = entry.SenseNumber,
                 SourceCode = entry.SourceCode,
-                CreatedUtc = entry.CreatedUtc
+                CreatedUtc = entry.CreatedUtc,
+                RawFragment = entry.RawFragment
             };
         }
     }
