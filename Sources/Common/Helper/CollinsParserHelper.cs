@@ -340,14 +340,19 @@
             return false;
         }
 
-        /// <summary>
-        ///     Tries to parse a sense header from the line.
-        /// </summary>
         public static bool TryParseSenseHeader(string line, out CollinsSenseRaw sense)
         {
             sense = null;
 
             if (string.IsNullOrWhiteSpace(line))
+                return false;
+
+            // STRICT GUARD:
+            // If it looks like continuation text, never start a new sense.
+            // (This prevents "2. ..." inside a definition from splitting new senses.)
+            if (line.StartsWith("or ", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("and ", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("("))
                 return false;
 
             var parsingStrategies = new List<Func<string, CollinsSenseRaw?>>
@@ -359,14 +364,10 @@
                 TryParseSimpleNumberedLine
             };
 
-            foreach (var strategy in parsingStrategies)
+            foreach (var result in parsingStrategies.Select(strategy => strategy(line)).OfType<CollinsSenseRaw>())
             {
-                var result = strategy(line);
-                if (result != null)
-                {
-                    sense = result;
-                    return true;
-                }
+                sense = result;
+                return true;
             }
 
             return false;
@@ -828,9 +829,6 @@
 
         #region Cross-Reference Extraction (Optimized)
 
-        /// <summary>
-        ///     Extracts cross-references from dictionary definition text.
-        /// </summary>
         public static IReadOnlyList<CrossReference> ExtractCrossReferences(string definition)
         {
             var crossRefs = new List<CrossReference>();
@@ -841,27 +839,43 @@
             crossRefs.AddRange(FastExtractCrossReferencesFromText(definition));
 
             var note = ExtractNotes(definition);
-            if (!string.IsNullOrEmpty(note)) crossRefs.AddRange(FastExtractCrossReferencesFromText(note));
+            if (!string.IsNullOrEmpty(note))
+                crossRefs.AddRange(FastExtractCrossReferencesFromText(note));
 
             var seen = new HashSet<(string, string)>();
             var uniqueRefs = new List<CrossReference>();
 
             foreach (var cr in crossRefs)
             {
-                var key = (cr.TargetWord.ToLowerInvariant(), cr.ReferenceType);
+                if (cr == null)
+                    continue;
+
+                var target = (cr.TargetWord ?? string.Empty).Trim();
+                var type = (cr.ReferenceType ?? string.Empty).Trim();
+
+                if (string.IsNullOrWhiteSpace(target) || string.IsNullOrWhiteSpace(type))
+                    continue;
+
+                // hard safety: avoid huge targets being stored
+                if (target.Length > 150)
+                    continue;
+
+                var key = (target.ToLowerInvariant(), type);
+
                 if (!seen.Contains(key))
                 {
                     seen.Add(key);
-                    uniqueRefs.Add(cr);
+                    uniqueRefs.Add(new CrossReference
+                    {
+                        TargetWord = target,
+                        ReferenceType = type
+                    });
                 }
             }
 
             return uniqueRefs;
         }
 
-        /// <summary>
-        ///     Fast cross-reference extraction.
-        /// </summary>
         private static IReadOnlyList<CrossReference> FastExtractCrossReferencesFromText(string text)
         {
             var crossRefs = new List<CrossReference>();
@@ -869,42 +883,99 @@
             if (string.IsNullOrWhiteSpace(text))
                 return crossRefs;
 
+            // 1) Handle "→see:" style references safely (multiple in one blob)
+            if (text.Contains("→see:", StringComparison.OrdinalIgnoreCase))
+            {
+                // pattern: "... →see: cover; ... →see: hot; ... →see: kiss"
+                var matches = Regex.Matches(
+                    text,
+                    @"→see:\s*(?<target>[A-Za-z][A-Za-z\s\-']*)",
+                    RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+                foreach (Match m in matches)
+                {
+                    var target = m.Groups["target"].Value.Trim();
+                    if (!string.IsNullOrWhiteSpace(target))
+                    {
+                        crossRefs.Add(new CrossReference
+                        {
+                            TargetWord = target,
+                            ReferenceType = "See"
+                        });
+                    }
+                }
+            }
+
+            // 2) Handle "See also:" safely (split by separators)
             if (text.Contains("See also:", StringComparison.OrdinalIgnoreCase))
+            {
                 foreach (Match match in SeeAlsoRegex.Matches(text))
                 {
                     var targetsText = match.Groups["targets"].Value.Trim();
                     var targets = FastParseTargetWords(targetsText);
 
                     foreach (var target in targets)
+                    {
+                        if (!string.IsNullOrWhiteSpace(target))
+                        {
+                            crossRefs.Add(new CrossReference
+                            {
+                                TargetWord = target,
+                                ReferenceType = "SeeAlso"
+                            });
+                        }
+                    }
+                }
+            }
+
+            // 3) Handle "See:" safely (split instead of taking full [^.]+ blob)
+            if (text.Contains("See:", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (Match match in SeeRegex.Matches(text))
+                {
+                    var raw = match.Groups["target"].Value.Trim();
+                    if (string.IsNullOrWhiteSpace(raw))
+                        continue;
+
+                    // IMPORTANT FIX:
+                    // old regex captured huge text until '.' and caused truncation
+                    // now split it into clean targets
+                    var targets = FastParseTargetWords(raw);
+
+                    foreach (var target in targets)
+                    {
+                        if (!string.IsNullOrWhiteSpace(target))
+                        {
+                            crossRefs.Add(new CrossReference
+                            {
+                                TargetWord = target,
+                                ReferenceType = "See"
+                            });
+                        }
+                    }
+                }
+            }
+
+            // 4) Handle "Cf." safely (keep existing single-target logic)
+            if (text.Contains("Cf.", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (Match match in CfRegex.Matches(text))
+                {
+                    var target = match.Groups["target"].Value.Trim();
+                    if (!string.IsNullOrWhiteSpace(target))
+                    {
                         crossRefs.Add(new CrossReference
                         {
                             TargetWord = target,
-                            ReferenceType = "SeeAlso"
+                            ReferenceType = "Cf"
                         });
+                    }
                 }
-
-            if (text.Contains("See:", StringComparison.OrdinalIgnoreCase))
-                foreach (Match match in SeeRegex.Matches(text))
-                    crossRefs.Add(new CrossReference
-                    {
-                        TargetWord = match.Groups["target"].Value.Trim(),
-                        ReferenceType = "See"
-                    });
-
-            if (text.Contains("Cf.", StringComparison.OrdinalIgnoreCase))
-                foreach (Match match in CfRegex.Matches(text))
-                    crossRefs.Add(new CrossReference
-                    {
-                        TargetWord = match.Groups["target"].Value.Trim(),
-                        ReferenceType = "Cf"
-                    });
+            }
 
             return crossRefs;
         }
 
-        /// <summary>
-        ///     Fast target word parsing.
-        /// </summary>
         private static IReadOnlyList<string> FastParseTargetWords(string targetsText)
         {
             var targets = new List<string>();
@@ -912,18 +983,30 @@
             if (string.IsNullOrWhiteSpace(targetsText))
                 return targets;
 
+            // split by known separators
             var parts = targetsText.Split(SeparatorChars, StringSplitOptions.RemoveEmptyEntries);
 
             foreach (var part in parts)
             {
                 var trimmed = part.Trim();
 
+                // drop trailing connectors
                 if (trimmed.EndsWith(" and", StringComparison.OrdinalIgnoreCase))
                     trimmed = trimmed.Substring(0, trimmed.Length - 4);
                 else if (trimmed.EndsWith(" or", StringComparison.OrdinalIgnoreCase))
                     trimmed = trimmed.Substring(0, trimmed.Length - 3);
 
-                trimmed = ChineseCharRegex.Replace(trimmed, "").Trim(',', ';', ' ', '，', '；', '.', '。');
+                // remove chinese + extra symbols
+                trimmed = ChineseCharRegex.Replace(trimmed, "")
+                    .Trim(',', ';', ' ', '，', '；', '.', '。');
+
+                // also cut at arrow see fragments if someone pasted a whole blob
+                var arrowIndex = trimmed.IndexOf("→see:", StringComparison.OrdinalIgnoreCase);
+                if (arrowIndex >= 0)
+                    trimmed = trimmed.Substring(0, arrowIndex).Trim();
+
+                // basic cleanup: remove obvious non-word junk
+                trimmed = Regex.Replace(trimmed, @"\s+", " ").Trim();
 
                 if (!string.IsNullOrWhiteSpace(trimmed))
                     targets.Add(trimmed);
@@ -1390,15 +1473,49 @@
 
         private static CollinsSenseRaw? TryParseSimpleNumberedLine(string line)
         {
+            // STRICT:
+            // Do not treat "2. ..." as a new sense header if it's likely just a continuation.
+            // Collins real sense headers almost always include POS info or special structure.
+
+            if (string.IsNullOrWhiteSpace(line))
+                return null;
+
+            // quick reject: if line has Chinese markers or section markers, it's not a new sense header
+            if (line.Contains("【") || line.Contains("】"))
+                return null;
+
+            // must match "2. something"
             var match = SenseNumberOnlyRegex.Match(line);
-            if (match.Success)
-                return new CollinsSenseRaw
-                {
-                    SenseNumber = int.TryParse(match.Groups[1].Value, out var num) ? num : 1,
-                    PartOfSpeech = "unk",
-                    Definition = CleanDefinitionText(match.Groups[2].Value.Trim())
-                };
-            return null;
+            if (!match.Success)
+                return null;
+
+            var rest = match.Groups[2].Value.Trim();
+            if (string.IsNullOrWhiteSpace(rest))
+                return null;
+
+            // ✅ CRITICAL FIX:
+            // If the remaining content starts with lowercase or punctuation, it's likely continuation
+            if (rest.Length > 0 && !char.IsUpper(rest[0]))
+                return null;
+
+            // ✅ CRITICAL FIX:
+            // If it contains "→see:" it is NOT a sense, it's cross-reference line
+            if (rest.Contains("→see:", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            // ✅ CRITICAL FIX:
+            // If it's clearly a continuation connector, skip it
+            if (rest.StartsWith("and ", StringComparison.OrdinalIgnoreCase) ||
+                rest.StartsWith("or ", StringComparison.OrdinalIgnoreCase) ||
+                rest.StartsWith("but ", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            return new CollinsSenseRaw
+            {
+                SenseNumber = int.TryParse(match.Groups[1].Value, out var num) ? num : 1,
+                PartOfSpeech = "unk",
+                Definition = CleanDefinitionText(rest)
+            };
         }
 
         private static int ExtractSenseNumberFromText(string text)
