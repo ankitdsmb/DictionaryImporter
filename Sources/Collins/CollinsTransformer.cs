@@ -25,7 +25,7 @@ namespace DictionaryImporter.Sources.Collins
 
             try
             {
-                var normalizedWord = SourceDataHelper.NormalizeWord(raw.Headword);
+                var normalizedWord = SourceDataHelper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
 
                 foreach (var sense in raw.Senses)
                 {

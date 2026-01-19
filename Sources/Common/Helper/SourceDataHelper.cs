@@ -14,7 +14,62 @@ namespace DictionaryImporter.Sources.Common.Helper
     /// </summary>
     public static class SourceDataHelper
     {
+        // ADD to SourceDataHelper.cs (replace the broken method)
+        // Add this to SourceDataHelper.cs (anywhere in the class)
+        public static (bool HasIssues, string IssueDescription) ValidateEntry(DictionaryEntry entry, string sourceCode)
+        {
+            if (entry == null) return (false, "Entry is null");
+
+            // Special validation for ENG_CHN
+            if (sourceCode == "ENG_CHN" && !string.IsNullOrEmpty(entry.Definition))
+            {
+                var chineseCharCount = CountChineseCharacters(entry.Definition);
+
+                // Check if definition contains Chinese characters (it should for ENG_CHN)
+                if (chineseCharCount == 0)
+                {
+                    // Check if original had Chinese characters
+                    if (!string.IsNullOrEmpty(entry.RawFragment))
+                    {
+                        var originalChineseCount = CountChineseCharacters(entry.RawFragment);
+                        if (originalChineseCount > 0)
+                        {
+                            return (true, $"Lost {originalChineseCount} Chinese characters");
+                        }
+                    }
+                    return (true, "No Chinese characters found in definition");
+                }
+
+                // Check for significant data loss
+                if (!string.IsNullOrEmpty(entry.RawFragment))
+                {
+                    var originalLength = entry.RawFragment.Length;
+                    var processedLength = entry.Definition.Length;
+
+                    if (processedLength < originalLength * 0.3) // Lost more than 70% of content
+                    {
+                        return (true, $"Significant content loss: {originalLength} → {processedLength} chars");
+                    }
+                }
+            }
+
+            return (false, string.Empty);
+        }
+
+        // ADD method to count Chinese characters
+        public static int CountChineseCharacters(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return 0;
+            return Regex.Matches(text, @"[\u4E00-\u9FFF\u3400-\u4DBF\u3000-\u303F\uff00-\uffef]").Count;
+        }
+
         #region Shared Validation and Extraction Methods
+
+        // ADD this method
+        public static string NormalizeWordWithSourceContext(string word, string sourceCode)
+        {
+            return TextNormalizer.NormalizeWordPreservingLanguage(word, sourceCode);
+        }
 
         /// <summary>
         /// Extracts string value from JSON property if it exists and is valid.
@@ -91,7 +146,7 @@ namespace DictionaryImporter.Sources.Common.Helper
             public int LimitReachedLogged; // 0 = not logged, 1 = logged
         }
 
-        private const int MAX_RECORDS_PER_SOURCE = 5000;
+        private const int MAX_RECORDS_PER_SOURCE = 25;
 
         /// <summary>
         /// Controls per-source processing limits.

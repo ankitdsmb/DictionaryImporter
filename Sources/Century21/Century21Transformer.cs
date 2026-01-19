@@ -27,7 +27,7 @@ namespace DictionaryImporter.Sources.Century21
             {
                 var senseNumber = 1;
 
-                var normalizedHeadword = SourceDataHelper.NormalizeWord(raw.Headword);
+                var normalizedHeadword = SourceDataHelper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
                 var mainDefinition = BuildDefinition(raw);
 
                 entries.Add(new DictionaryEntry

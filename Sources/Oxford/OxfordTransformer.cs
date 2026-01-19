@@ -34,7 +34,7 @@ namespace DictionaryImporter.Sources.Oxford
 
             try
             {
-                var normalizedWord = NormalizeWord(raw.Headword);
+                var normalizedWord = SourceDataHelper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
                 var normalizedPos = OxfordSourceDataHelper.NormalizePartOfSpeech(raw.PartOfSpeech);
 
                 entries.AddRange(from sense in raw.Senses

@@ -1,4 +1,5 @@
 ﻿using DictionaryImporter.Bootstrap;
+using DictionaryImporter.Validation;
 using Serilog;
 
 var configuration = BootstrapConfiguration.Build();
@@ -23,6 +24,7 @@ var pipelineMode = BootstrapPipeline.ResolvePipelineMode(configuration);
 var sources = SourceRegistry.CreateSources()
     .Select(m => m.BuildSource(configuration))
     .ToList();
+EncodingAwareValidation.Run();
 
 await orchestrator.RunAsync(
     sources,

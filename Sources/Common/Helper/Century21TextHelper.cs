@@ -3,19 +3,35 @@ using HtmlAgilityPack;
 
 namespace DictionaryImporter.Sources.Common.Helper
 {
-    internal static class Century21TextHelper
+    public static class Century21TextHelper
     {
         public static string CleanEnglishText(string text)
         {
-            if (string.IsNullOrWhiteSpace(text))
-                return string.Empty;
+            if (string.IsNullOrWhiteSpace(text)) return string.Empty;
 
             text = DecodeHtmlEntities(text);
+
+            // Check if text contains Chinese
+            if (ContainsChineseCharacters(text))
+            {
+                // For bilingual text: preserve Chinese, only clean formatting
+                text = Regex.Replace(text, "<.*?>", string.Empty);
+                text = Regex.Replace(text, @"\s+", " ").Trim();
+                return text;
+            }
+
+            // For pure English text, use original logic
             text = RemoveChineseCharacters(text);
             text = RemoveChineseMarkers(text);
             text = Regex.Replace(text, "<.*?>", string.Empty);
             text = Regex.Replace(text, @"\s+", " ").Trim();
             return text;
+        }
+
+        private static bool ContainsChineseCharacters(string text)
+        {
+            return !string.IsNullOrWhiteSpace(text) &&
+                   Regex.IsMatch(text, @"[\u4E00-\u9FFF\u3400-\u4DBF]");
         }
 
         public static string RemoveChineseCharacters(string text)

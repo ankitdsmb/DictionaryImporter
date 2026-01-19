@@ -185,6 +185,7 @@ namespace DictionaryImporter.Sources.Common.Helper
         /// <summary>
         /// Cleans definition text by removing common markers and normalizing.
         /// </summary>
+        // In TextProcessingHelper.cs, update the method:
         public static string CleanDefinition(string definition, string? headword = null, params char[] separators)
         {
             if (string.IsNullOrWhiteSpace(definition))
@@ -192,22 +193,32 @@ namespace DictionaryImporter.Sources.Common.Helper
 
             var cleaned = definition;
 
-            // Remove common markers
+            // Check if this contains Chinese characters or bilingual markers
+            bool hasChineseChars = Regex.IsMatch(definition, @"[\u4E00-\u9FFF]");
+            bool hasBilingualMarkers = definition.Contains('【') || definition.Contains('】') ||
+                                       definition.Contains('•') || definition.Contains('⬄');
+
+            if (hasChineseChars || hasBilingualMarkers)
+            {
+                // For bilingual content: ONLY remove HTML tags and normalize whitespace
+                // DO NOT remove any content characters
+                cleaned = Regex.Replace(cleaned, @"<[^>]+>", " ");
+                cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
+                return cleaned;
+            }
+
+            // Original logic for pure English text
             cleaned = RemoveIpaMarkers(cleaned);
             cleaned = RemoveSyllableMarkers(cleaned);
             cleaned = RemovePosMarkers(cleaned);
 
-            // Remove headword if present
             if (!string.IsNullOrWhiteSpace(headword))
                 cleaned = RemoveHeadwordFromDefinition(cleaned, headword);
 
-            // Remove specified separators
             if (separators.Length > 0)
                 cleaned = RemoveSeparators(cleaned, separators);
 
-            // Normalize whitespace
             cleaned = NormalizeWhitespace(cleaned);
-
             return cleaned;
         }
 

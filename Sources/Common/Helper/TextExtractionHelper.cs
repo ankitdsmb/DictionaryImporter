@@ -7,6 +7,32 @@ namespace DictionaryImporter.Sources.Common.Helper
     /// </summary>
     public static class TextExtractionHelper
     {
+        // ADD to TextExtractionHelper.cs
+        public static StreamReader CreateDictionaryStreamReaderWithEncodingDetection(Stream stream)
+        {
+            // Detect encoding
+            using var reader = new StreamReader(stream, Encoding.UTF8, true, 1024, true);
+            var peek = new char[4];
+            reader.Read(peek, 0, 4);
+            stream.Position = 0;
+
+            // Check for UTF-8 BOM
+            if (peek[0] == '\uFEFF')
+            {
+                return new StreamReader(stream, Encoding.UTF8, false, 16 * 1024, true);
+            }
+
+            // Check for UTF-16
+            if ((peek[0] == '\uFFFE' && peek[1] == '\uFEFF') ||
+                (peek[0] == '\uFEFF' && peek[1] == '\uFFFE'))
+            {
+                return new StreamReader(stream, Encoding.Unicode, false, 16 * 1024, true);
+            }
+
+            // Default to UTF-8
+            return new StreamReader(stream, Encoding.UTF8, false, 16 * 1024, true);
+        }
+
         #region Common Regex Patterns
 
         private static readonly Regex HasEnglishLetter = new("[A-Za-z]", RegexOptions.Compiled);

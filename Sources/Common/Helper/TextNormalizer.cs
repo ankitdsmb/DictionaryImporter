@@ -1,33 +1,104 @@
-﻿namespace DictionaryImporter.Sources.Common.Helper
+﻿using System.Globalization;
+
+namespace DictionaryImporter.Sources.Common.Helper
 {
     public static class TextNormalizer
     {
-        private static readonly string[] SpecialCharacters = { "★", "☆", "●", "○", "▶" };
-
-        public static string NormalizeWord(string? word)
+        // ADD THIS NEW CLASS METHOD
+        public static string NormalizeWordPreservingLanguage(string? word, string sourceCode)
         {
             if (string.IsNullOrWhiteSpace(word))
                 return string.Empty;
 
+            var normalized = word.ToLowerInvariant().Trim();
+
+            // For bilingual sources, be more conservative
+            if (sourceCode == "ENG_CHN" || sourceCode == "CENTURY21" ||
+                sourceCode == "ENG_OXFORD" || sourceCode == "ENG_COLLINS")
+            {
+                // Only remove formatting characters, preserve content
+                var formattingChars = new[] { "★", "☆", "●", "○", "▶" };
+                foreach (var ch in formattingChars)
+                {
+                    normalized = normalized.Replace(ch, "");
+                }
+
+                // For ENG_CHN, preserve dots in abbreviations (e.g., "3G", "4WD")
+                if (sourceCode == "ENG_CHN" && IsLikelyAbbreviation(word))
+                {
+                    return normalized; // Don't remove dots or normalize further
+                }
+
+                return normalized.Trim();
+            }
+
+            // For Latin-based sources, normalize fully
+            return NormalizeWord(normalized);
+        }
+
+        private static bool IsLikelyAbbreviation(string word)
+        {
+            if (string.IsNullOrWhiteSpace(word))
+                return false;
+
+            // Check for abbreviation patterns common in ENG_CHN
+            return word.All(c => char.IsUpper(c) || char.IsDigit(c))
+                   || word.Length <= 3
+                   || word.Contains('.')
+                   || Regex.IsMatch(word, @"^[A-Z0-9]+$")
+                   || Regex.IsMatch(word, @"^\d+[A-Z]?$");
+        }
+
+        public static string NormalizeWord(string? word)
+        {
+            if (string.IsNullOrWhiteSpace(word)) return string.Empty;
+
             var normalized = word.ToLowerInvariant();
 
-            normalized = SpecialCharacters.Aggregate(normalized, (current, specialChar) => current.Replace(specialChar, ""));
+            // Remove formatting characters
+            var formattingChars = new[] { "★", "☆", "●", "○", "▶", "【", "】" };
+            foreach (var ch in formattingChars)
+            {
+                normalized = normalized.Replace(ch, "");
+            }
 
+            // Normalize hyphens and dashes
             normalized = normalized
                 .Replace('\u2013', '-')
                 .Replace('\u2014', '-')
                 .Replace('\u2011', '-')
                 .Replace("_", " ")
-                .Replace("-", " ")
-                .Trim();
+                .Replace("  ", " ");
 
-            // Remove any remaining special characters
+            // Remove diacritics
+            normalized = RemoveDiacritics(normalized);
+
+            // Remove non-letter/number characters (except hyphen and apostrophe)
             normalized = Regex.Replace(normalized, @"[^\p{L}\p{N}\s\-']", " ");
 
             // Normalize whitespace
             normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
 
             return normalized;
+        }
+
+        private static string RemoveDiacritics(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return text;
+
+            var normalizedString = text.Normalize(NormalizationForm.FormD);
+            var stringBuilder = new StringBuilder();
+
+            foreach (var c in normalizedString)
+            {
+                var unicodeCategory = CharUnicodeInfo.GetUnicodeCategory(c);
+                if (unicodeCategory != UnicodeCategory.NonSpacingMark)
+                {
+                    stringBuilder.Append(c);
+                }
+            }
+
+            return stringBuilder.ToString().Normalize(NormalizationForm.FormC);
         }
 
         public static string? NormalizeDefinition(string? definition)
