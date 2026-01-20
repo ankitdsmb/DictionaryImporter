@@ -8,72 +8,137 @@ using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Common.Helper
 {
-    /// <summary>
-    /// Comprehensive helper class for dictionary source data processing.
-    /// Provides shared functionality for transformers, parsers, and extractors.
-    /// </summary>
     public static class SourceDataHelper
     {
-        // ADD to SourceDataHelper.cs (replace the broken method)
-        // Add this to SourceDataHelper.cs (anywhere in the class)
+        #region Entry Validation
+
+        public static string NormalizeDefinitionForSource(string definition, string sourceCode)
+        {
+            if (string.IsNullOrWhiteSpace(definition))
+                return definition;
+
+            // ✅ SPECIAL CASE FOR ENG_CHN
+            if (sourceCode == "ENG_CHN")
+            {
+                // For ENG_CHN, preserve everything (Chinese characters, punctuation, etc.)
+                var normalized = definition
+                    .Replace("\r", " ")
+                    .Replace("\n", " ")
+                    .Trim();
+
+                // Only normalize whitespace, preserve all characters
+                normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
+                return normalized;
+            }
+
+            // For other sources, use the source-aware normalizer
+            return SourceAwareNormalizer.NormalizeForSource(definition, sourceCode);
+        }
+
+        // ✅ MODIFY: Update existing NormalizeDefinition to be backward compatible
+        public static string NormalizeDefinition(string definition, string sourceCode = null)
+        {
+            if (string.IsNullOrWhiteSpace(definition))
+                return definition;
+
+            // If source code provided, use source-aware normalization
+            if (!string.IsNullOrWhiteSpace(sourceCode))
+            {
+                return NormalizeDefinitionForSource(definition, sourceCode);
+            }
+
+            // Fallback to original generic normalization for backward compatibility
+            var normalized = definition
+                .Replace("\r", " ")
+                .Replace("\n", " ")
+                .Replace("  ", " ")
+                .Trim();
+
+            normalized = Regex.Replace(normalized, @"[^\x00-\x7F\s\.\,\;\:\!\?\(\)\[\]\-\'""\&\@\#\$\%\^\*]", " ");
+            normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
+
+            return normalized;
+        }
+
+        // ✅ ADD: Helper method to check for Chinese characters (simpler version)
+        public static bool ContainsChineseCharacters(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return false;
+
+            // Check for Chinese characters using Unicode ranges
+            foreach (char c in text)
+            {
+                int code = (int)c;
+                if ((code >= 0x4E00 && code <= 0x9FFF) ||    // CJK Unified Ideographs
+                    (code >= 0x3400 && code <= 0x4DBF) ||    // CJK Extension A
+                    (code >= 0x3000 && code <= 0x303F))      // CJK Symbols and Punctuation
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // ✅ ADD: Safe regex for Chinese detection (for regex-based checks)
+        public static bool ContainsChineseRegex(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return false;
+
+            // Use Unicode property for Chinese characters
+            return Regex.IsMatch(text, @"\p{IsCJKUnifiedIdeographs}");
+        }
+
         public static (bool HasIssues, string IssueDescription) ValidateEntry(DictionaryEntry entry, string sourceCode)
         {
-            if (entry == null) return (false, "Entry is null");
+            if (entry == null)
+                return (false, "Entry is null");
 
-            // Special validation for ENG_CHN
             if (sourceCode == "ENG_CHN" && !string.IsNullOrEmpty(entry.Definition))
             {
                 var chineseCharCount = CountChineseCharacters(entry.Definition);
 
-                // Check if definition contains Chinese characters (it should for ENG_CHN)
                 if (chineseCharCount == 0)
                 {
-                    // Check if original had Chinese characters
                     if (!string.IsNullOrEmpty(entry.RawFragment))
                     {
                         var originalChineseCount = CountChineseCharacters(entry.RawFragment);
                         if (originalChineseCount > 0)
-                        {
                             return (true, $"Lost {originalChineseCount} Chinese characters");
-                        }
                     }
+
                     return (true, "No Chinese characters found in definition");
                 }
 
-                // Check for significant data loss
                 if (!string.IsNullOrEmpty(entry.RawFragment))
                 {
                     var originalLength = entry.RawFragment.Length;
                     var processedLength = entry.Definition.Length;
 
-                    if (processedLength < originalLength * 0.3) // Lost more than 70% of content
-                    {
+                    if (processedLength < originalLength * 0.3)
                         return (true, $"Significant content loss: {originalLength} → {processedLength} chars");
-                    }
                 }
             }
 
             return (false, string.Empty);
         }
 
-        // ADD method to count Chinese characters
         public static int CountChineseCharacters(string text)
         {
-            if (string.IsNullOrWhiteSpace(text)) return 0;
+            if (string.IsNullOrWhiteSpace(text))
+                return 0;
+
             return Regex.Matches(text, @"[\u4E00-\u9FFF\u3400-\u4DBF\u3000-\u303F\uff00-\uffef]").Count;
         }
 
-        #region Shared Validation and Extraction Methods
+        #endregion Entry Validation
 
-        // ADD this method
+        #region Shared Validation and Extraction
+
         public static string NormalizeWordWithSourceContext(string word, string sourceCode)
         {
             return TextNormalizer.NormalizeWordPreservingLanguage(word, sourceCode);
         }
 
-        /// <summary>
-        /// Extracts string value from JSON property if it exists and is valid.
-        /// </summary>
         public static string? ExtractJsonString(JsonElement element, string propertyName)
         {
             if (element.TryGetProperty(propertyName, out var property) &&
@@ -86,9 +151,6 @@ namespace DictionaryImporter.Sources.Common.Helper
             return null;
         }
 
-        /// <summary>
-        /// Extracts array from JSON property if it exists and is valid.
-        /// </summary>
         public static JsonElement.ArrayEnumerator? ExtractJsonArray(JsonElement element, string propertyName)
         {
             if (element.TryGetProperty(propertyName, out var property) &&
@@ -100,9 +162,6 @@ namespace DictionaryImporter.Sources.Common.Helper
             return null;
         }
 
-        /// <summary>
-        /// Validates if a string is a valid dictionary word.
-        /// </summary>
         public static bool IsValidDictionaryWord(string word)
         {
             if (string.IsNullOrWhiteSpace(word) || word.Length < 2)
@@ -114,9 +173,6 @@ namespace DictionaryImporter.Sources.Common.Helper
             return Regex.IsMatch(word, @"^[a-z\s\-']+$");
         }
 
-        /// <summary>
-        /// Checks if text contains specific language markers.
-        /// </summary>
         public static bool ContainsLanguageMarker(string text, params string[] languages)
         {
             if (string.IsNullOrWhiteSpace(text))
@@ -131,30 +187,20 @@ namespace DictionaryImporter.Sources.Common.Helper
             return false;
         }
 
-        #endregion Shared Validation and Extraction Methods
+        #endregion Shared Validation and Extraction
 
-        #region Source Processing Control Methods
+        #region Source Processing Control
 
-        // Thread-safe per-source processing state
-        // Count = number of "allowed" records processed so far
-        // LimitReachedLogged = 0/1 int so it can be updated atomically
         private static readonly ConcurrentDictionary<string, ProcessingState> _sourceProcessingState = new();
 
         private sealed class ProcessingState
         {
             public int Count;
-            public int LimitReachedLogged; // 0 = not logged, 1 = logged
+            public int LimitReachedLogged;
         }
 
         private const int MAX_RECORDS_PER_SOURCE = 25;
 
-        /// <summary>
-        /// Controls per-source processing limits.
-        /// STRICT FIX:
-        /// 1) Count will NOT keep incrementing after max is reached
-        /// 2) "Reached maximum..." log prints ONLY once per source
-        /// 3) Thread-safe & atomic
-        /// </summary>
         public static bool ShouldContinueProcessing(string sourceCode, ILogger? logger = null)
         {
             if (string.IsNullOrWhiteSpace(sourceCode))
@@ -162,10 +208,8 @@ namespace DictionaryImporter.Sources.Common.Helper
 
             var state = _sourceProcessingState.GetOrAdd(sourceCode, _ => new ProcessingState());
 
-            // Stop BEFORE increment if already reached max.
             if (Volatile.Read(ref state.Count) >= MAX_RECORDS_PER_SOURCE)
             {
-                // Log only once per source (atomic)
                 if (logger != null && Volatile.Read(ref state.LimitReachedLogged) == 0)
                 {
                     if (Interlocked.Exchange(ref state.LimitReachedLogged, 1) == 0)
@@ -180,15 +224,10 @@ namespace DictionaryImporter.Sources.Common.Helper
                 return false;
             }
 
-            // Accept this record and increment count atomically
             var newCount = Interlocked.Increment(ref state.Count);
 
-            // If we incremented past limit (rare race), clamp behavior:
-            // We allow exactly MAX_RECORDS_PER_SOURCE records total.
-            // If count becomes MAX+1 due to race, return false for this record.
             if (newCount > MAX_RECORDS_PER_SOURCE)
             {
-                // Log once
                 if (logger != null && Volatile.Read(ref state.LimitReachedLogged) == 0)
                 {
                     if (Interlocked.Exchange(ref state.LimitReachedLogged, 1) == 0)
@@ -226,45 +265,28 @@ namespace DictionaryImporter.Sources.Common.Helper
                 : 0;
         }
 
-        #endregion Source Processing Control Methods
+        #endregion Source Processing Control
 
-        #region Text Normalization Methods
+        #region Text Normalization
 
-        /// <summary>
-        /// Normalizes dictionary headwords by removing special characters and standardizing.
-        /// </summary>
         public static string NormalizeWord(string word)
         {
             return TextNormalizer.NormalizeWord(word);
         }
 
-        /// <summary>
-        /// Normalizes part-of-speech tags to a standard format.
-        /// </summary>
         public static string NormalizePartOfSpeech(string? pos)
         {
             return TextNormalizer.NormalizePartOfSpeech(pos);
         }
 
-        /// <summary>
-        /// General text normalization for cleaning input.
-        /// </summary>
         public static string NormalizeText(string input)
         {
             return TextNormalizer.NormalizeText(input);
         }
 
-        /// <summary>
-        /// Normalizes dictionary definitions.
-        /// </summary>
-        public static string? NormalizeDefinition(string text)
-        {
-            return TextNormalizer.NormalizeDefinition(text);
-        }
+        #endregion Text Normalization
 
-        #endregion Text Normalization Methods
-
-        #region Kaikki JSON Processing Methods
+        #region Kaikki JSON Processing
 
         public static bool IsEnglishEntry(JsonElement root)
         {
@@ -361,9 +383,9 @@ namespace DictionaryImporter.Sources.Common.Helper
             return JsonProcessor.IsTranslationList(text);
         }
 
-        #endregion Kaikki JSON Processing Methods
+        #endregion Kaikki JSON Processing
 
-        #region Webster and General Parser Methods
+        #region Webster and General Parser
 
         public static bool IsValidMeaningTitle(string title)
         {
@@ -380,9 +402,9 @@ namespace DictionaryImporter.Sources.Common.Helper
             return ParserHelper.ExtractSection(definition, marker);
         }
 
-        #endregion Webster and General Parser Methods
+        #endregion Webster and General Parser
 
-        #region Text Cleaning and Processing Methods
+        #region Text Cleaning and Language Detection
 
         public static string CleanEtymologyText(string etymology)
         {
@@ -399,13 +421,10 @@ namespace DictionaryImporter.Sources.Common.Helper
             return TextCleaner.DetectLanguageFromEtymology(etymology);
         }
 
-        #endregion Text Cleaning and Processing Methods
+        #endregion Text Cleaning and Language Detection
 
-        #region Helper Creation Methods
+        #region Helper Creation
 
-        /// <summary>
-        /// Creates a fallback parsed definition from a dictionary entry.
-        /// </summary>
         public static ParsedDefinition CreateFallbackParsedDefinition(DictionaryEntry entry)
         {
             return new ParsedDefinition
@@ -422,9 +441,9 @@ namespace DictionaryImporter.Sources.Common.Helper
             };
         }
 
-        #endregion Helper Creation Methods
+        #endregion Helper Creation
 
-        #region Logging and Error Handling Methods
+        #region Logging and Error Handling
 
         public static void LogProgress(ILogger logger, string sourceCode, int count)
         {
@@ -439,12 +458,12 @@ namespace DictionaryImporter.Sources.Common.Helper
         public static void HandleError(ILogger logger, Exception ex, string sourceCode, string operation)
         {
             LoggingHelper.HandleError(logger, ex, sourceCode, operation);
-
-            // Strict: Reset this source state so a retry run works correctly
             ResetProcessingState(sourceCode);
         }
 
-        #region JsonProcessor Facade Methods
+        #endregion Logging and Error Handling
+
+        #region JsonProcessor Facade
 
         public static JsonElement? SafeParseJson(string json)
         {
@@ -461,8 +480,6 @@ namespace DictionaryImporter.Sources.Common.Helper
             return JsonProcessor.ExtractNestedProperty(root, propertyPath);
         }
 
-        #endregion JsonProcessor Facade Methods
-
-        #endregion Logging and Error Handling Methods
+        #endregion JsonProcessor Facade
     }
 }

@@ -98,7 +98,10 @@ namespace DictionaryImporter.Sources.Century21
             if (!string.IsNullOrWhiteSpace(raw.GrammarInfo))
                 parts.Add($"【Grammar】{raw.GrammarInfo}");
 
-            parts.Add(raw.Definition);
+            // ✅ FIX: Use source-aware normalization
+            var definition = SourceDataHelper.NormalizeDefinitionForSource(
+                raw.Definition, SourceCode);
+            parts.Add(definition);
 
             AddExamples(parts, raw.Examples);
 

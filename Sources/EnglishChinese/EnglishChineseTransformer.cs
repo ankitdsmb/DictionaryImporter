@@ -1,8 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.RegularExpressions;
-using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Sources.Common.Helper;
+using DictionaryImporter.Sources.EnglishChinese.Parsing;
 
 namespace DictionaryImporter.Sources.EnglishChinese
 {
@@ -21,8 +18,7 @@ namespace DictionaryImporter.Sources.EnglishChinese
             if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, _logger))
                 yield break;
 
-            if (raw == null)
-                yield break;
+            if (raw == null) yield break;
 
             foreach (var entry in ProcessEnglishChineseEntry(raw))
                 yield return entry;
@@ -34,17 +30,18 @@ namespace DictionaryImporter.Sources.EnglishChinese
 
             try
             {
-                // ✅ FIX: Handle actual ENG_CHN format (no ⬄ separator)
-                var definition = ExtractEngChnDefinition(raw.RawLine, raw.Headword);
+                // ✅ REPLACE the broken extraction with SimpleEngChnExtractor
+                var definition = SimpleEngChnExtractor.ExtractDefinition(raw.RawLine);
 
                 if (!string.IsNullOrWhiteSpace(definition))
                 {
                     var entry = new DictionaryEntry
                     {
                         Word = raw.Headword,
-                        NormalizedWord = SourceDataHelper.NormalizeWordWithSourceContext(raw.Headword, SourceCode),
+                        NormalizedWord = SourceDataHelper.NormalizeWordWithSourceContext(
+                            raw.Headword, SourceCode),
                         Definition = definition,
-                        RawFragment = raw.RawLine,
+                        RawFragment = raw.RawLine, // Keep original for reference
                         SenseNumber = 1,
                         SourceCode = SourceCode,
                         CreatedUtc = DateTime.UtcNow
@@ -52,15 +49,26 @@ namespace DictionaryImporter.Sources.EnglishChinese
 
                     entries.Add(entry);
 
-                    // Validate Chinese presence for non-abbreviations
-                    if (!IsAbbreviation(raw.Headword) && !ContainsChineseCharacters(definition))
+                    // Log if Chinese characters might have been lost
+                    if (!IsAbbreviation(raw.Headword) &&
+                        !ContainsChineseCharacters(definition))
                     {
-                        _logger.LogWarning("ENG_CHN entry '{Word}' may have lost Chinese characters",
-                            raw.Headword);
+                        _logger.LogWarning(
+                            "ENG_CHN entry '{Word}' may have lost Chinese characters. Raw: {RawPreview}",
+                            raw.Headword,
+                            GetPreview(raw.RawLine, 100));
                     }
                 }
+                else
+                {
+                    _logger.LogWarning(
+                        "ENG_CHN entry '{Word}' produced empty definition. Raw: {RawPreview}",
+                        raw.Headword,
+                        GetPreview(raw.RawLine, 50));
+                }
 
-                SourceDataHelper.LogProgress(_logger, SourceCode, SourceDataHelper.GetCurrentCount(SourceCode));
+                SourceDataHelper.LogProgress(_logger, SourceCode,
+                    SourceDataHelper.GetCurrentCount(SourceCode));
             }
             catch (Exception ex)
             {
@@ -71,46 +79,25 @@ namespace DictionaryImporter.Sources.EnglishChinese
                 yield return entry;
         }
 
-        private string ExtractEngChnDefinition(string rawLine, string headword)
-        {
-            if (string.IsNullOrWhiteSpace(rawLine))
-                return string.Empty;
-
-            // ✅ FIX: Original data already has the correct format
-            // Just clean it up a bit
-            var definition = rawLine.Trim();
-
-            // Remove any stray separators if they exist
-            var idx = definition.IndexOf('⬄');
-            if (idx >= 0 && idx < definition.Length - 1)
-            {
-                definition = definition[(idx + 1)..].Trim();
-            }
-
-            // Clean up extra whitespace
-            definition = Regex.Replace(definition, @"\s+", " ").Trim();
-
-            return definition;
-        }
-
         private bool IsAbbreviation(string word)
         {
-            if (string.IsNullOrWhiteSpace(word))
-                return false;
-
-            // Check for common abbreviation patterns
-            return word.All(c => char.IsUpper(c) || char.IsDigit(c))
-                || word.Length <= 3
-                || word.Contains(".")
-                || Regex.IsMatch(word, @"^[A-Z0-9]+$");
+            if (string.IsNullOrWhiteSpace(word)) return false;
+            return word.All(c => char.IsUpper(c) || char.IsDigit(c)) ||
+                   word.Length <= 3 ||
+                   word.Contains(".") ||
+                   System.Text.RegularExpressions.Regex.IsMatch(word, @"^[A-Z0-9]+$");
         }
 
         private bool ContainsChineseCharacters(string text)
         {
-            if (string.IsNullOrWhiteSpace(text))
-                return false;
+            return SimpleEngChnExtractor.ContainsChinese(text);
+        }
 
-            return Regex.IsMatch(text, @"[\u4E00-\u9FFF\u3400-\u4DBF\u3000-\u303F\uff00-\uffef]");
+        private string GetPreview(string text, int length)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return "[empty]";
+            if (text.Length <= length) return text;
+            return text.Substring(0, length) + "...";
         }
     }
 }

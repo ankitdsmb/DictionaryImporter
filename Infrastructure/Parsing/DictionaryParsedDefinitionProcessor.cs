@@ -1,8 +1,10 @@
 ﻿using Dapper;
-using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Logging;
 using DictionaryImporter.Core.Text;
 using DictionaryImporter.Sources.Common.Parsing;
+using DictionaryImporter.Sources.EnglishChinese;
+using DictionaryImporter.Sources.EnglishChinese.Parsing; // Add this for SimpleEngChnExtractor
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Parsing;
 
@@ -50,6 +52,13 @@ public sealed class DictionaryParsedDefinitionProcessor(
             entries.Count,
             sourceCode);
 
+        // ✅ SPECIAL HANDLING FOR ENG_CHN - Log that we're using enhanced extraction
+        if (sourceCode == "ENG_CHN")
+        {
+            logger.LogInformation(
+                "ENG_CHN special processing: Using SimpleEngChnExtractor for Chinese preservation");
+        }
+
         var exampleExtractor = exampleExtractorRegistry.GetExtractor(sourceCode);
         logger.LogDebug(
             "Using example extractor: {ExtractorType} for source {Source}",
@@ -64,6 +73,7 @@ public sealed class DictionaryParsedDefinitionProcessor(
         var exampleInserted = 0;
         var synonymInserted = 0;
         var etymologyExtracted = 0;
+        var engChnFixedCount = 0; // Track how many ENG_CHN entries were specially processed
 
         foreach (var entry in entries)
         {
@@ -73,7 +83,7 @@ public sealed class DictionaryParsedDefinitionProcessor(
             if (entryIndex % 1_000 == 0)
             {
                 logger.LogInformation(
-                    "Stage=Parsing progress | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants} | Examples={Examples} | Synonyms={Synonyms}",
+                    "Stage=Parsing progress | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants} | Examples={Examples} | Synonyms={Synonyms} | ENG_CHN_Fixed={EngChnFixed}",
                     sourceCode,
                     entryIndex,
                     parsedInserted,
@@ -81,7 +91,8 @@ public sealed class DictionaryParsedDefinitionProcessor(
                     aliasInserted,
                     variantInserted,
                     exampleInserted,
-                    synonymInserted);
+                    synonymInserted,
+                    engChnFixedCount);
             }
 
             var parser = parserResolver.Resolve(sourceCode);
@@ -93,16 +104,42 @@ public sealed class DictionaryParsedDefinitionProcessor(
             var parsedDefinitions = parser.Parse(entry)?.ToList();
             if (parsedDefinitions == null || parsedDefinitions.Count == 0)
             {
-                parsedDefinitions =
-                [
-                    new ParsedDefinition
-                    {
-                        Definition = null,
-                        RawFragment = entry.Definition,
-                        SenseNumber = entry.SenseNumber,
-                        CrossReferences = new List<CrossReference>()
-                    }
-                ];
+                // ✅ SPECIAL CASE FOR ENG_CHN: Use SimpleEngChnExtractor directly if parser fails
+                if (sourceCode == "ENG_CHN" && !string.IsNullOrWhiteSpace(entry.RawFragment))
+                {
+                    logger.LogDebug(
+                        "Parser returned empty for ENG_CHN entry {Word}, using SimpleEngChnExtractor directly",
+                        entry.Word);
+
+                    var extractedDefinition = SimpleEngChnExtractor.ExtractDefinition(entry.RawFragment);
+
+                    parsedDefinitions =
+                    [
+                        new ParsedDefinition
+                        {
+                            Definition = extractedDefinition,
+                            RawFragment = entry.RawFragment,
+                            SenseNumber = entry.SenseNumber,
+                            CrossReferences = new List<CrossReference>(),
+                            MeaningTitle = entry.Word ?? "unnamed sense"
+                        }
+                    ];
+                    engChnFixedCount++;
+                }
+                else
+                {
+                    parsedDefinitions =
+                    [
+                        new ParsedDefinition
+                        {
+                            Definition = null,
+                            RawFragment = entry.Definition,
+                            SenseNumber = entry.SenseNumber,
+                            CrossReferences = new List<CrossReference>(),
+                            MeaningTitle = entry.Word ?? "unnamed sense"
+                        }
+                    ];
+                }
             }
 
             foreach (var parsed in parsedDefinitions)
@@ -115,8 +152,27 @@ public sealed class DictionaryParsedDefinitionProcessor(
 
                 if (!string.IsNullOrWhiteSpace(inputDefinition))
                 {
-                    var formattedDefinition =
-                        formatter.FormatDefinition(inputDefinition);
+                    // ✅ SPECIAL HANDLING FOR ENG_CHN: Don't over-normalize Chinese content
+                    string formattedDefinition;
+                    if (sourceCode == "ENG_CHN")
+                    {
+                        // For ENG_CHN, preserve original formatting as much as possible
+                        formattedDefinition = inputDefinition;
+
+                        // Only apply minimal formatting - preserve Chinese characters
+                        formattedDefinition = formatter.FormatDefinition(formattedDefinition);
+
+                        logger.LogDebug(
+                            "ENG_CHN definition processing | Word={Word} | OriginalLength={OrigLen} | FormattedLength={FormattedLen} | HasChinese={HasChinese}",
+                            entry.Word,
+                            inputDefinition.Length,
+                            formattedDefinition.Length,
+                            SimpleEngChnExtractor.ContainsChinese(formattedDefinition));
+                    }
+                    else
+                    {
+                        formattedDefinition = formatter.FormatDefinition(inputDefinition);
+                    }
 
                     var correctedDefinition =
                         await grammarText.NormalizeDefinitionAsync(formattedDefinition, ct);
@@ -128,7 +184,7 @@ public sealed class DictionaryParsedDefinitionProcessor(
                         MeaningTitle = currentParsed.MeaningTitle,
                         SenseNumber = currentParsed.SenseNumber,
                         Definition = string.IsNullOrWhiteSpace(correctedDefinition)
-                            ? inputDefinition
+                            ? formattedDefinition  // Use formatted instead of input
                             : correctedDefinition,
                         RawFragment = currentParsed.RawFragment,
                         Domain = currentParsed.Domain,
@@ -146,8 +202,13 @@ public sealed class DictionaryParsedDefinitionProcessor(
                     ct);
 
                 if (parsedId <= 0)
-                    throw new InvalidOperationException(
-                        $"ParsedDefinition insert failed for DictionaryEntryId={entry.DictionaryEntryId}");
+                {
+                    logger.LogError(
+                        "ParsedDefinition insert failed for DictionaryEntryId={DictionaryEntryId}, Word={Word}",
+                        entry.DictionaryEntryId,
+                        entry.Word);
+                    continue; // Skip this entry but continue processing others
+                }
 
                 parsedInserted++;
 
@@ -176,9 +237,10 @@ public sealed class DictionaryParsedDefinitionProcessor(
 
                     if (examples.Count > 0)
                         logger.LogDebug(
-                            "Extracted {Count} examples for parsed definition {ParsedId}",
+                            "Extracted {Count} examples for parsed definition {ParsedId} | Word={Word}",
                             examples.Count,
-                            parsedId);
+                            parsedId,
+                            entry.Word);
                 }
 
                 // Synonyms
@@ -205,7 +267,8 @@ public sealed class DictionaryParsedDefinitionProcessor(
                             validSynonyms.Add(cleanedSynonym);
 
                         logger.LogDebug(
-                            "Synonym detected | Headword={Headword} | Synonym={Synonym} | Confidence={Confidence}",
+                            "Synonym detected | Source={Source} | Headword={Headword} | Synonym={Synonym} | Confidence={Confidence}",
+                            sourceCode,
                             entry.Word,
                             synonymResult.TargetHeadword,
                             synonymResult.ConfidenceLevel);
@@ -247,7 +310,8 @@ public sealed class DictionaryParsedDefinitionProcessor(
                         etymologyExtracted++;
 
                         logger.LogDebug(
-                            "Etymology extracted from definition | Headword={Headword} | Method={Method}",
+                            "Etymology extracted from definition | Source={Source} | Headword={Headword} | Method={Method}",
+                            sourceCode,
                             entry.Word,
                             etymologyResult.DetectionMethod);
 
@@ -292,20 +356,54 @@ public sealed class DictionaryParsedDefinitionProcessor(
 
                     aliasInserted++;
                 }
+
+                // ✅ Log ENG_CHN specific details for debugging
+                if (sourceCode == "ENG_CHN" && parsedInserted % 100 == 0)
+                {
+                    var hasChinese = SimpleEngChnExtractor.ContainsChinese(currentParsed.Definition ?? "");
+                    logger.LogDebug(
+                        "ENG_CHN processing | Word={Word} | DefinitionPreview={Preview} | HasChinese={HasChinese} | Length={Length}",
+                        entry.Word,
+                        GetPreview(currentParsed.Definition, 30),
+                        hasChinese,
+                        currentParsed.Definition?.Length ?? 0);
+                }
             }
         }
 
-        // ✅ Final single completion log (only once)
-        logger.LogInformation(
-            "Stage=Parsing completed | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants} | Examples={Examples} | Synonyms={Synonyms} | EtymologyExtracted={Etymology}",
-            sourceCode,
-            entryIndex,
-            parsedInserted,
-            crossRefInserted,
-            aliasInserted,
-            variantInserted,
-            exampleInserted,
-            synonymInserted,
-            etymologyExtracted);
+        // ✅ Final single completion log with ENG_CHN specific info
+        if (sourceCode == "ENG_CHN")
+        {
+            logger.LogInformation(
+                "Stage=Parsing completed | Source=ENG_CHN | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Examples={Examples} | Synonyms={Synonyms} | EtymologyExtracted={Etymology} | ENG_CHN_Fixed={EngChnFixed}",
+                entryIndex,
+                parsedInserted,
+                crossRefInserted,
+                exampleInserted,
+                synonymInserted,
+                etymologyExtracted,
+                engChnFixedCount);
+        }
+        else
+        {
+            logger.LogInformation(
+                "Stage=Parsing completed | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants} | Examples={Examples} | Synonyms={Synonyms} | EtymologyExtracted={Etymology}",
+                sourceCode,
+                entryIndex,
+                parsedInserted,
+                crossRefInserted,
+                aliasInserted,
+                variantInserted,
+                exampleInserted,
+                synonymInserted,
+                etymologyExtracted);
+        }
+    }
+
+    private string GetPreview(string text, int length)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "[empty]";
+        if (text.Length <= length) return text;
+        return text.Substring(0, length) + "...";
     }
 }
