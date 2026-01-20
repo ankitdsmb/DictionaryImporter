@@ -24,8 +24,14 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
 
         public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
         {
+            _logger?.LogDebug(
+                "EnglishChineseEnhancedParser.Parse called | Word={Word} | RawFragmentPreview={RawFragmentPreview}",
+                entry?.Word ?? "null",
+                entry?.RawFragment?.Substring(0, Math.Min(50, entry.RawFragment.Length)) ?? "null");
+
             if (entry == null)
             {
+                _logger?.LogWarning("Parser received null entry");
                 yield return CreateFallbackParsedDefinition(entry);
                 yield break;
             }
@@ -37,6 +43,7 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
 
             if (string.IsNullOrWhiteSpace(rawLine))
             {
+                _logger?.LogDebug("Empty raw line for entry: {Word}", entry.Word);
                 yield return CreateFallbackParsedDefinition(entry);
                 yield break;
             }
@@ -46,6 +53,13 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
 
             if (parsedEntry != null)
             {
+                _logger?.LogDebug(
+                    "Successfully parsed entry | Word={Word} | Syllabification={Syllabification} | POS={POS} | DefLength={DefLength}",
+                    entry.Word,
+                    parsedEntry.Syllabification,
+                    parsedEntry.PartOfSpeech,
+                    parsedEntry.Definition?.Length ?? 0);
+
                 // Return main sense
                 yield return CreateParsedDefinition(parsedEntry, entry.SenseNumber, rawLine);
 
@@ -61,6 +75,7 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
             }
             else
             {
+                _logger?.LogWarning("ParseEngChnLine returned null for: {Word}", entry.Word);
                 yield return CreateFallbackParsedDefinition(entry);
             }
         }
@@ -69,20 +84,23 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
         {
             var entry = new EngChnParsedEntry();
 
+            // ✅ FIX: Use the provided headword parameter, not extract from rawLine
+            entry.Headword = headword ?? "unnamed sense";
+            _logger?.LogDebug("ParseEngChnLine | Headword={Headword} | RawLine={RawLine}", entry.Headword, rawLine);
+
             // Split at ⬄ separator
             var parts = rawLine.Split('⬄', 2);
             if (parts.Length != 2)
             {
                 // No separator, use entire line as definition
                 entry.Definition = rawLine.Trim();
+                _logger?.LogDebug("No ⬄ separator found, using entire line as definition");
                 return entry;
             }
 
-            var leftPart = parts[0].Trim();
+            // ✅ FIX: Only parse the definition part (right side)
             var rightPart = parts[1].Trim();
-
-            // Extract from left part (headword side)
-            entry.Headword = leftPart;
+            _logger?.LogDebug("Found ⬄ separator | RightPart={RightPart}", rightPart);
 
             // Extract from right part (definition side)
             ParseDefinitionPart(rightPart, entry);
@@ -92,46 +110,70 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
 
         private void ParseDefinitionPart(string definitionPart, EngChnParsedEntry entry)
         {
-            // Patterns in order of parsing priority
             var text = definitionPart;
+            _logger?.LogDebug("ParseDefinitionPart | Text={Text}", text);
 
-            // 1. Extract syllabification (e.g., "18-wheel·er")
-            var syllabificationMatch = Regex.Match(text, @"^([a-zA-Z·\-]+(?:\s+[a-zA-Z·\-]+)*?)(?=\s*\/)");
-            if (syllabificationMatch.Success)
+            // ✅ FIX: Handle headwords with slashes like "24/7"
+            // First try pattern for slash-containing headwords
+            var slashHeadwordPattern = @"^([a-zA-Z0-9]+/[a-zA-Z0-9]+(?:\s+[a-zA-Z0-9]+/[a-zA-Z0-9]+)*?)\s+(/[^/]+/)";
+            var slashHeadwordMatch = Regex.Match(text, slashHeadwordPattern);
+
+            if (slashHeadwordMatch.Success)
             {
-                entry.Syllabification = syllabificationMatch.Groups[1].Value.Trim();
-                text = text.Substring(syllabificationMatch.Length).TrimStart();
+                // Case like "24/7 /pronunciation/"
+                entry.Syllabification = slashHeadwordMatch.Groups[1].Value.Trim();
+                entry.IpaPronunciation = slashHeadwordMatch.Groups[2].Value.Trim();
+                text = text.Substring(slashHeadwordMatch.Length).TrimStart();
+
+                _logger?.LogDebug("Found slash-headword syllabification: {Syllabification}", entry.Syllabification);
+                _logger?.LogDebug("Found IPA for slash-headword: {IPA}", entry.IpaPronunciation);
+            }
+            else
+            {
+                // Original logic for normal cases without slash in headword
+                var syllabificationMatch = Regex.Match(text, @"^([a-zA-Z0-9·\-]+(?:\s+[a-zA-Z0-9·\-]+)*?)(?=\s*\/[^/])");
+                if (syllabificationMatch.Success)
+                {
+                    entry.Syllabification = syllabificationMatch.Groups[1].Value.Trim();
+                    text = text.Substring(syllabificationMatch.Length).TrimStart();
+                    _logger?.LogDebug("Found syllabification: {Syllabification}", entry.Syllabification);
+                }
+
+                var ipaMatch = Regex.Match(text, @"^\s*(/[^/]+/)\s*");
+                if (ipaMatch.Success)
+                {
+                    entry.IpaPronunciation = ipaMatch.Groups[1].Value.Trim();
+                    text = text.Substring(ipaMatch.Length).TrimStart();
+                    _logger?.LogDebug("Found IPA: {IPA}", entry.IpaPronunciation);
+                }
             }
 
-            // 2. Extract IPA pronunciation (e.g., "/ˈeɪtiːnˌwhiːlə(r)/")
-            var ipaMatch = Regex.Match(text, @"^\s*(/[^/]+/)\s*");
-            if (ipaMatch.Success)
-            {
-                entry.IpaPronunciation = ipaMatch.Groups[1].Value.Trim();
-                text = text.Substring(ipaMatch.Length).TrimStart();
-            }
+            // Rest of the method remains the same...
+            var posMatch = Regex.Match(text,
+                @"^\s*(n\.|v\.|vt\.|vi\.|a\.|adj\.|ad\.|adv\.|prep\.|int\.|abbr\.|phr\.|pl\.|sing\.|comb\.form|conj\.|pron\.|det\.|interj\.|exclam\.|num\.|suffix|prefix)\s*",
+                RegexOptions.IgnoreCase);
 
-            // 3. Extract Part of Speech (e.g., "n.", "ad.", "a.", "abbr.")
-            var posMatch = Regex.Match(text, @"^\s*(n\.|v\.|vt\.|vi\.|a\.|adj\.|ad\.|adv\.|prep\.|int\.|abbr\.|phr\.|pl\.|sing\.|comb\.form)\s*");
             if (posMatch.Success)
             {
                 entry.PartOfSpeech = posMatch.Groups[1].Value.Trim();
                 text = text.Substring(posMatch.Length).TrimStart();
+                _logger?.LogDebug("Found POS: {POS}", entry.PartOfSpeech);
             }
 
-            // 4. Extract the main definition and all additional data
             ParseMainDefinitionAndMetadata(text, entry);
         }
 
         private void ParseMainDefinitionAndMetadata(string text, EngChnParsedEntry entry)
         {
             var remainingText = text;
+            _logger?.LogDebug("ParseMainDefinitionAndMetadata | Text={Text}", text);
 
             // Extract domain labels (〔医〕, 〔农〕, etc.)
             var domainMatches = Regex.Matches(remainingText, @"〔([^〕]+)〕");
             foreach (Match match in domainMatches)
             {
                 entry.DomainLabels.Add(match.Groups[1].Value.Trim());
+                _logger?.LogDebug("Found domain label: {Domain}", match.Groups[1].Value.Trim());
             }
             remainingText = Regex.Replace(remainingText, @"〔[^〕]+〕", "").Trim();
 
@@ -140,6 +182,7 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
             foreach (Match match in registerMatches)
             {
                 entry.RegisterLabels.Add(match.Groups[1].Value.Trim());
+                _logger?.LogDebug("Found register label: {Register}", match.Groups[1].Value.Trim());
             }
             remainingText = Regex.Replace(remainingText, @"〈[^〉]+〉", "").Trim();
 
@@ -149,17 +192,26 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
             {
                 entry.Etymology = etymologyMatch.Groups[1].Value.Trim();
                 remainingText = remainingText.Replace(etymologyMatch.Value, "").Trim();
+                _logger?.LogDebug("Found etymology: {Etymology}", entry.Etymology);
             }
 
             // Check for multiple senses (1., 2., etc.)
-            var senseMatches = Regex.Matches(remainingText, @"(\d+)\.\s*([^0-9]+?)(?=(?:\d+\.|$))");
+            var senseMatches = Regex.Matches(remainingText,
+                @"(\d+)\.\s*(.+?)(?=(?:\d+\.|$))",
+                RegexOptions.Singleline);
 
             if (senseMatches.Count > 0)
             {
+                _logger?.LogDebug("Found {Count} numbered senses", senseMatches.Count);
+
                 foreach (Match senseMatch in senseMatches)
                 {
                     var senseNumber = senseMatch.Groups[1].Value;
                     var senseDefinition = senseMatch.Groups[2].Value.Trim();
+
+                    _logger?.LogDebug("Sense {SenseNumber}: {SenseDefinitionPreview}",
+                        senseNumber,
+                        senseDefinition.Substring(0, Math.Min(50, senseDefinition.Length)));
 
                     if (senseNumber == "1")
                     {
@@ -188,6 +240,8 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
             {
                 // Single sense
                 entry.Definition = CleanDefinitionText(remainingText);
+                _logger?.LogDebug("Single sense definition: {DefinitionPreview}",
+                    entry.Definition.Substring(0, Math.Min(50, entry.Definition.Length)));
             }
         }
 
@@ -222,8 +276,14 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
             // Add pronunciation to definition if present
             if (!string.IsNullOrWhiteSpace(parsedEntry.IpaPronunciation))
             {
-                parsed.Definition = $"Pronunciation: {parsedEntry.IpaPronunciation}\n" + parsed.Definition;
+                parsed.Definition = $"【Pronunciation】{parsedEntry.IpaPronunciation}\n" + parsed.Definition;
             }
+
+            _logger?.LogDebug(
+                "Created ParsedDefinition | Word={Word} | DefLength={Length} | HasChinese={HasChinese}",
+                parsed.MeaningTitle,
+                parsed.Definition.Length,
+                ContainsChinese(parsed.Definition));
 
             return parsed;
         }
@@ -233,10 +293,10 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
             var parts = new List<string>();
 
             if (!string.IsNullOrWhiteSpace(entry.Syllabification))
-                parts.Add($"Syllabification: {entry.Syllabification}");
+                parts.Add($"【Syllabification】{entry.Syllabification}");
 
             if (!string.IsNullOrWhiteSpace(entry.PartOfSpeech))
-                parts.Add($"({entry.PartOfSpeech})");
+                parts.Add($"【POS】{entry.PartOfSpeech}");
 
             parts.Add(entry.Definition ?? string.Empty);
 
@@ -267,6 +327,8 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
 
         private ParsedDefinition CreateFallbackParsedDefinition(DictionaryEntry entry)
         {
+            _logger?.LogWarning("Creating fallback ParsedDefinition for: {Word}", entry?.Word);
+
             return new ParsedDefinition
             {
                 MeaningTitle = entry?.Word ?? "unnamed sense",
@@ -279,6 +341,12 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
                 Synonyms = null,
                 Alias = null
             };
+        }
+
+        private bool ContainsChinese(string text)
+        {
+            return !string.IsNullOrWhiteSpace(text) &&
+                   text.Any(c => c >= 0x4E00 && c <= 0x9FFF);
         }
 
         // Internal model for parsed ENG_CHN entry

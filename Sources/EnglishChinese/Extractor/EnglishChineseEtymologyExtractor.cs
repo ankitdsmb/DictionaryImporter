@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor
+﻿namespace DictionaryImporter.Sources.EnglishChinese.Extractor
 {
     public sealed class EnglishChineseEtymologyExtractor(ILogger<EnglishChineseEtymologyExtractor> logger)
         : IEtymologyExtractor

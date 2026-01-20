@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor
+﻿namespace DictionaryImporter.Sources.Oxford.Extractor
 {
     public sealed class OxfordEtymologyExtractor(ILogger<OxfordEtymologyExtractor> logger) : IEtymologyExtractor
     {

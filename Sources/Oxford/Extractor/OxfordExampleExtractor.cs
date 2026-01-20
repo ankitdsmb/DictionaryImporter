@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor
+﻿namespace DictionaryImporter.Sources.Oxford.Extractor
 {
     public sealed class OxfordExampleExtractor : IExampleExtractor
     {

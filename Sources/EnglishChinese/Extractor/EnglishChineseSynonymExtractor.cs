@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor
+﻿namespace DictionaryImporter.Sources.EnglishChinese.Extractor
 {
     public sealed class EnglishChineseSynonymExtractor(ILogger<EnglishChineseSynonymExtractor> logger) : ISynonymExtractor
     {
@@ -259,8 +259,8 @@
             var pairs = new[] { (a, b), (b, a) };
 
             return nonSynonyms.Any(p =>
-                (p.Item1 == a && p.Item2 == b) ||
-                (p.Item1 == b && p.Item2 == a));
+                p.Item1 == a && p.Item2 == b ||
+                p.Item1 == b && p.Item2 == a);
         }
 
         private int GetConfidenceScore(string confidence)

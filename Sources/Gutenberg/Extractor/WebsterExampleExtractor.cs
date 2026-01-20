@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor
+﻿namespace DictionaryImporter.Sources.Gutenberg.Extractor
 {
     public sealed class WebsterExampleExtractor : IExampleExtractor
     {

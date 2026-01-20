@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor
+﻿namespace DictionaryImporter.Sources.Generic
 {
     public sealed class GenericExampleExtractor : IExampleExtractor
     {

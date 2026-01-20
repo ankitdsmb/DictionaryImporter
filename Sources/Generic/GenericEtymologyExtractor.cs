@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor
+﻿namespace DictionaryImporter.Sources.Generic
 {
     public sealed class GenericEtymologyExtractor(ILogger<GenericEtymologyExtractor> logger) : IEtymologyExtractor
     {

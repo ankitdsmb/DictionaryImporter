@@ -1,7 +1,8 @@
-﻿using System;
-using System.IO;
+﻿using DictionaryImporter.Sources.Kaikki;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.IO;
 
 namespace DictionaryImporter.Sources.Gutenberg
 {
@@ -15,7 +16,7 @@ namespace DictionaryImporter.Sources.Gutenberg
             services.AddSingleton<IDictionaryDefinitionParser, GutenbergDefinitionParser>();
             services.AddSingleton<IDataExtractor<GutenbergRawEntry>, GutenbergWebsterExtractor>();
             services.AddSingleton<IDataTransformer<GutenbergRawEntry>, GutenbergWebsterTransformer>();
-
+            services.AddSingleton<IDictionaryEntryValidator, GutenbergWebsterValidator>();
             // FIX: Register Webster-specific extractors if they exist
             // services.AddSingleton<IEtymologyExtractor, WebsterEtymologyExtractor>();
             // services.AddSingleton<ISynonymExtractor, WebsterSynonymExtractor>();

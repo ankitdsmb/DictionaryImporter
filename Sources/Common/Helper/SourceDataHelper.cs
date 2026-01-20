@@ -10,30 +10,53 @@ namespace DictionaryImporter.Sources.Common.Helper
 {
     public static class SourceDataHelper
     {
-        #region Entry Validation
-
-        public static string NormalizeDefinitionForSource(string definition, string sourceCode)
+        // Add to SourceDataHelper.cs (or create new helper)
+        public static class BilingualTextPreserver
         {
-            if (string.IsNullOrWhiteSpace(definition)) return definition;
-            // FIX: SPECIAL CASE FOR BILINGUAL SOURCES
-            var bilingualSources = new HashSet<string>
+            private static readonly HashSet<string> BilingualSources = new()
             {
-                "ENG_CHN", "CENTURY21", "ENG_OXFORD", "ENG_COLLINS"
+                "ENG_CHN", "CENTURY21", "ENG_COLLINS"
             };
 
-            if (bilingualSources.Contains(sourceCode))
+            public static string PreserveBilingualContent(string text, string sourceCode)
             {
-                // For bilingual sources: preserve everything (Chinese characters, punctuation, etc.)
-                var normalized = definition
-                    .Replace("\r", " ")
-                    .Replace("\n", " ")
-                    .Trim();
-                // Only normalize whitespace, preserve all characters
-                normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
-                return normalized;
+                if (string.IsNullOrWhiteSpace(text) || !BilingualSources.Contains(sourceCode))
+                    return text;
+
+                // For bilingual sources, only do minimal cleaning
+                text = Regex.Replace(text, @"\s+", " ").Trim();
+
+                // Decode HTML entities if present
+                if (text.Contains('&'))
+                {
+                    text = System.Net.WebUtility.HtmlDecode(text);
+                }
+
+                return text;
             }
-            // For other sources, use the source-aware normalizer
-            return SourceAwareNormalizer.NormalizeForSource(definition, sourceCode);
+
+            public static bool ShouldPreserveChinese(string sourceCode)
+            {
+                return BilingualSources.Contains(sourceCode);
+            }
+        }
+
+        #region Entry Validation
+
+        // In SourceDataHelper.cs - Update the method
+        public static string NormalizeDefinitionForSource(string definition, string sourceCode)
+        {
+            if (string.IsNullOrWhiteSpace(definition))
+                return definition;
+
+            // Special handling for bilingual sources
+            if (BilingualTextPreserver.ShouldPreserveChinese(sourceCode))
+            {
+                return BilingualTextPreserver.PreserveBilingualContent(definition, sourceCode);
+            }
+
+            // Original logic for other sources
+            return NormalizeDefinition(definition);
         }
 
         // MODIFY: Update existing NormalizeDefinition to be backward compatible

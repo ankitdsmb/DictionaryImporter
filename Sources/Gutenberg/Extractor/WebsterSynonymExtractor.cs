@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor
+﻿namespace DictionaryImporter.Sources.Gutenberg.Extractor
 {
     internal class WebsterSynonymExtractor : ISynonymExtractor
     {
@@ -7,7 +7,7 @@
         IReadOnlyList<SynonymDetectionResult> ISynonymExtractor.Extract(string headword, string definition,
             string? rawDefinition)
         {
-            return Sources.Gutenberg.Parsing.WebsterSynonymExtractor.Extract(definition)
+            return Parsing.WebsterSynonymExtractor.Extract(definition)
                 .Where(s => !s.Equals(headword, StringComparison.OrdinalIgnoreCase))
                 .Select(s => new SynonymDetectionResult
                 {

@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor
+﻿namespace DictionaryImporter.Sources.Generic
 {
     public sealed class GenericSynonymExtractor : ISynonymExtractor
     {

@@ -1,10 +1,14 @@
 ﻿using DictionaryImporter.Core.Text;
 using DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
+using DictionaryImporter.Sources.Collins.Extractor;
 using DictionaryImporter.Sources.Common.Parsing;
+using DictionaryImporter.Sources.EnglishChinese.Extractor;
+using DictionaryImporter.Sources.Generic;
+using DictionaryImporter.Sources.Gutenberg.Extractor;
 using DictionaryImporter.Sources.Oxford.Parsing;
 using WebsterEtymologyExtractor =
-    DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor.WebsterEtymologyExtractor;
-using WebsterSynonymExtractor = DictionaryImporter.Infrastructure.Parsing.SynonymExtractor.WebsterSynonymExtractor;
+    DictionaryImporter.Sources.Gutenberg.Extractor.WebsterEtymologyExtractor;
+using WebsterSynonymExtractor = DictionaryImporter.Sources.Gutenberg.Extractor.WebsterSynonymExtractor;
 
 namespace DictionaryImporter.Bootstrap.Extensions
 {

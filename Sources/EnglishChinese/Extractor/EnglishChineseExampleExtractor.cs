@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor
+﻿namespace DictionaryImporter.Sources.EnglishChinese.Extractor
 {
     public sealed class EnglishChineseExampleExtractor : IExampleExtractor
     {

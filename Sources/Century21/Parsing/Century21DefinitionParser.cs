@@ -259,12 +259,11 @@ namespace DictionaryImporter.Sources.Century21.Parsing
         private List<string> ExtractEnglishDefinitions(HtmlNode wordBlock)
         {
             var definitions = new List<string>();
-
             try
             {
                 var englishExamples = ExtractEnglishExamples(wordBlock);
 
-                // Infer definition from first example (your existing logic)
+                // Infer definition from first example
                 if (englishExamples.Count > 0)
                 {
                     var firstExample = englishExamples.First();
@@ -283,23 +282,11 @@ namespace DictionaryImporter.Sources.Century21.Parsing
                     {
                         var text = span.InnerText.Trim();
 
-                        // FIX: Check if text is primarily English OR contains Chinese
-                        // Century21 is bilingual, so we should accept both
-                        if ((Century21TextHelper.IsPrimarilyEnglish(text) ||
-                             SourceDataHelper.ContainsChineseCharacters(text)) &&
-                            text.Length > 3)
+                        // ✅ FIX: Accept bilingual content (English + Chinese)
+                        if (text.Length > 3)
                         {
-                            // Don't remove Chinese markers from bilingual content
-                            if (Century21TextHelper.IsPrimarilyEnglish(text))
-                            {
-                                text = Century21TextHelper.RemoveChineseMarkers(text);
-                                text = Century21TextHelper.CleanEnglishText(text);
-                            }
-                            else
-                            {
-                                // For Chinese or bilingual text, just clean basic formatting
-                                text = Century21TextHelper.CleanEnglishText(text);
-                            }
+                            // Clean formatting but preserve ALL text
+                            text = Century21TextHelper.CleanEnglishText(text);
 
                             if (!string.IsNullOrWhiteSpace(text))
                                 definitions.Add(text);

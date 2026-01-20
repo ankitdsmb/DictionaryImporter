@@ -1,6 +1,6 @@
 ﻿namespace DictionaryImporter.Orchestration
 {
-    public sealed class ImportEngineFactory<TRaw>(
+    public class ImportEngineFactory<TRaw>(
         IDataExtractor<TRaw> extractor,
         IDataTransformer<TRaw> transformer,
         IDataLoader loader,

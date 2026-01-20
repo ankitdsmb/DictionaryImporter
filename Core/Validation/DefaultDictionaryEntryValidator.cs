@@ -1,6 +1,6 @@
 ﻿using DictionaryImporter.Sources.Common.Helper;
 
-namespace DictionaryImporter.Infrastructure.Validation
+namespace DictionaryImporter.Core.Validation
 {
     public sealed class DefaultDictionaryEntryValidator(ILogger<DefaultDictionaryEntryValidator> logger)
         : IDictionaryEntryValidator

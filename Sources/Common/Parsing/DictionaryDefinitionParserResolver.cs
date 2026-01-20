@@ -7,13 +7,13 @@ namespace DictionaryImporter.Sources.Common.Parsing
         private readonly Dictionary<string, ISourceDictionaryDefinitionParser> _map;
         private readonly ILogger<DictionaryDefinitionParserResolver> _logger;
 
+        // In DictionaryDefinitionParserResolver constructor
         public DictionaryDefinitionParserResolver(
             IEnumerable<ISourceDictionaryDefinitionParser> parsers,
             ILogger<DictionaryDefinitionParserResolver> logger)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-            // FIX: Handle null or empty parsers collection
             if (parsers == null)
             {
                 _logger.LogWarning("Parsers collection is null. Creating empty dictionary.");
@@ -23,23 +23,32 @@ namespace DictionaryImporter.Sources.Common.Parsing
 
             try
             {
+                // DEBUG: Log all parsers being registered
+                foreach (var parser in parsers)
+                {
+                    _logger.LogDebug("Registering parser: {ParserType} for source {SourceCode}",
+                        parser.GetType().Name, parser.SourceCode);
+                }
+
                 _map = parsers.ToDictionary(x => x.SourceCode);
-                _logger.LogDebug("Loaded {Count} parsers: {Sources}",
+                _logger.LogInformation("Loaded {Count} parsers: {Sources}",
                     _map.Count, string.Join(", ", _map.Keys));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to create parser dictionary");
+                _logger.LogError(ex, "Failed to create parser dictionary. Parsers count: {Count}",
+                    parsers?.Count() ?? 0);
                 _map = new Dictionary<string, ISourceDictionaryDefinitionParser>();
             }
         }
 
+        // In DictionaryDefinitionParserResolver.cs - Replace the fallback logic
         public IDictionaryDefinitionParser Resolve(string sourceCode)
         {
             if (string.IsNullOrWhiteSpace(sourceCode))
             {
                 _logger.LogWarning("Attempted to resolve parser with null/empty source code");
-                return new DefaultDefinitionParser();
+                return CreateBilingualFallbackParser(sourceCode);
             }
 
             if (_map.TryGetValue(sourceCode, out var parser))
@@ -49,37 +58,50 @@ namespace DictionaryImporter.Sources.Common.Parsing
             }
 
             _logger.LogWarning(
-                "No definition parser registered for source {SourceCode}. Using fallback parser.",
+                "No definition parser registered for source {SourceCode}. Using enhanced fallback.",
                 sourceCode);
+
+            // Enhanced fallback that preserves bilingual content
+            return CreateBilingualFallbackParser(sourceCode);
+        }
+
+        private IDictionaryDefinitionParser CreateBilingualFallbackParser(string sourceCode)
+        {
+            // Sources that require Chinese preservation
+            var bilingualSources = new HashSet<string>
+    {
+        "ENG_CHN", "CENTURY21", "ENG_COLLINS"
+    };
+
+            if (bilingualSources.Contains(sourceCode))
+            {
+                return new BilingualFallbackParser(_logger);
+            }
 
             return new DefaultDefinitionParser();
         }
 
-        // Enhanced fallback parser
-        private class EnhancedFallbackParser : IDictionaryDefinitionParser
+        // New class in same file
+        private class BilingualFallbackParser(ILogger logger) : IDictionaryDefinitionParser
         {
-            private readonly ILogger _logger;
-
-            public EnhancedFallbackParser(ILogger logger)
-            {
-                _logger = logger;
-            }
-
             public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
             {
-                _logger.LogDebug("Using fallback parser for {Word} ({Source})",
-                    entry.Word, entry.SourceCode);
+                logger.LogDebug(
+                    "Using bilingual fallback parser for {Word} ({Source})",
+                    entry.Word,
+                    entry.SourceCode);
 
                 // Preserve ALL content for bilingual sources
                 var definition = entry.Definition;
+                var rawFragment = entry.RawFragment ?? entry.Definition ?? string.Empty;
 
-                if (entry.SourceCode == "ENG_CHN" || entry.SourceCode == "CENTURY21")
+                // For ENG_CHN with ⬄ separator
+                if (entry.SourceCode == "ENG_CHN" && rawFragment.Contains('⬄'))
                 {
-                    // Extract Chinese part if present
-                    var idx = definition?.IndexOf('⬄') ?? -1;
-                    if (idx >= 0 && idx < definition!.Length - 1)
+                    var parts = rawFragment.Split('⬄', 2);
+                    if (parts.Length > 1)
                     {
-                        definition = definition[(idx + 1)..].Trim();
+                        definition = parts[1].Trim();
                     }
                 }
 
@@ -87,8 +109,8 @@ namespace DictionaryImporter.Sources.Common.Parsing
                 {
                     MeaningTitle = entry.Word ?? "unnamed sense",
                     Definition = definition ?? string.Empty,
-                    RawFragment = entry.RawFragment ?? definition ?? string.Empty,
-                    SenseNumber = entry.SenseNumber,
+                    RawFragment = rawFragment,
+                    SenseNumber = entry.SourceCode == "ENG_CHN" ? 1 : entry.SenseNumber,
                     Domain = null,
                     UsageLabel = null,
                     CrossReferences = new List<CrossReference>(),

@@ -12,13 +12,11 @@ namespace DictionaryImporter.Sources.Century21
 
         public void RegisterServices(IServiceCollection services, IConfiguration configuration)
         {
-            // FIX: Register ALL required services
+            // MUST HAVE THESE:
             services.AddSingleton<IDataExtractor<Century21RawEntry>, Century21Extractor>();
-            services.AddSingleton<IDataTransformer<Century21RawEntry>, Century21Transformer>();
+            services.AddSingleton<IDataTransformer<Century21RawEntry>, Century21Transformer>(); // ← CRITICAL
             services.AddSingleton<IDictionaryDefinitionParser, Century21DefinitionParser>();
             services.AddSingleton<IDictionaryEntryValidator, Century21EntryValidator>();
-
-            // FIX: Register the factory
             services.AddSingleton<ImportEngineFactory<Century21RawEntry>>();
         }
 

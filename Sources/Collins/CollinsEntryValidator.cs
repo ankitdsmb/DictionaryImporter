@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Sources.Common;
-
-namespace DictionaryImporter.Sources.Collins
+﻿namespace DictionaryImporter.Sources.Collins
 {
     public sealed class CollinsEntryValidator : IDictionaryEntryValidator
     {
@@ -12,7 +10,12 @@ namespace DictionaryImporter.Sources.Collins
             if (string.IsNullOrWhiteSpace(entry.Definition))
                 return ValidationResult.Invalid("Definition missing");
 
-            return ValidationResult.Valid();
+            // Collins entries should have special formatting
+            if (!string.IsNullOrWhiteSpace(entry.RawFragment) &&
+                (entry.RawFragment.Contains("★") || entry.RawFragment.Contains("●")))
+                return ValidationResult.Valid();
+
+            return ValidationResult.Valid(); // Be lenient
         }
     }
 }

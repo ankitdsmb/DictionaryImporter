@@ -48,9 +48,10 @@ public sealed class DictionaryParsedDefinitionProcessor(
             .ToList();
 
         logger.LogInformation(
-            "Stage=Parsing | EntriesLoaded={Count} | Source={SourceCode}",
+            "DEBUG: Database entries for {SourceCode}: Count={Count} | Sample words: {SampleWords}",
+            sourceCode,
             entries.Count,
-            sourceCode);
+            string.Join(", ", entries.Take(5).Select(e => e.Word)));
 
         // ✅ SPECIAL HANDLING FOR ENG_CHN - Log that we're using enhanced extraction
         if (sourceCode == "ENG_CHN")
@@ -77,6 +78,10 @@ public sealed class DictionaryParsedDefinitionProcessor(
 
         foreach (var entry in entries)
         {
+            logger.LogInformation(
+                "PARSER DEBUG: Source={SourceCode} | Word={Word} | RawFragmentLength={Length}",
+                sourceCode, entry.Word, entry.RawFragment?.Length ?? 0);
+
             ct.ThrowIfCancellationRequested();
             entryIndex++;
 
@@ -96,19 +101,31 @@ public sealed class DictionaryParsedDefinitionProcessor(
             }
 
             var parser = parserResolver.Resolve(sourceCode);
-            logger.LogDebug(
-                "Using definition parser: {ParserType} for source {Source}",
+            logger.LogInformation(
+                "PARSER DEBUG: Using {ParserType} for {SourceCode} | Word={Word}",
                 parser.GetType().Name,
-                sourceCode);
+                sourceCode,
+                entry.Word);
+
+            // In DictionaryParsedDefinitionProcessor.ExecuteAsync, replace the fallback section:
 
             var parsedDefinitions = parser.Parse(entry)?.ToList();
+
+            // ✅ ADD PROPER ERROR LOGGING BEFORE FALLBACK
             if (parsedDefinitions == null || parsedDefinitions.Count == 0)
             {
+                logger.LogWarning(
+                    "⚠️ PARSER RETURNED EMPTY | Source={Source} | Word={Word} | RawFragmentPreview={Preview} | ParserType={ParserType}",
+                    sourceCode,
+                    entry.Word,
+                    GetPreview(entry.RawFragment, 100),
+                    parser.GetType().Name);
+
                 // ✅ SPECIAL CASE FOR ENG_CHN: Use SimpleEngChnExtractor directly if parser fails
                 if (sourceCode == "ENG_CHN" && !string.IsNullOrWhiteSpace(entry.RawFragment))
                 {
-                    logger.LogDebug(
-                        "Parser returned empty for ENG_CHN entry {Word}, using SimpleEngChnExtractor directly",
+                    logger.LogWarning(
+                        "ENG_CHN parser failed, using SimpleEngChnExtractor fallback for: {Word}",
                         entry.Word);
 
                     var extractedDefinition = SimpleEngChnExtractor.ExtractDefinition(entry.RawFragment);

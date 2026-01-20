@@ -1,5 +1,3 @@
-using DictionaryImporter.Infrastructure.Validation;
-
 namespace DictionaryImporter.Bootstrap.Extensions
 {
     internal static class ValidationRegistrationExtensions

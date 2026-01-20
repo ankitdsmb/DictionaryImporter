@@ -29,13 +29,11 @@ namespace DictionaryImporter.Sources.EnglishChinese
 
         public void RegisterServices(IServiceCollection services, IConfiguration configuration)
         {
-            // FIX: Register ALL required services
+            // ✅ Register ALL required services including validator
             services.AddSingleton<IDataExtractor<EnglishChineseRawEntry>, EnglishChineseExtractor>();
             services.AddSingleton<IDataTransformer<EnglishChineseRawEntry>, EnglishChineseTransformer>();
             services.AddSingleton<IDictionaryDefinitionParser, EnglishChineseEnhancedParser>();
             services.AddSingleton<IDictionaryEntryValidator, EnglishChineseEntryValidator>();
-
-            // FIX: Register the factory
             services.AddSingleton<ImportEngineFactory<EnglishChineseRawEntry>>();
         }
     }

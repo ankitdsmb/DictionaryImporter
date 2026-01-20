@@ -5,106 +5,155 @@ namespace DictionaryImporter.Sources.Common.Helper
 {
     public static class Century21TextHelper
     {
+        // Pre-compiled regex for performance
+        private static readonly Regex HtmlTagRegex = new("<.*?>", RegexOptions.Compiled);
+
+        private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
+        private static readonly Regex ChineseCharRegex = new(@"[\u4E00-\u9FFF\u3400-\u4DBF]", RegexOptions.Compiled);
+        private static readonly Regex FullChineseCharRegex = new(@"[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3000-\u303F\uff00-\uffef]", RegexOptions.Compiled);
+        private static readonly Regex IpaCharRegex = new(@"[\/\[\]ˈˌːɑæəɛɪɔʊʌθðŋʃʒʤʧɡɜɒɫɾɹɻʲ̃]", RegexOptions.Compiled);
+
+        // Pre-compiled patterns for inference
+        private static readonly Regex MeansRegex = new(@"(\w+)\s+means\s+(.+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex IsRegex = new(@"(\w+)\s+is\s+(.+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex RefersToRegex = new(@"(\w+)\s+refers to\s+(.+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         public static string CleanEnglishText(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+
+            // Decode HTML entities once
             text = DecodeHtmlEntities(text);
-            // FIX: Check if text contains Chinese - if yes, preserve it
-            if (ContainsChineseCharacters(text))
-            {
-                // For bilingual text: preserve Chinese, only clean formatting
-                text = Regex.Replace(text, "<.*?>", string.Empty);
-                text = Regex.Replace(text, @"\s+", " ").Trim();
-                return text;
-            }
-            // For pure English text, use original logic
-            text = RemoveChineseCharacters(text);
-            text = RemoveChineseMarkers(text);
-            text = Regex.Replace(text, "<.*?>", string.Empty);
-            text = Regex.Replace(text, @"\s+", " ").Trim();
+
+            // Remove HTML tags but keep ALL text (English + Chinese)
+            text = HtmlTagRegex.Replace(text, string.Empty);
+
+            // Normalize whitespace but preserve all characters
+            text = WhitespaceRegex.Replace(text, " ").Trim();
+
             return text;
         }
 
-        private static bool ContainsChineseCharacters(string text)
+        public static bool ContainsChineseCharacters(string text)
         {
-            return !string.IsNullOrWhiteSpace(text) && Regex.IsMatch(text, @"[\u4E00-\u9FFF\u3400-\u4DBF]");
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            return ChineseCharRegex.IsMatch(text);
         }
 
         public static string RemoveChineseCharacters(string text)
         {
-            return Regex.Replace(
-                text, @"[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3000-\u303F\uff00-\uffef]", string.Empty);
+            // ⚠️ DANGER: This strips Chinese from bilingual content
+            // Only use for English-only sources like Gutenberg
+            if (string.IsNullOrWhiteSpace(text)) return text;
+
+            // Add debug logging in DEBUG mode
+#if DEBUG
+            var stackTrace = new System.Diagnostics.StackTrace();
+            var caller = stackTrace.GetFrame(1)?.GetMethod()?.Name;
+            System.Diagnostics.Debug.WriteLine($"WARNING: RemoveChineseCharacters called by {caller}");
+#endif
+
+            return FullChineseCharRegex.Replace(text, string.Empty);
         }
 
         public static string RemoveChineseMarkers(string text)
         {
-            return text.Replace("〈", "")
-                .Replace("〉", "")
-                .Replace("《", "")
-                .Replace("》", "")
-                .Replace("。", ". ")
-                .Replace("，", ", ")
-                .Replace("；", "; ")
-                .Replace("：", ": ")
-                .Replace("？", "? ")
-                .Replace("！", "! ")
-                .Replace("（", "(")
-                .Replace("）", ")")
-                .Replace("【", "[")
-                .Replace("】", "]")
-                .Trim();
+            if (string.IsNullOrWhiteSpace(text)) return text;
+
+            // Use Span for zero-allocation replacements where possible
+            return string.Create(text.Length, text, (chars, state) =>
+            {
+                var textSpan = state.AsSpan();
+                int writePos = 0;
+
+                for (int i = 0; i < textSpan.Length; i++)
+                {
+                    char c = textSpan[i];
+
+                    // Replace Chinese punctuation with English equivalents
+                    switch (c)
+                    {
+                        case '〈': case '〉': case '《': case '》': continue;
+                        case '。': c = '.'; break;
+                        case '，': c = ','; break;
+                        case '；': c = ';'; break;
+                        case '：': c = ':'; break;
+                        case '？': c = '?'; break;
+                        case '！': c = '!'; break;
+                        case '（': c = '('; break;
+                        case '）': c = ')'; break;
+                        case '【': c = '['; break;
+                        case '】': c = ']'; break;
+                        default: break;
+                    }
+
+                    chars[writePos++] = c;
+                }
+
+                // Trim trailing spaces
+                while (writePos > 0 && char.IsWhiteSpace(chars[writePos - 1]))
+                    writePos--;
+            });
         }
 
         public static string DecodeHtmlEntities(string text)
         {
+            if (string.IsNullOrWhiteSpace(text)) return text;
             return HtmlEntity.DeEntitize(text);
         }
 
         public static bool IsPrimarilyEnglish(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return false;
-            var englishChars = 0;
-            var totalChars = 0;
-            foreach (var c in text)
+
+            int englishChars = 0;
+            int totalChars = 0;
+
+            foreach (char c in text)
             {
                 if (char.IsWhiteSpace(c) || char.IsPunctuation(c)) continue;
+
                 totalChars++;
-                if (c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '/' || c == '[' || c == ']' || c == '(' || c == ')' || c == '-' || c == '\'')
+
+                if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+                    c == '/' || c == '[' || c == ']' || c == '(' || c == ')' || c == '-' || c == '\'')
                 {
                     englishChars++;
                 }
             }
+
             if (totalChars == 0) return false;
-            return englishChars * 100 / totalChars > 70;
+            return (englishChars * 100 / totalChars) > 70;
         }
 
         public static bool ContainsIpaCharacters(string text)
         {
-            return Regex.IsMatch(text, @"[\/\[\]ˈˌːɑæəɛɪɔʊʌθðŋʃʒʤʧɡɜɒɫɾɹɻʲ̃]");
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            return IpaCharRegex.IsMatch(text);
         }
 
         public static string InferDefinitionFromExample(string example)
         {
             if (string.IsNullOrWhiteSpace(example)) return string.Empty;
-            if (example.Contains(" means "))
-            {
-                var match = Regex.Match(example, @"(\w+)\s+means\s+(.+)", RegexOptions.IgnoreCase);
-                if (match.Success && match.Groups.Count > 2)
-                    return $"{match.Groups[1].Value} means {match.Groups[2].Value}";
-            }
-            if (example.Contains(" is "))
-            {
-                var match = Regex.Match(example, @"(\w+)\s+is\s+(.+)", RegexOptions.IgnoreCase);
-                if (match.Success && match.Groups.Count > 2)
-                    return $"{match.Groups[1].Value} is {match.Groups[2].Value}";
-            }
-            if (example.Contains(" refers to "))
-            {
-                var match = Regex.Match(example, @"(\w+)\s+refers to\s+(.+)", RegexOptions.IgnoreCase);
-                if (match.Success && match.Groups.Count > 2)
-                    return $"{match.Groups[1].Value} refers to {match.Groups[2].Value}";
-            }
-            if (example.Length > 10 && example.Length < 100) return example;
+
+            // Check for common definition patterns
+            var meansMatch = MeansRegex.Match(example);
+            if (meansMatch.Success && meansMatch.Groups.Count > 2)
+                return $"{meansMatch.Groups[1].Value} means {meansMatch.Groups[2].Value}";
+
+            var isMatch = IsRegex.Match(example);
+            if (isMatch.Success && isMatch.Groups.Count > 2)
+                return $"{isMatch.Groups[1].Value} is {isMatch.Groups[2].Value}";
+
+            var refersToMatch = RefersToRegex.Match(example);
+            if (refersToMatch.Success && refersToMatch.Groups.Count > 2)
+                return $"{refersToMatch.Groups[1].Value} refers to {refersToMatch.Groups[2].Value}";
+
+            // Fallback for short examples
+            if (example.Length > 10 && example.Length < 100)
+                return example;
+
             return string.Empty;
         }
     }

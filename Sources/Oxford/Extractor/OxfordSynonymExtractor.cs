@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor
+﻿namespace DictionaryImporter.Sources.Oxford.Extractor
 {
     public sealed class OxfordSynonymExtractor(ILogger<OxfordSynonymExtractor> logger) : ISynonymExtractor
     {

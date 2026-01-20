@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor
+﻿namespace DictionaryImporter.Sources.Gutenberg.Extractor
 {
     public sealed class WebsterEtymologyExtractor(ILogger<WebsterEtymologyExtractor> logger) : IEtymologyExtractor
     {

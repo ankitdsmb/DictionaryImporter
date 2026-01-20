@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor
+﻿using DictionaryImporter.Sources.EnglishChinese.Extractor;
+
+namespace DictionaryImporter.Sources.Collins.Extractor
 {
     internal class CollinsEtymologyExtractor(ILogger<EnglishChineseEtymologyExtractor> logger) : IEtymologyExtractor
     {
