@@ -106,7 +106,7 @@ namespace DictionaryImporter.Bootstrap
 
             services.AddSingleton<ISourceDictionaryDefinitionParser, Century21DefinitionParser>();
             services.AddSingleton<ISourceDictionaryDefinitionParser, CollinsDefinitionParser>();
-            services.AddSingleton<ISourceDictionaryDefinitionParser, EnglishChineseDefinitionParser>();
+            services.AddSingleton<ISourceDictionaryDefinitionParser, EnglishChineseEnhancedParser>();
             services.AddSingleton<ISourceDictionaryDefinitionParser, OxfordDefinitionParser>();
             services.AddSingleton<ISourceDictionaryDefinitionParser, StructuredJsonDefinitionParser>();
 

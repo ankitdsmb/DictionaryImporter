@@ -32,7 +32,7 @@ namespace DictionaryImporter.Sources.EnglishChinese
             // FIX: Register ALL required services
             services.AddSingleton<IDataExtractor<EnglishChineseRawEntry>, EnglishChineseExtractor>();
             services.AddSingleton<IDataTransformer<EnglishChineseRawEntry>, EnglishChineseTransformer>();
-            services.AddSingleton<IDictionaryDefinitionParser, EnglishChineseDefinitionParser>();
+            services.AddSingleton<IDictionaryDefinitionParser, EnglishChineseEnhancedParser>();
             services.AddSingleton<IDictionaryEntryValidator, EnglishChineseEntryValidator>();
 
             // FIX: Register the factory
