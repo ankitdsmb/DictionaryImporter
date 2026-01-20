@@ -11,11 +11,9 @@ namespace DictionaryImporter.Sources.Collins
         private const string SourceCode = "ENG_COLLINS";
 
         public async IAsyncEnumerable<CollinsRawEntry> ExtractAsync(
-            Stream stream,
-            [EnumeratorCancellation] CancellationToken ct)
+    Stream stream, [EnumeratorCancellation] CancellationToken ct)
         {
             using var reader = new StreamReader(stream);
-
             CollinsRawEntry? currentEntry = null;
             CollinsSenseRaw? currentSense = null;
             var examplesBuffer = new List<string>();
@@ -24,8 +22,8 @@ namespace DictionaryImporter.Sources.Collins
             while (await reader.ReadLineAsync() is { } line)
             {
                 ct.ThrowIfCancellationRequested();
-
                 line = line.Trim();
+
                 if (string.IsNullOrWhiteSpace(line))
                 {
                     if (currentSense != null && examplesBuffer.Count > 0)
@@ -33,7 +31,6 @@ namespace DictionaryImporter.Sources.Collins
                         currentSense.Examples.AddRange(examplesBuffer);
                         examplesBuffer.Clear();
                     }
-
                     continue;
                 }
 
@@ -53,11 +50,10 @@ namespace DictionaryImporter.Sources.Collins
 
                         yield return currentEntry;
                     }
-
                     currentEntry = null;
                     currentSense = null;
                     examplesBuffer.Clear();
-                    noteBuffer.Clear(); // ✅ IMPORTANT reset
+                    noteBuffer.Clear();
                     continue;
                 }
 
@@ -78,14 +74,10 @@ namespace DictionaryImporter.Sources.Collins
                         yield return currentEntry;
                     }
 
-                    currentEntry = new CollinsRawEntry
-                    {
-                        Headword = headword
-                    };
-
+                    currentEntry = new CollinsRawEntry { Headword = headword };
                     currentSense = null;
                     examplesBuffer.Clear();
-                    noteBuffer.Clear(); // ✅ IMPORTANT reset
+                    noteBuffer.Clear();
                     continue;
                 }
 
@@ -101,15 +93,11 @@ namespace DictionaryImporter.Sources.Collins
                             currentSense.Examples.AddRange(examplesBuffer);
                             examplesBuffer.Clear();
                         }
-
                         currentEntry.Senses.Add(currentSense);
                     }
 
                     currentSense = sense;
-
-                    // ✅ IMPORTANT reset notes per sense
                     noteBuffer.Clear();
-
                     continue;
                 }
 
@@ -159,7 +147,6 @@ namespace DictionaryImporter.Sources.Collins
                 {
                     if (examplesBuffer.Count > 0)
                         currentSense.Examples.AddRange(examplesBuffer);
-
                     currentEntry.Senses.Add(currentSense);
                 }
 

@@ -1,4 +1,5 @@
-﻿using LanguageDetector = DictionaryImporter.Core.PreProcessing.LanguageDetector;
+﻿using Microsoft.ML;
+using LanguageDetector = DictionaryImporter.Core.PreProcessing.LanguageDetector;
 
 namespace DictionaryImporter.Core.Pipeline
 {
@@ -19,72 +20,72 @@ namespace DictionaryImporter.Core.Pipeline
             await ImportAsync(source, ct);
         }
 
-        public async Task<ImportMetrics> ImportAsync(
-            Stream source,
-            CancellationToken ct)
+        public async Task ImportAsync(Stream stream, CancellationToken cancellationToken)
         {
-            var metrics = new ImportMetrics();
-            metrics.Start();
+            if (stream == null)
+                throw new ArgumentNullException(nameof(stream));
 
-            var batch = new List<DictionaryEntry>(BatchSize);
+            var entries = new List<DictionaryEntry>();
 
-            await foreach (var raw in extractor.ExtractAsync(source, ct))
+            try
             {
-                metrics.IncrementRaw();
+                logger.LogInformation("Starting import process");
 
-                foreach (var rawEntry in transformer.Transform(raw))
+                // Extract raw entries
+                await foreach (var rawEntry in extractor.ExtractAsync(stream, cancellationToken))
                 {
-                    ct.ThrowIfCancellationRequested();
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                    var entry = Preprocess(rawEntry);
+                    // Transform each raw entry to DictionaryEntry
+                    var transformedEntries = transformer.Transform(rawEntry);
 
-                    var result = validator.Validate(entry);
-
-                    if (!result.IsValid)
+                    foreach (var entry in transformedEntries)
                     {
-                        if (string.IsNullOrWhiteSpace(entry.NormalizedWord))
-                            metrics.IncrementCanonicalEligibilityRejected();
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        // VALIDATE each entry
+                        var validationResult = validator.Validate(entry);
+
+                        if (validationResult.IsValid)
+                        {
+                            entries.Add(entry);
+                            logger.LogDebug("Added valid entry: {Word}", entry.Word);
+                        }
                         else
-                            metrics.IncrementValidatorRejected();
+                        {
+                            var errorMessage = GetValidationErrorMessage(validationResult);
+                            logger.LogDebug("Skipped invalid entry: {Word} - {Reason}",
+                                entry.Word, errorMessage);
+                        }
 
-                        logger.LogWarning(
-                            "Entry rejected | Word={Word} | Source={Source} | Reason={Reason}",
-                            entry.Word,
-                            entry.SourceCode,
-                            result.Reason);
-
-                        continue;
-                    }
-
-                    batch.Add(entry);
-                    metrics.AddTransformed(1);
-
-                    if (batch.Count >= BatchSize)
-                    {
-                        await FlushBatchAsync(batch, ct);
-                        batch.Clear();
+                        // Check batch size and load if needed
+                        if (entries.Count >= BatchSize)
+                        {
+                            await loader.LoadAsync(entries, cancellationToken);
+                            entries.Clear();
+                        }
                     }
                 }
+
+                // Load any remaining entries
+                if (entries.Count > 0)
+                {
+                    await loader.LoadAsync(entries, cancellationToken);
+                }
+
+                logger.LogInformation("Import completed successfully. Total entries: {Count}",
+                    entries.Count);
             }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Import failed");
+                throw;
+            }
+        }
 
-            if (batch.Count > 0)
-                await FlushBatchAsync(batch, ct);
-
-            metrics.Stop();
-
-            logger.LogInformation(
-                "ETL completed | Raw={Raw} | Accepted={Accepted} | Rejected={Rejected} | Duration={Ms}ms",
-                metrics.RawEntriesExtracted,
-                metrics.EntriesStaged,
-                metrics.EntriesRejected,
-                metrics.Duration.TotalMilliseconds);
-
-            logger.LogInformation(
-                "Rejection breakdown | CanonicalEligibility={Canonical} | Validator={Validator}",
-                metrics.RejectedByCanonicalEligibility,
-                metrics.RejectedByValidator);
-
-            return metrics;
+        private string GetValidationErrorMessage(ValidationResult result)
+        {
+            return result.Reason ?? "Validation failed";
         }
 
         private async Task FlushBatchAsync(

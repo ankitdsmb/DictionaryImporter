@@ -36,7 +36,8 @@ namespace DictionaryImporter.Sources.Century21
                     NormalizedWord = normalizedHeadword,
                     PartOfSpeech = SourceDataHelper.NormalizePartOfSpeech(raw.PartOfSpeech),
                     Definition = mainDefinition,
-                    RawFragment = mainDefinition, // FIX
+                    // CRITICAL FIX: Preserve original structure, not just definition
+                    RawFragment = BuildRawFragment(raw), // Create a method to preserve original
                     SenseNumber = senseNumber++,
                     SourceCode = SourceCode,
                     CreatedUtc = DateTime.UtcNow
@@ -86,6 +87,29 @@ namespace DictionaryImporter.Sources.Century21
 
             foreach (var entry in entries)
                 yield return entry;
+        }
+
+        // Add method to preserve original structure:
+        private static string BuildRawFragment(Century21RawEntry raw)
+        {
+            var parts = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(raw.Phonetics))
+                parts.Add($"【Pronunciation】{raw.Phonetics}");
+
+            if (!string.IsNullOrWhiteSpace(raw.GrammarInfo))
+                parts.Add($"【Grammar】{raw.GrammarInfo}");
+
+            parts.Add(raw.Definition);
+
+            if (raw.Examples.Any())
+            {
+                parts.Add("【Examples】");
+                parts.AddRange(raw.Examples.Select(e => $"• {e.English}" +
+                                                        (!string.IsNullOrEmpty(e.Chinese) ? $" ({e.Chinese})" : "")));
+            }
+
+            return string.Join("\n", parts);
         }
 
         private static string BuildDefinition(Century21RawEntry raw)

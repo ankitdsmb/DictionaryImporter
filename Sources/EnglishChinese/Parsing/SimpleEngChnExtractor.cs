@@ -1,7 +1,4 @@
-﻿using System;
-using System.Text.RegularExpressions;
-
-namespace DictionaryImporter.Sources.EnglishChinese
+﻿namespace DictionaryImporter.Sources.EnglishChinese.Parsing
 {
     public static class SimpleEngChnExtractor
     {
@@ -12,20 +9,32 @@ namespace DictionaryImporter.Sources.EnglishChinese
 
             var line = rawLine.Trim();
 
-            // 1. Handle ⬄ separator
+            // 1. Handle ⬄ separator - extract everything AFTER the separator
             if (line.Contains('⬄'))
             {
                 var idx = line.IndexOf('⬄');
                 var afterSeparator = line.Substring(idx + 1).Trim();
-                return RemoveEtymology(afterSeparator);
+
+                // Try to extract Chinese part after POS marker
+                var posMatch = Regex.Match(afterSeparator, @"\s+(n|v|adj|adv|pron|prep|conj|interj|abbr|phr|pl|sing|a)\.\s*",
+                    RegexOptions.IgnoreCase);
+
+                if (posMatch.Success)
+                {
+                    var afterPos = afterSeparator.Substring(posMatch.Index + posMatch.Length);
+                    return CleanChineseDefinition(afterPos.Trim());
+                }
+
+                // If no POS marker, return everything after separator
+                return CleanChineseDefinition(afterSeparator);
             }
 
-            // 2. Handle pattern with pronunciation: word [/pron/] pos. definition
+            // 2. Handle lines without separator but with pronunciation
             if (line.Contains('/') && line.Contains('.'))
             {
                 try
                 {
-                    // Find the part after the last slash
+                    // Find the part after the last slash (pronunciation ends with /)
                     var lastSlash = line.LastIndexOf('/');
                     if (lastSlash > 0)
                     {
@@ -34,63 +43,20 @@ namespace DictionaryImporter.Sources.EnglishChinese
                         if (periodIdx > 0)
                         {
                             var afterPeriod = afterSlash.Substring(periodIdx + 1).Trim();
-
-                            // Find where actual definition starts - look for Chinese content
-                            for (int i = 0; i < afterPeriod.Length; i++)
-                            {
-                                if (ShouldStartExtractionAt(afterPeriod, i))
-                                {
-                                    // Include starting from index i
-                                    var definition = afterPeriod.Substring(i);
-                                    return RemoveEtymology(definition.Trim());
-                                }
-                            }
-
-                            // If no clear start found, return everything after period
-                            return RemoveEtymology(afterPeriod);
+                            return CleanChineseDefinition(afterPeriod);
                         }
                     }
                 }
-                catch (Exception ex)
+                catch
                 {
-                    // Log error if needed
-                    Console.WriteLine($"Error extracting Chinese: {ex.Message}");
+                    // Fall through
                 }
             }
 
             // 3. Return original line as fallback
-            return RemoveEtymology(line);
+            return CleanChineseDefinition(line);
         }
 
-        private static bool ShouldStartExtractionAt(string text, int index)
-        {
-            if (index >= text.Length) return false;
-
-            var c = text[index];
-
-            // Check if character is Chinese punctuation (including 〔)
-            if (IsChinesePunctuationChar(c))
-                return true;
-
-            // Check if character is Chinese
-            if (IsChineseChar(c))
-                return true;
-
-            // Check if it's a digit followed by Chinese content
-            if (char.IsDigit(c))
-            {
-                // Look ahead to see if Chinese follows
-                for (int j = index + 1; j < Math.Min(index + 3, text.Length); j++)
-                {
-                    if (IsChineseChar(text[j]) || IsChinesePunctuationChar(text[j]))
-                        return true;
-                }
-            }
-
-            return false;
-        }
-
-        // ✅ FIXED: Extract part of speech - handle abbreviations that also have POS markers
         public static string ExtractPartOfSpeech(string rawLine)
         {
             if (string.IsNullOrWhiteSpace(rawLine))
@@ -98,46 +64,57 @@ namespace DictionaryImporter.Sources.EnglishChinese
 
             var line = rawLine.Trim();
 
-            // Extract the headword first
-            var word = ExtractHeadword(line);
+            // 1. Extract headword
+            var headword = ExtractHeadword(line);
 
-            // Check if word is an abbreviation (like "2, 4-D")
-            bool isAbbreviation = IsAbbreviation(word);
+            if (string.IsNullOrWhiteSpace(headword))
+                return ExtractPosFromMarker(line);
 
-            // Try to extract POS marker from the text
-            string posFromMarker = ExtractPosFromMarker(line);
+            // 2. Check for chemical abbreviation pattern: "2, 4-D", "2,4-D", etc.
+            // This must happen BEFORE checking POS marker
 
-            // If word is an abbreviation AND we found a POS marker
-            // For abbreviations, we should return "abbreviation" not the POS
-            if (isAbbreviation)
+            // First check the exact pattern with optional space: digit, comma, optional spaces, digit, hyphen, letter
+            if (Regex.IsMatch(headword, @"^\d+,\s*\d+\-[A-Za-z]$"))
             {
                 return "abbreviation";
             }
 
-            // If not an abbreviation, return the POS marker if found
-            if (!string.IsNullOrWhiteSpace(posFromMarker))
+            // Also check without spaces
+            var cleanHeadword = headword.Replace(" ", "");
+            if (Regex.IsMatch(cleanHeadword, @"^\d+,\d+\-[A-Za-z]$"))
             {
-                return posFromMarker;
+                return "abbreviation";
             }
 
-            return null;
+            // 3. Check other abbreviation patterns
+            if (IsAbbreviation(headword))
+            {
+                return "abbreviation";
+            }
+
+            // 4. ONLY if not an abbreviation, look for POS marker
+            return ExtractPosFromMarker(line);
         }
 
         private static string ExtractPosFromMarker(string line)
         {
-            // Look for POS pattern: space, letters (1-4 chars), period, space
-            var match = Regex.Match(line, @"\s+(n|v|adj|adv|pron|prep|conj|interj|abbr|phr|pl|sing|a)\.\s", RegexOptions.IgnoreCase);
+            if (string.IsNullOrWhiteSpace(line))
+                return null;
+
+            // Look for POS pattern: space, letters (1-4 chars), period
+            var match = Regex.Match(line, @"\s+(n|v|adj|adv|pron|prep|conj|interj|abbr|phr|pl|sing|a)\.\s*",
+                RegexOptions.IgnoreCase);
 
             if (!match.Success)
             {
                 // Try alternative pattern without the trailing space
-                match = Regex.Match(line, @"\s+(n|v|adj|adv|pron|prep|conj|interj|abbr|phr|pl|sing|a)\.(?:$|[^\w])", RegexOptions.IgnoreCase);
+                match = Regex.Match(line, @"\s+(n|v|adj|adv|pron|prep|conj|interj|abbr|phr|pl|sing|a)\.(?:$|[^\w])",
+                    RegexOptions.IgnoreCase);
             }
 
             if (match.Success)
             {
                 var posAbbr = match.Groups[1].Value.ToLowerInvariant();
-
                 return posAbbr switch
                 {
                     "n" => "noun",
@@ -159,109 +136,41 @@ namespace DictionaryImporter.Sources.EnglishChinese
             return null;
         }
 
-        private static string ExtractHeadword(string line)
-        {
-            if (string.IsNullOrWhiteSpace(line))
-                return string.Empty;
-
-            // Find first space or special character
-            var endIndex = line.IndexOf(' ');
-            if (endIndex <= 0) endIndex = line.Length;
-
-            var headword = line.Substring(0, endIndex).Trim();
-
-            // Clean up any trailing punctuation
-            headword = headword.TrimEnd('.', ',', ';', ':', '!', '?', '·');
-
-            return headword;
-        }
-
-        private static bool IsAbbreviation(string word)
-        {
-            if (string.IsNullOrWhiteSpace(word))
-                return false;
-
-            // Clean the word
-            var cleanWord = word.Replace(",", "").Replace(".", "");
-
-            // Check for TRUE abbreviation patterns:
-
-            // 1. Contains digits AND capital letters (like "2,4-D", "3D", "A1")
-            if (Regex.IsMatch(cleanWord, @"\d+[A-Z]|[A-Z]\d+"))
-                return true;
-
-            // 2. ALL UPPERCASE with possible digits and hyphens (like "USA", "DNA", "HIV-AIDS")
-            if (cleanWord.All(c => char.IsUpper(c) || char.IsDigit(c) || c == '-'))
-                return true;
-
-            // 3. Contains dots between letters (like "U.S.A.", "a.m.", "p.m.")
-            if (word.Contains('.') && Regex.IsMatch(word, @"[A-Za-z]\.[A-Za-z]"))
-                return true;
-
-            // 4. Very short (1-3 chars) and looks like initials (mostly uppercase)
-            if (word.Length <= 3)
-            {
-                var uppercaseCount = word.Count(char.IsUpper);
-                var letterCount = word.Count(char.IsLetter);
-                if (letterCount > 0 && (uppercaseCount == letterCount || word.Contains('.')))
-                    return true;
-            }
-
-            // 5. Specific chemical/technical abbreviations (like "2,4-D")
-            if (Regex.IsMatch(word, @"^\d+(?:,\s*\d+)*\-[A-Z]$"))
-                return true;
-
-            // NOT abbreviations:
-            // - "18-wheel·er" - contains digits but also lowercase letters and middle dot
-            // - "e-mail" - has hyphen but mixed case
-            // - "can't" - has apostrophe but is a regular word
-
-            return false;
-        }
-
-        private static string RemoveEtymology(string text)
+        private static string CleanChineseDefinition(string text)
         {
             if (string.IsNullOrWhiteSpace(text))
                 return text;
 
-            // Remove [ < etymology ] markers
-            var bracketIdx = text.IndexOf('[');
+            // Remove etymology markers [ < ... ] but preserve everything else
+            var cleaned = text;
+
+            // Remove etymology in brackets
+            var bracketIdx = cleaned.IndexOf('[');
             if (bracketIdx > 0)
             {
-                return text.Substring(0, bracketIdx).Trim();
-            }
-
-            // Also remove < etymology > markers
-            var angleIdx = text.IndexOf('<');
-            if (angleIdx > 0)
-            {
-                // Only remove if it looks like etymology (not part of Chinese text)
-                var beforeAngle = text.Substring(0, angleIdx);
-                if (ContainsChinese(beforeAngle))
+                var beforeBracket = cleaned.Substring(0, bracketIdx).Trim();
+                // Only truncate if there's meaningful Chinese content before bracket
+                if (ContainsChinese(beforeBracket) && beforeBracket.Length > 3)
                 {
-                    return beforeAngle.Trim();
+                    cleaned = beforeBracket;
                 }
             }
 
-            return text.Trim();
-        }
+            // Remove etymology with angle brackets
+            var angleIdx = cleaned.IndexOf('<');
+            if (angleIdx > 0)
+            {
+                var beforeAngle = cleaned.Substring(0, angleIdx).Trim();
+                if (ContainsChinese(beforeAngle) && beforeAngle.Length > 3)
+                {
+                    cleaned = beforeAngle;
+                }
+            }
 
-        private static bool IsChinesePunctuationChar(char c)
-        {
-            // Common Chinese punctuation - INCLUDING 〔
-            return c == '〔' || c == '〕' || c == '【' || c == '】' ||
-                   c == '（' || c == '）' || c == '《' || c == '》' ||
-                   c == '。' || c == '；' || c == '，' || c == '、' ||
-                   c == '「' || c == '」' || c == '『' || c == '』' ||
-                   c == '〖' || c == '〗' || c == '〈' || c == '〉';
-        }
+            // Normalize whitespace but preserve all content
+            cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
 
-        private static bool IsChineseChar(char c)
-        {
-            // Simplified check for Chinese characters
-            int code = (int)c;
-            return (code >= 0x4E00 && code <= 0x9FFF) ||   // CJK Unified Ideographs
-                   (code >= 0x3400 && code <= 0x4DBF);     // CJK Extension A
+            return cleaned;
         }
 
         public static bool ContainsChinese(string text)
@@ -271,7 +180,124 @@ namespace DictionaryImporter.Sources.EnglishChinese
 
             foreach (char c in text)
             {
-                if (IsChineseChar(c) || IsChinesePunctuationChar(c))
+                if (IsChineseCharacter(c) || IsChinesePunctuationChar(c))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool IsChineseCharacter(char c)
+        {
+            int code = (int)c;
+            return (code >= 0x4E00 && code <= 0x9FFF) || // CJK Unified Ideographs
+                   (code >= 0x3400 && code <= 0x4DBF);   // CJK Extension A
+        }
+
+        private static bool IsChinesePunctuationChar(char c)
+        {
+            return c == '〔' || c == '〕' || c == '【' || c == '】' ||
+                   c == '（' || c == '）' || c == '《' || c == '》' ||
+                   c == '。' || c == '；' || c == '，' || c == '、' ||
+                   c == '「' || c == '」' || c == '『' || c == '』' ||
+                   c == '〖' || c == '〗' || c == '〈' || c == '〉';
+        }
+
+        private static string ExtractHeadword(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                return string.Empty;
+
+            // Find content before ⬄ separator
+            if (line.Contains('⬄'))
+            {
+                var idx = line.IndexOf('⬄');
+                var beforeSeparator = line.Substring(0, idx).Trim();
+                return beforeSeparator;
+            }
+
+            // For "2, 4-D /ˌtuːˌfɔːˈdiː/ n. ...", we need to extract "2, 4-D"
+            // Pattern: word [pronunciation] pos. definition
+            // Extract until space-slash or space-bracket
+
+            // Try to match until slash or opening bracket
+            var endIndex = line.IndexOfAny(new[] { '/', '[' });
+            if (endIndex > 0)
+            {
+                return line.Substring(0, endIndex).Trim();
+            }
+
+            // If no slash or bracket, extract first word (but for "2, 4-D" we need the whole thing)
+            // Actually, for abbreviations with spaces like "2, 4-D", we need a different approach
+
+            // Try regex to capture everything up to space-slash or end of string
+            var match = Regex.Match(line, @"^(.+?)(?=\s*[\/\[]|$)");
+            if (match.Success)
+            {
+                var result = match.Groups[1].Value.Trim();
+
+                // For abbreviations like "2, 4-D", we might have extracted too much
+                // Check if it ends with a pattern that looks like it could be part of the definition
+                if (result.Contains('.') && result.Length > 10)
+                {
+                    // Might have included part of definition, backtrack to last space
+                    var lastSpace = result.LastIndexOf(' ');
+                    if (lastSpace > 0)
+                    {
+                        result = result.Substring(0, lastSpace).Trim();
+                    }
+                }
+
+                return result;
+            }
+
+            // Fallback: extract until first space
+            var firstSpace = line.IndexOf(' ');
+            if (firstSpace > 0)
+            {
+                return line.Substring(0, firstSpace).Trim();
+            }
+
+            return line.Trim();
+        }
+
+        private static bool IsAbbreviation(string word)
+        {
+            if (string.IsNullOrWhiteSpace(word))
+                return false;
+
+            // Handle "2, 4-D" pattern specifically
+            if (Regex.IsMatch(word, @"^\d+,\s*\d+\-[A-Za-z]$"))
+                return true;
+
+            // Also check without spaces
+            var cleanWord = word.Replace(" ", "");
+            if (Regex.IsMatch(cleanWord, @"^\d+,\d+\-[A-Za-z]$"))
+                return true;
+
+            // Pattern 2: "3D", "4G" type
+            if (Regex.IsMatch(cleanWord, @"^\d+[A-Za-z]$"))
+                return true;
+
+            // Pattern 3: All uppercase with possible digits, hyphens, commas
+            // Check if mostly uppercase letters
+            var letters = word.Where(char.IsLetter).ToList();
+            if (letters.Count > 0)
+            {
+                var uppercaseRatio = letters.Count(c => char.IsUpper(c)) / (double)letters.Count;
+                if (uppercaseRatio > 0.7 && word.Length <= 8)
+                    return true;
+            }
+
+            // Pattern 4: Contains dots (U.S.A., a.m., etc.) and is short
+            if (word.Contains('.') && word.Length <= 6)
+                return true;
+
+            // Pattern 5: Very short (1-3 chars) and mostly uppercase
+            if (word.Length <= 3)
+            {
+                var letterCount = word.Count(char.IsLetter);
+                var uppercaseCount = word.Count(char.IsUpper);
+                if (letterCount > 0 && uppercaseCount >= letterCount)
                     return true;
             }
 

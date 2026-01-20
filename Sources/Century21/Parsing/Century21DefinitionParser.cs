@@ -208,19 +208,11 @@ namespace DictionaryImporter.Sources.Century21.Parsing
         {
             try
             {
-                var headwordNode =
-                    wordBlock.SelectSingleNode(".//span[@class='headword']");
-
+                var headwordNode = wordBlock.SelectSingleNode(".//span[@class='headword']");
                 if (headwordNode == null)
                     return string.Empty;
 
-                var headword = headwordNode.InnerText.Trim();
-
-                headword = Regex.Replace(headword, @"\s+\d+$", string.Empty);
-                headword = Regex.Replace(headword, @"[^A-Za-z\s\-\']", string.Empty);
-                headword = Regex.Replace(headword, @"\s+", " ").Trim();
-
-                return headword;
+                return Century21HtmlTextHelper.CleanText(headwordNode.InnerText);
             }
             catch (Exception ex)
             {
