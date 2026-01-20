@@ -14,28 +14,20 @@ namespace DictionaryImporter.Sources.Oxford
             IServiceCollection services,
             IConfiguration configuration)
         {
-            services.AddSingleton<
-                IDataExtractor<OxfordRawEntry>,
-                OxfordExtractor>();
+            // FIX: Register ALL required services
+            services.AddSingleton<IDataExtractor<OxfordRawEntry>, OxfordExtractor>();
+            services.AddSingleton<IDataTransformer<OxfordRawEntry>, OxfordTransformer>();
+            services.AddSingleton<IDictionaryDefinitionParser, OxfordDefinitionParser>();
+            services.AddSingleton<IDictionaryEntryValidator, OxfordEntryValidator>();
 
-            services.AddSingleton<
-                IDataTransformer<OxfordRawEntry>,
-                OxfordTransformer>();
-
-            services.AddSingleton<
-                IDictionaryDefinitionParser,
-                OxfordDefinitionParser>();
-
-            services.AddSingleton<
-                IDictionaryEntryValidator,
-                OxfordEntryValidator>();
+            // FIX: Register the factory
+            services.AddSingleton<ImportEngineFactory<OxfordRawEntry>>();
         }
 
         public ImportSourceDefinition BuildSource(IConfiguration config)
         {
-            var filePath =
-                config["Sources:Oxford:FilePath"]
-                ?? throw new InvalidOperationException("Oxford file path not configured");
+            var filePath = config["Sources:Oxford:FilePath"]
+                           ?? throw new InvalidOperationException("Oxford file path not configured");
 
             if (!File.Exists(filePath))
                 throw new FileNotFoundException($"Oxford source file not found: {filePath}", filePath);

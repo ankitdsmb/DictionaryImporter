@@ -12,20 +12,20 @@ namespace DictionaryImporter.Sources.Century21
 
         public void RegisterServices(IServiceCollection services, IConfiguration configuration)
         {
+            // FIX: Register ALL required services
             services.AddSingleton<IDataExtractor<Century21RawEntry>, Century21Extractor>();
             services.AddSingleton<IDataTransformer<Century21RawEntry>, Century21Transformer>();
-
             services.AddSingleton<IDictionaryDefinitionParser, Century21DefinitionParser>();
             services.AddSingleton<IDictionaryEntryValidator, Century21EntryValidator>();
 
+            // FIX: Register the factory
             services.AddSingleton<ImportEngineFactory<Century21RawEntry>>();
         }
 
         public ImportSourceDefinition BuildSource(IConfiguration config)
         {
-            var filePath =
-                config["Sources:Century21:FilePath"]
-                ?? throw new InvalidOperationException("Century21 file path not configured");
+            var filePath = config["Sources:Century21:FilePath"]
+                           ?? throw new InvalidOperationException("Century21 file path not configured");
 
             if (!File.Exists(filePath))
                 throw new FileNotFoundException($"Century21 source file not found: {filePath}", filePath);

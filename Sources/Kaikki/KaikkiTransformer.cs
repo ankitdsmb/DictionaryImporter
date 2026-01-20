@@ -4,21 +4,16 @@ using JsonException = Newtonsoft.Json.JsonException;
 
 namespace DictionaryImporter.Sources.Kaikki
 {
-    public sealed class KaikkiTransformer(ILogger<KaikkiTransformer> logger)
-        : IDataTransformer<KaikkiRawEntry>
+    public sealed class KaikkiTransformer(ILogger<KaikkiTransformer> logger) : IDataTransformer<KaikkiRawEntry>
     {
         private const string SourceCode = "KAIKKI";
 
         public IEnumerable<DictionaryEntry> Transform(KaikkiRawEntry? raw)
         {
-            if (raw == null || string.IsNullOrWhiteSpace(raw.RawJson))
-                yield break;
-
-            if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
-                yield break;
+            if (raw == null || string.IsNullOrWhiteSpace(raw.RawJson)) yield break;
+            if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger)) yield break;
 
             List<DictionaryEntry> entries;
-
             try
             {
                 entries = TransformInternal(raw).ToList();
@@ -43,12 +38,10 @@ namespace DictionaryImporter.Sources.Kaikki
             using var doc = JsonDocument.Parse(raw.RawJson ?? string.Empty);
             var root = doc.RootElement;
 
-            if (!JsonProcessor.IsEnglishEntry(root))
-                yield break;
+            if (!JsonProcessor.IsEnglishEntry(root)) yield break;
 
             var word = SourceDataHelper.ExtractJsonString(root, "word");
-            if (string.IsNullOrWhiteSpace(word))
-                yield break;
+            if (string.IsNullOrWhiteSpace(word)) yield break;
 
             var normalizedWord = SourceDataHelper.NormalizeWord(word);
             if (string.IsNullOrWhiteSpace(normalizedWord))
@@ -59,10 +52,10 @@ namespace DictionaryImporter.Sources.Kaikki
 
             var definitions = JsonProcessor.ExtractEnglishDefinitions(root);
 
+            // FIX: If no definitions from ExtractEnglishDefinitions, try alternative extraction
             if (definitions.Count == 0)
             {
                 definitions = TryExtractShortDefinitions(root);
-
                 if (definitions.Count == 0)
                 {
                     logger.LogDebug("No definitions found for word: {Word}", word);
@@ -72,13 +65,11 @@ namespace DictionaryImporter.Sources.Kaikki
 
             var posRaw = JsonProcessor.ExtractPartOfSpeechFromJson(root) ?? "unk";
             var pos = SourceDataHelper.NormalizePartOfSpeech(posRaw);
-
             var senseNumber = 1;
 
             foreach (var definition in definitions)
             {
-                if (string.IsNullOrWhiteSpace(definition))
-                    continue;
+                if (string.IsNullOrWhiteSpace(definition)) continue;
 
                 var normalizedDefinition = SourceDataHelper.NormalizeDefinition(definition);
 
@@ -119,12 +110,9 @@ namespace DictionaryImporter.Sources.Kaikki
                 {
                     foreach (var item in array.Value)
                     {
-                        if (item.ValueKind != JsonValueKind.String)
-                            continue;
-
+                        if (item.ValueKind != JsonValueKind.String) continue;
                         var value = item.GetString();
-                        if (!string.IsNullOrWhiteSpace(value))
-                            definitions.Add(value);
+                        if (!string.IsNullOrWhiteSpace(value)) definitions.Add(value);
                     }
                 }
             }

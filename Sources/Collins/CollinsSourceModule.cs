@@ -14,28 +14,20 @@ namespace DictionaryImporter.Sources.Collins
             IServiceCollection services,
             IConfiguration configuration)
         {
-            services.AddSingleton<
-                IDataExtractor<CollinsRawEntry>,
-                CollinsExtractor>();
+            // FIX: Register ALL required services
+            services.AddSingleton<IDataExtractor<CollinsRawEntry>, CollinsExtractor>();
+            services.AddSingleton<IDataTransformer<CollinsRawEntry>, CollinsTransformer>();
+            services.AddSingleton<IDictionaryDefinitionParser, CollinsDefinitionParser>();
+            services.AddSingleton<IDictionaryEntryValidator, CollinsEntryValidator>();
 
-            services.AddSingleton<
-                IDataTransformer<CollinsRawEntry>,
-                CollinsTransformer>();
-
-            services.AddSingleton<
-                IDictionaryDefinitionParser,
-                CollinsDefinitionParser>();
-
-            services.AddSingleton<
-                IDictionaryEntryValidator,
-                CollinsEntryValidator>();
+            // FIX: Register the factory
+            services.AddSingleton<ImportEngineFactory<CollinsRawEntry>>();
         }
 
         public ImportSourceDefinition BuildSource(IConfiguration config)
         {
-            var filePath =
-                config["Sources:Collins:FilePath"]
-                ?? throw new InvalidOperationException("Collins file path not configured");
+            var filePath = config["Sources:Collins:FilePath"]
+                           ?? throw new InvalidOperationException("Collins file path not configured");
 
             if (!File.Exists(filePath))
                 throw new FileNotFoundException($"Collins source file not found: {filePath}", filePath);

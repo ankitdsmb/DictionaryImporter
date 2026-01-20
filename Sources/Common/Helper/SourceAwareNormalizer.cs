@@ -15,6 +15,7 @@ namespace DictionaryImporter.Sources.Common.Helper
                 "ENG_CHN" => NormalizeChineseEnglishText(text),
                 "CENTURY21" => NormalizeBilingualText(text),
                 "ENG_COLLINS" => NormalizeCollinsText(text),
+                "ENG_OXFORD" => NormalizeBilingualText(text), // FIX: Oxford should also use bilingual normalization
                 "GUT_WEBSTER" => NormalizeGutenbergText(text),
                 _ => NormalizeGenericText(text)
             };
@@ -22,8 +23,7 @@ namespace DictionaryImporter.Sources.Common.Helper
 
         private static string NormalizeChineseEnglishText(string text)
         {
-            if (string.IsNullOrWhiteSpace(text))
-                return text;
+            if (string.IsNullOrWhiteSpace(text)) return text;
 
             // Step 1: Remove the ⬄ separator if present
             var normalized = text;
@@ -53,7 +53,6 @@ namespace DictionaryImporter.Sources.Common.Helper
 
             // Step 4: Normalize whitespace
             normalized = Regex.Replace(result.ToString(), @"\s+", " ").Trim();
-
             return normalized;
         }
 
@@ -76,7 +75,6 @@ namespace DictionaryImporter.Sources.Common.Helper
             }
 
             normalized = Regex.Replace(result.ToString(), @"\s+", " ").Trim();
-
             return normalized;
         }
 
@@ -93,11 +91,8 @@ namespace DictionaryImporter.Sources.Common.Helper
             foreach (char c in normalized)
             {
                 // Keep letters, digits, punctuation, and common symbols
-                if (char.IsLetterOrDigit(c) ||
-                    char.IsPunctuation(c) ||
-                    char.IsSymbol(c) ||
-                    c == ' ' || c == '\t' ||
-                    c == '–' || c == '—' || c == '‐' || c == '‑' || // various dashes
+                if (char.IsLetterOrDigit(c) || char.IsPunctuation(c) || char.IsSymbol(c) ||
+                    c == ' ' || c == '\t' || c == '–' || c == '—' || c == '‐' || c == '‑' || // various dashes
                     c == '·' || c == '•' || c == '°' || // bullets, degrees
                     (c >= 0xC0 && c <= 0xFF && c != 0xD7 && c != 0xF7)) // Latin-1 Supplement (with accents)
                 {
@@ -109,13 +104,12 @@ namespace DictionaryImporter.Sources.Common.Helper
                 }
                 else
                 {
-                    // For other characters, preserve them
+                    // For other characters, preserve them (including Chinese)
                     result.Append(c);
                 }
             }
 
             normalized = Regex.Replace(result.ToString(), @"\s+", " ").Trim();
-
             return normalized;
         }
 
@@ -145,7 +139,6 @@ namespace DictionaryImporter.Sources.Common.Helper
             }
 
             normalized = Regex.Replace(result.ToString(), @"\s+", " ").Trim();
-
             return normalized;
         }
 
@@ -168,7 +161,6 @@ namespace DictionaryImporter.Sources.Common.Helper
             }
 
             normalized = Regex.Replace(result.ToString(), @"\s+", " ").Trim();
-
             return normalized;
         }
     }

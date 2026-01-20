@@ -1,12 +1,12 @@
 ﻿using System;
 using System.IO;
+using DictionaryImporter.Sources.StructuredJson.Parsing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DictionaryImporter.Sources.StructuredJson
 {
-    public sealed class StructuredJsonSourceModule
-        : IDictionarySourceModule
+    public sealed class StructuredJsonSourceModule : IDictionarySourceModule
     {
         public string SourceCode => "STRUCT_JSON";
 
@@ -14,24 +14,20 @@ namespace DictionaryImporter.Sources.StructuredJson
             IServiceCollection services,
             IConfiguration config)
         {
-            services.AddSingleton<
-                IDataExtractor<StructuredJsonRawEntry>,
-                StructuredJsonExtractor>();
+            // FIX: Register ALL required services
+            services.AddSingleton<IDataExtractor<StructuredJsonRawEntry>, StructuredJsonExtractor>();
+            services.AddSingleton<IDataTransformer<StructuredJsonRawEntry>, StructuredJsonTransformer>();
+            services.AddSingleton<IDictionaryDefinitionParser, StructuredJsonDefinitionParser>();
 
-            services.AddSingleton<
-                IDataTransformer<StructuredJsonRawEntry>,
-                StructuredJsonTransformer>();
-
+            // FIX: Register the factory
             services.AddSingleton<ImportEngineFactory<StructuredJsonRawEntry>>();
         }
 
         public ImportSourceDefinition BuildSource(
             IConfiguration config)
         {
-            var filePath =
-                config["Sources:StructuredJson:FilePath"]
-                ?? throw new InvalidOperationException(
-                    "StructuredJson file path not configured");
+            var filePath = config["Sources:StructuredJson:FilePath"]
+                           ?? throw new InvalidOperationException("StructuredJson file path not configured");
 
             if (!File.Exists(filePath))
                 throw new FileNotFoundException($"StructuredJson source file not found: {filePath}", filePath);

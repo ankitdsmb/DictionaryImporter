@@ -1,24 +1,23 @@
-﻿namespace DictionaryImporter.Sources.Oxford.Parsing
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+
+namespace DictionaryImporter.Sources.Oxford.Parsing
 {
     public static class OxfordSourceDataHelper
     {
-        public static bool TryParseHeadwordLine(string line,
-            out string headword,
-            out string? pronunciation,
-            out string? partOfSpeech,
-            out string? variantForms)
+        public static bool TryParseHeadwordLine(string line, out string headword, out string? pronunciation, out string? partOfSpeech, out string? variantForms)
         {
             headword = string.Empty;
             pronunciation = null;
             partOfSpeech = null;
             variantForms = null;
 
-            if (string.IsNullOrWhiteSpace(line))
-                return false;
+            if (string.IsNullOrWhiteSpace(line)) return false;
 
             var match = HeadwordRegex.Match(line);
-            if (!match.Success)
-                return false;
+            if (!match.Success) return false;
 
             headword = match.Groups["headword"].Value.Trim();
             var rest = match.Groups["rest"].Value;
@@ -47,23 +46,17 @@
             return true;
         }
 
-        public static bool TryParseSenseLine(string line,
-            out int senseNumber,
-            out string? senseLabel,
-            out string definition,
-            out string? chineseTranslation)
+        public static bool TryParseSenseLine(string line, out int senseNumber, out string? senseLabel, out string definition, out string? chineseTranslation)
         {
             senseNumber = 0;
             senseLabel = null;
             definition = string.Empty;
             chineseTranslation = null;
 
-            if (string.IsNullOrWhiteSpace(line))
-                return false;
+            if (string.IsNullOrWhiteSpace(line)) return false;
 
             var senseMatch = SenseNumberRegex.Match(line);
-            if (!senseMatch.Success)
-                return false;
+            if (!senseMatch.Success) return false;
 
             senseNumber = int.Parse(senseMatch.Groups["number"].Value);
             var rest = senseMatch.Groups["rest"].Value.Trim();
@@ -82,7 +75,8 @@
             if (translationMatch.Success)
             {
                 chineseTranslation = translationMatch.Groups["translation"].Value.Trim();
-                rest = rest.Replace("• " + chineseTranslation, "").Trim();
+                // FIX: Don't remove Chinese translation from definition - keep it as part of bilingual content
+                // The definition should include the Chinese translation for Oxford format
             }
 
             definition = rest;
@@ -91,36 +85,29 @@
 
         public static bool IsExampleLine(string line)
         {
-            return !string.IsNullOrWhiteSpace(line) &&
-                   line.StartsWith("»", StringComparison.Ordinal);
+            return !string.IsNullOrWhiteSpace(line) && line.StartsWith("»", StringComparison.Ordinal);
         }
 
         public static string CleanExampleLine(string line)
         {
-            if (string.IsNullOrWhiteSpace(line))
-                return string.Empty;
-
+            if (string.IsNullOrWhiteSpace(line)) return string.Empty;
             return line.TrimStart('»', ' ').Trim();
         }
 
         public static bool IsEntrySeparator(string line)
         {
-            return !string.IsNullOrWhiteSpace(line) &&
-                   line.StartsWith("————————————", StringComparison.Ordinal);
+            return !string.IsNullOrWhiteSpace(line) && line.StartsWith("————————————", StringComparison.Ordinal);
         }
 
         public static IReadOnlyList<string> ExtractCrossReferences(string text)
         {
             var crossRefs = new List<string>();
-
-            if (string.IsNullOrWhiteSpace(text))
-                return crossRefs;
+            if (string.IsNullOrWhiteSpace(text)) return crossRefs;
 
             foreach (Match match in CrossReferenceRegex.Matches(text))
             {
                 var word = match.Groups["word"].Value;
-                if (!string.IsNullOrWhiteSpace(word))
-                    crossRefs.Add(word);
+                if (!string.IsNullOrWhiteSpace(word)) crossRefs.Add(word);
             }
 
             return crossRefs.Distinct().ToList();
@@ -128,11 +115,9 @@
 
         public static string NormalizePartOfSpeech(string? rawPos)
         {
-            if (string.IsNullOrWhiteSpace(rawPos))
-                return "unk";
+            if (string.IsNullOrWhiteSpace(rawPos)) return "unk";
 
             var pos = rawPos.ToLowerInvariant().Trim();
-
             var posMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 ["noun"] = "noun",
@@ -186,33 +171,15 @@
 
         #region Compiled Regex Patterns
 
-        private static readonly Regex HeadwordRegex =
-            new(@"^★+☆+\s+(?<headword>[^▶]+)▶\s*(?<rest>.+)$", RegexOptions.Compiled);
-
-        private static readonly Regex PronunciationRegex =
-            new(@"/[^/]+/", RegexOptions.Compiled);
-
-        private static readonly Regex SenseNumberRegex =
-            new(@"^(?<number>\d+)\.\s*(?<rest>.+)$", RegexOptions.Compiled);
-
-        private static readonly Regex SenseLabelRegex =
-            new(@"^\((?<label>[^)]+)\)(?<rest>.+)$", RegexOptions.Compiled);
-
-        private static readonly Regex ChineseTranslationRegex =
-            new(@"•\s*(?<translation>.+)$", RegexOptions.Compiled);
-
-        private static readonly Regex ExampleRegex =
-            new(@"^»\s*(?<example>.+)$", RegexOptions.Compiled);
-
-        private static readonly Regex PartOfSpeechRegex =
-            new(@",\s*(?<pos>\w+)$", RegexOptions.Compiled);
-
-        private static readonly Regex VariantFormsRegex =
-            new(@"\((?:也作|亦作)\s*(?<variant>[^)]+)\)", RegexOptions.Compiled);
-
-        private static readonly Regex CrossReferenceRegex =
-            new(@"\b(?:see|cf\.|compare)\s+(?<word>\b[A-Z][a-z]+\b)",
-                RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex HeadwordRegex = new(@"^★+☆+\s+(?<headword>[^▶]+)▶\s*(?<rest>.+)$", RegexOptions.Compiled);
+        private static readonly Regex PronunciationRegex = new(@"/[^/]+/", RegexOptions.Compiled);
+        private static readonly Regex SenseNumberRegex = new(@"^(?<number>\d+)\.\s*(?<rest>.+)$", RegexOptions.Compiled);
+        private static readonly Regex SenseLabelRegex = new(@"^\((?<label>[^)]+)\)(?<rest>.+)$", RegexOptions.Compiled);
+        private static readonly Regex ChineseTranslationRegex = new(@"•\s*(?<translation>.+)$", RegexOptions.Compiled);
+        private static readonly Regex ExampleRegex = new(@"^»\s*(?<example>.+)$", RegexOptions.Compiled);
+        private static readonly Regex PartOfSpeechRegex = new(@",\s*(?<pos>\w+)$", RegexOptions.Compiled);
+        private static readonly Regex VariantFormsRegex = new(@"\((?:也作|亦作)\s*(?<variant>[^)]+)\)", RegexOptions.Compiled);
+        private static readonly Regex CrossReferenceRegex = new(@"\b(?:see|cf\.|compare)\s+(?<word>\b[A-Z][a-z]+\b)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         #endregion Compiled Regex Patterns
     }

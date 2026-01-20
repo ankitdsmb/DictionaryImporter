@@ -8,15 +8,13 @@ using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Oxford
 {
-    public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger)
-        : IDataTransformer<OxfordRawEntry>
+    public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger) : IDataTransformer<OxfordRawEntry>
     {
         private const string SourceCode = "ENG_OXFORD";
 
         public IEnumerable<DictionaryEntry> Transform(OxfordRawEntry? raw)
         {
-            if (raw == null || !raw.Senses.Any())
-                yield break;
+            if (raw == null || !raw.Senses.Any()) yield break;
 
             foreach (var entry in ProcessOxfordEntry(raw))
             {
@@ -45,7 +43,6 @@ namespace DictionaryImporter.Sources.Oxford
                                      NormalizedWord = normalizedWord,
                                      PartOfSpeech = normalizedPos,
                                      Definition = fullDefinition,
-
                                      // FIX: keep RawFragment truly "raw" so parsers/extractors can rely on it
                                      // Safest is the original sense definition text
                                      RawFragment = sense.Definition,
@@ -78,9 +75,12 @@ namespace DictionaryImporter.Sources.Oxford
             if (!string.IsNullOrEmpty(sense.SenseLabel))
                 parts.Add($"【Label】{sense.SenseLabel}");
 
+            // FIX: Include the definition which contains both English and Chinese
             parts.Add(sense.Definition);
 
-            if (!string.IsNullOrEmpty(sense.ChineseTranslation))
+            // FIX: Chinese translation is already part of the definition in Oxford format
+            // Only add it separately if it's not already included
+            if (!string.IsNullOrEmpty(sense.ChineseTranslation) && !sense.Definition.Contains(sense.ChineseTranslation))
                 parts.Add($"【Chinese】{sense.ChineseTranslation}");
 
             if (sense.Examples.Any())
@@ -100,17 +100,6 @@ namespace DictionaryImporter.Sources.Oxford
             }
 
             return string.Join("\n", parts);
-        }
-
-        private static string NormalizeWord(string word)
-        {
-            if (string.IsNullOrWhiteSpace(word))
-                return word;
-
-            word = SourceDataHelper.NormalizeWord(word);
-            // allow digits too for words like "24-7", "3d", "mp3"
-            word = Regex.Replace(word, @"[^\p{L}\p{N}\-']", " ");
-            return Regex.Replace(word, @"\s+", " ").Trim();
         }
     }
 }
