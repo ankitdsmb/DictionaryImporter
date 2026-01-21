@@ -14,7 +14,11 @@ namespace DictionaryImporter.Sources.EnglishChinese
 
         public IEnumerable<DictionaryEntry> Transform(EnglishChineseRawEntry? raw)
         {
-            if (raw == null) yield break;
+            if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, _logger))
+                yield break;
+
+            if (raw == null)
+                yield break;
 
             var normalizedWord = SourceDataHelper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
 

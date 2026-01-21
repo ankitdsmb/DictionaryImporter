@@ -1,48 +1,58 @@
-﻿using DictionaryImporter.Infrastructure.Persistence.Batched;
+﻿using DictionaryImporter.Infrastructure.Persistence;
+using DictionaryImporter.Infrastructure.Persistence.Batched;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Bootstrap.Extensions
 {
-    internal static class SimpleBatchRegistrationExtensions
+    internal static class SimpleBatchRegistrationExtensionsy
     {
         public static IServiceCollection AddSimpleSqlBatching(
             this IServiceCollection services,
             string connectionString)
         {
-            // 1. Register generic batcher
+            // 1. Register batcher (safe)
             services.AddSingleton<GenericSqlBatcher>(sp =>
                 new GenericSqlBatcher(
                     connectionString,
                     sp.GetRequiredService<ILogger<GenericSqlBatcher>>()));
 
-            // 2. Register repositories with batcher dependency
-            RegisterBatchedRepository<IDictionaryEntrySynonymWriter, SqlDictionaryEntrySynonymWriter>(
-                services, connectionString);
+            // ✅ FIX: DO NOT initialize BatchedDapperExtensions during registration/startup
+            // BatchedDapperExtensions.Initialize(batcher);
 
-            // Note: SqlParsedDefinitionWriter doesn't implement IParsedDefinitionWriter
-            // based on your error. Check if it implements a different interface or register differently.
+            // 2. Register repositories
+            RegisterRepositories(services, connectionString);
 
             return services;
         }
 
-        private static void RegisterBatchedRepository<TService, TImplementation>(
-            IServiceCollection services,
-            string connectionString)
-            where TService : class
-            where TImplementation : class, TService
+        private static void RegisterRepositories(IServiceCollection services, string connectionString)
         {
-            services.AddTransient<TService>(sp =>
+            services.AddTransient<IDictionaryEntrySynonymWriter>(sp =>
             {
-                var logger = sp.GetRequiredService<ILogger<TImplementation>>();
+                var logger = sp.GetRequiredService<ILogger<SqlDictionaryEntrySynonymWriter>>();
                 var batcher = sp.GetRequiredService<GenericSqlBatcher>();
+                return new SqlDictionaryEntrySynonymWriter(connectionString, logger, batcher);
+            });
 
-                // Create instance with all required parameters
-                return ActivatorUtilities.CreateInstance<TImplementation>(
-                    sp,
-                    connectionString,
-                    logger,
-                    batcher);
+            // ✅ FIX: constructor requires batcher + logger
+            services.AddTransient<SqlParsedDefinitionWriter>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<SqlParsedDefinitionWriter>>();
+                var batcher = sp.GetRequiredService<GenericSqlBatcher>();
+                return new SqlParsedDefinitionWriter(connectionString, batcher, logger);
+            });
+
+            services.AddTransient<SqlDictionaryEntryCrossReferenceWriter>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<SqlDictionaryEntryCrossReferenceWriter>>();
+                return new SqlDictionaryEntryCrossReferenceWriter(connectionString, logger);
+            });
+
+            services.AddTransient<SqlDictionaryAliasWriter>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<SqlDictionaryAliasWriter>>();
+                return new SqlDictionaryAliasWriter(connectionString, logger);
             });
         }
     }

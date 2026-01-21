@@ -2,6 +2,6 @@
 {
     public interface IDictionaryEntryCrossReferenceWriter
     {
-        Task WriteAsync(long sourceParsedId, CrossReference crossReference, CancellationToken ct);
+        Task WriteAsync(long sourceParsedId, CrossReference crossReference, string sourceCode, CancellationToken ct);
     }
 }

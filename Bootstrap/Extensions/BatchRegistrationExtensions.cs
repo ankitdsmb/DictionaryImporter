@@ -1,8 +1,6 @@
-﻿// File: Bootstrap/Extensions/BatchRegistrationExtensions.cs
-using DictionaryImporter.Infrastructure.Persistence;
+﻿using DictionaryImporter.Infrastructure.Persistence;
 using DictionaryImporter.Infrastructure.Persistence.Batched;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Bootstrap.Extensions
@@ -13,17 +11,16 @@ namespace DictionaryImporter.Bootstrap.Extensions
             this IServiceCollection services,
             string connectionString)
         {
-            services.AddSingleton<GenericSqlBatcher>(sp => new GenericSqlBatcher(
-                connectionString,
-                sp.GetRequiredService<ILogger<GenericSqlBatcher>>()));
+            // 1. Register batcher (safe)
+            services.AddSingleton<GenericSqlBatcher>(sp =>
+                new GenericSqlBatcher(
+                    connectionString,
+                    sp.GetRequiredService<ILogger<GenericSqlBatcher>>()));
 
-            services.AddSingleton(sp =>
-            {
-                var batcher = sp.GetRequiredService<GenericSqlBatcher>();
-                BatchedDapperExtensions.Initialize(batcher);
-                return batcher;
-            });
+            // ✅ FIX: DO NOT initialize BatchedDapperExtensions during registration/startup
+            // BatchedDapperExtensions.Initialize(batcher);
 
+            // 2. Register repositories
             RegisterRepositories(services, connectionString);
 
             return services;
@@ -38,7 +35,7 @@ namespace DictionaryImporter.Bootstrap.Extensions
                 return new SqlDictionaryEntrySynonymWriter(connectionString, logger, batcher);
             });
 
-            // ✅ FIX: SqlParsedDefinitionWriter requires GenericSqlBatcher + ILogger
+            // ✅ FIX: constructor requires batcher + logger
             services.AddTransient<SqlParsedDefinitionWriter>(sp =>
             {
                 var logger = sp.GetRequiredService<ILogger<SqlParsedDefinitionWriter>>();
@@ -57,27 +54,6 @@ namespace DictionaryImporter.Bootstrap.Extensions
                 var logger = sp.GetRequiredService<ILogger<SqlDictionaryAliasWriter>>();
                 return new SqlDictionaryAliasWriter(connectionString, logger);
             });
-        }
-
-        private class BatcherInitializer : IHostedService
-        {
-            private readonly GenericSqlBatcher _batcher;
-
-            public BatcherInitializer(GenericSqlBatcher batcher)
-            {
-                _batcher = batcher;
-            }
-
-            public Task StartAsync(CancellationToken cancellationToken)
-            {
-                BatchedDapperExtensions.Initialize(_batcher);
-                return Task.CompletedTask;
-            }
-
-            public Task StopAsync(CancellationToken cancellationToken)
-            {
-                return Task.CompletedTask;
-            }
         }
     }
 }

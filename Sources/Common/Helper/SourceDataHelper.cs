@@ -311,5 +311,94 @@ namespace DictionaryImporter.Sources.Common.Helper
         }
 
         #endregion Logging and Error Handling
+
+        public static string? ExtractProperDomain(string sourceCode, string? rawDomain, string definition)
+        {
+            if (string.IsNullOrWhiteSpace(rawDomain)) return null;
+
+            var domain = rawDomain.Trim();
+
+            switch (sourceCode)
+            {
+                case "ENG_OXFORD":
+                    // Oxford: (informal, chiefly N. Amer.)definition
+                    var oxfordMatch = Regex.Match(definition, @"^\(([^)]+)\)");
+                    if (oxfordMatch.Success)
+                    {
+                        var oxfordDomain = oxfordMatch.Groups[1].Value.Trim();
+                        // Clean: remove any trailing punctuation that's part of definition
+                        oxfordDomain = oxfordDomain.Split('.')[0].Trim();
+                        return oxfordDomain.Length <= 100 ? oxfordDomain : oxfordDomain.Substring(0, 100);
+                    }
+                    return null;
+
+                case "ENG_COLLINS":
+                    // Collins: 【语域标签】：mainly AM 主美
+                    if (domain.StartsWith("【语域标签】："))
+                    {
+                        domain = domain.Substring("【语域标签】：".Length).Trim();
+                        // Take only English part before Chinese
+                        var parts = domain.Split(' ');
+                        if (parts.Length > 0) return parts[0].Trim();
+                    }
+                    // Also check for register patterns in definition
+                    if (definition.Contains("主美") || definition.Contains("美式")) return "US";
+                    if (definition.Contains("主英") || definition.Contains("英式")) return "UK";
+                    if (definition.Contains("正式")) return "FORMAL";
+                    if (definition.Contains("非正式")) return "INFORMAL";
+                    return null;
+
+                case "STRUCT_JSON":
+                case "KAIKKI":
+                    // JSON sources: use field directly, but clean it
+                    domain = Regex.Replace(domain, @"[<>\(\)]", "").Trim();
+                    return domain.Length <= 50 ? domain : domain.Substring(0, 50);
+
+                case "GUT_WEBSTER":
+                    // Gutenberg: <Mus> or (Astron.)
+                    var gutenbergMatch = Regex.Match(domain, @"[<\(]([^>)]+)[>\)]");
+                    if (gutenbergMatch.Success)
+                    {
+                        return gutenbergMatch.Groups[1].Value.Trim().TrimEnd('.');
+                    }
+                    return null;
+
+                case "CENTURY21":
+                    // Century21: (BrE.) - This is USAGE/LABEL, not domain
+                    // Should NOT be stored in Domain column
+                    return null;
+
+                case "ENG_CHN":
+                    // English-Chinese: may have domain markers like 〔医〕, 〔农〕
+                    var chnMatch = Regex.Match(definition, @"〔([^〕]+)〕");
+                    if (chnMatch.Success) return chnMatch.Groups[1].Value.Trim();
+                    return null;
+
+                default:
+                    // Generic cleaner for unknown sources
+                    return CleanDomainGeneric(domain, definition);
+            }
+        }
+        private static string? CleanDomainGeneric(string domain, string definition)
+        {
+            // Remove Chinese characters
+            domain = Regex.Replace(domain, @"[\u4e00-\u9fff]", "").Trim();
+
+            // Remove any text after newline (definition contamination)
+            if (domain.Contains('\n'))
+            {
+                domain = domain.Split('\n')[0].Trim();
+            }
+
+            // If it looks like definition text (contains "hours", "days", etc.), reject
+            var definitionIndicators = new[] { "hours", "days", "weeks", "minutes", "seconds", "o'clock" };
+            if (definitionIndicators.Any(ind => domain.Contains(ind, StringComparison.OrdinalIgnoreCase)))
+            {
+                return null;
+            }
+
+            // Limit length
+            return domain.Length <= 100 ? domain : null;
+        }
     }
 }

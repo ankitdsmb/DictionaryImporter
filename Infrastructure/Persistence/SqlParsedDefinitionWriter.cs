@@ -23,10 +23,10 @@ namespace DictionaryImporter.Infrastructure.Persistence
         }
 
         public async Task<long> WriteAsync(
-            long dictionaryEntryId,
-            ParsedDefinition parsed,
-            string sourceCode,
-            CancellationToken ct)
+    long dictionaryEntryId,
+    ParsedDefinition parsed,
+    string sourceCode,
+    CancellationToken ct)
         {
             // Check for non-English content
             bool hasNonEnglishText = LanguageDetector.ContainsNonEnglishText(parsed.Definition ?? "");
@@ -55,35 +55,33 @@ namespace DictionaryImporter.Infrastructure.Persistence
             }
 
             const string sql = """
-                INSERT INTO dbo.DictionaryEntryParsed (
-                    DictionaryEntryId, ParentParsedId, MeaningTitle,
-                    Definition, RawFragment, SenseNumber,
-                    Domain, UsageLabel, Alias,
-                    HasNonEnglishText, NonEnglishTextId, SourceCode,
-                    CreatedUtc
-                ) VALUES (
-                    @DictionaryEntryId, @ParentParsedId, @MeaningTitle,
-                    @Definition, @RawFragment, @SenseNumber,
-                    @Domain, @UsageLabel, @Alias,
-                    @HasNonEnglishText, @NonEnglishTextId, @SourceCode,
-                    SYSUTCDATETIME()
-                );
-                SELECT SCOPE_IDENTITY();
-                """;
+        INSERT INTO dbo.DictionaryEntryParsed (
+            DictionaryEntryId, ParentParsedId, MeaningTitle,
+            Definition, RawFragment, SenseNumber,
+            Domain, UsageLabel, HasNonEnglishText, NonEnglishTextId, SourceCode,
+            CreatedUtc
+        ) VALUES (
+            @DictionaryEntryId, @ParentParsedId, @MeaningTitle,
+            @Definition, @RawFragment, @SenseNumber,
+            @Domain, @UsageLabel, @HasNonEnglishText, @NonEnglishTextId, @SourceCode,
+            SYSUTCDATETIME()
+        );
+        SELECT SCOPE_IDENTITY();
+        """;
 
             var parameters = new
             {
                 DictionaryEntryId = dictionaryEntryId,
-                ParentParsedId = (object?)parsed.ParentParsedId ?? DBNull.Value,
+                ParentParsedId = parsed.ParentParsedId,  // Use null directly, not DBNull.Value
                 MeaningTitle = parsed.MeaningTitle ?? "",
                 Definition = definitionToStore,
                 RawFragment = parsed.RawFragment ?? "",
                 SenseNumber = parsed.SenseNumber,
-                Domain = (object?)parsed.Domain ?? DBNull.Value,
-                UsageLabel = (object?)parsed.UsageLabel ?? DBNull.Value,
-                Alias = (object?)parsed.Alias ?? DBNull.Value,
+                Domain = parsed.Domain,  // Use null directly
+                UsageLabel = parsed.UsageLabel,  // Use null directly
+                Alias = parsed.Alias,  // Use null directly
                 HasNonEnglishText = hasNonEnglishText,
-                NonEnglishTextId = (object?)nonEnglishTextId ?? DBNull.Value,
+                NonEnglishTextId = nonEnglishTextId,  // Use null directly
                 SourceCode = sourceCode
             };
 
@@ -99,40 +97,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             return 0;
         }
 
-        private async Task<long> StoreNonEnglishTextAsync(
-            string originalText,
-            string sourceCode,
-            CancellationToken ct)
-        {
-            const string sql = """
-                INSERT INTO dbo.DictionaryNonEnglishText (
-                    OriginalText, DetectedLanguage, CharacterCount,
-                    SourceCode, CreatedUtc
-                ) OUTPUT INSERTED.NonEnglishTextId
-                VALUES (
-                    @OriginalText, @DetectedLanguage, @CharacterCount,
-                    @SourceCode, SYSUTCDATETIME()
-                );
-                """;
-
-            var languageCode = LanguageDetector.DetectLanguageCode(originalText);
-
-            var parameters = new
-            {
-                OriginalText = originalText,
-                DetectedLanguage = languageCode ?? (object)DBNull.Value,
-                CharacterCount = originalText.Length,
-                SourceCode = sourceCode
-            };
-
-            await using var connection = new SqlConnection(_connectionString);
-            await connection.OpenAsync(ct);
-
-            return await connection.ExecuteScalarAsync<long>(
-                new CommandDefinition(sql, parameters, cancellationToken: ct));
-        }
-
-        // Batch version for better performance
+        // Also fix the batch version:
         public async Task WriteBatchAsync(
             IEnumerable<(long DictionaryEntryId, ParsedDefinition Parsed, string SourceCode)> entries,
             CancellationToken ct)
@@ -159,16 +124,16 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 batchEntries.Add(new
                 {
                     DictionaryEntryId = entry.DictionaryEntryId,
-                    ParentParsedId = (object?)entry.Parsed.ParentParsedId ?? DBNull.Value,
+                    ParentParsedId = entry.Parsed.ParentParsedId,  // Use null directly
                     MeaningTitle = entry.Parsed.MeaningTitle ?? "",
                     Definition = definitionToStore,
                     RawFragment = entry.Parsed.RawFragment ?? "",
                     SenseNumber = entry.Parsed.SenseNumber,
-                    Domain = (object?)entry.Parsed.Domain ?? DBNull.Value,
-                    UsageLabel = (object?)entry.Parsed.UsageLabel ?? DBNull.Value,
-                    Alias = (object?)entry.Parsed.Alias ?? DBNull.Value,
+                    Domain = entry.Parsed.Domain,  // Use null directly
+                    UsageLabel = entry.Parsed.UsageLabel,  // Use null directly
+                    Alias = entry.Parsed.Alias,  // Use null directly
                     HasNonEnglishText = hasNonEnglishText,
-                    NonEnglishTextId = (object?)nonEnglishTextId ?? DBNull.Value,
+                    NonEnglishTextId = nonEnglishTextId,  // Use null directly
                     SourceCode = entry.SourceCode
                 });
             }
@@ -176,20 +141,20 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (batchEntries.Count > 0)
             {
                 const string batchSql = """
-                    INSERT INTO dbo.DictionaryEntryParsed (
-                        DictionaryEntryId, ParentParsedId, MeaningTitle,
-                        Definition, RawFragment, SenseNumber,
-                        Domain, UsageLabel, Alias,
-                        HasNonEnglishText, NonEnglishTextId, SourceCode,
-                        CreatedUtc
-                    ) VALUES (
-                        @DictionaryEntryId, @ParentParsedId, @MeaningTitle,
-                        @Definition, @RawFragment, @SenseNumber,
-                        @Domain, @UsageLabel, @Alias,
-                        @HasNonEnglishText, @NonEnglishTextId, @SourceCode,
-                        SYSUTCDATETIME()
-                    );
-                    """;
+            INSERT INTO dbo.DictionaryEntryParsed (
+                DictionaryEntryId, ParentParsedId, MeaningTitle,
+                Definition, RawFragment, SenseNumber,
+                Domain, UsageLabel, Alias,
+                HasNonEnglishText, NonEnglishTextId, SourceCode,
+                CreatedUtc
+            ) VALUES (
+                @DictionaryEntryId, @ParentParsedId, @MeaningTitle,
+                @Definition, @RawFragment, @SenseNumber,
+                @Domain, @UsageLabel, @Alias,
+                @HasNonEnglishText, @NonEnglishTextId, @SourceCode,
+                SYSUTCDATETIME()
+            );
+            """;
 
                 await _batcher.QueueOperationAsync(
                     "BATCH_INSERT_ParsedDefinition",
@@ -202,6 +167,39 @@ namespace DictionaryImporter.Infrastructure.Persistence
                     "Queued batch of {Count} parsed definitions for insertion",
                     batchEntries.Count);
             }
+        }
+
+        private async Task<long> StoreNonEnglishTextAsync(
+            string originalText,
+            string sourceCode,
+            CancellationToken ct)
+        {
+            const string sql = """
+                               INSERT INTO dbo.DictionaryNonEnglishText (
+                                   OriginalText, DetectedLanguage, CharacterCount,
+                                   SourceCode, CreatedUtc
+                               ) OUTPUT INSERTED.NonEnglishTextId
+                               VALUES (
+                                   @OriginalText, @DetectedLanguage, @CharacterCount,
+                                   @SourceCode, SYSUTCDATETIME()
+                               );
+                               """;
+
+            var languageCode = LanguageDetector.DetectLanguageCode(originalText);
+
+            var parameters = new
+            {
+                OriginalText = originalText,
+                DetectedLanguage = languageCode,  // Use null directly, not DBNull.Value
+                CharacterCount = originalText.Length,
+                SourceCode = sourceCode
+            };
+
+            await using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(ct);
+
+            return await connection.ExecuteScalarAsync<long>(
+                new CommandDefinition(sql, parameters, cancellationToken: ct));
         }
     }
 }

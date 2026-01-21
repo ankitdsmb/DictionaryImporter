@@ -5,20 +5,16 @@ using LanguageDetector = DictionaryImporter.Core.Text.LanguageDetector;
 
 namespace DictionaryImporter.Infrastructure.Persistence
 {
+    // In INonEnglishTextStorage.cs - fix the interface method
     public interface INonEnglishTextStorage
     {
         Task<long?> StoreNonEnglishTextAsync(
             string originalText,
             string sourceCode,
+            string fieldType,  // Add this parameter
             CancellationToken ct);
 
-        Task<string?> GetNonEnglishTextAsync(
-            long nonEnglishTextId,
-            CancellationToken ct);
-
-        Task<IReadOnlyDictionary<long, string>> GetNonEnglishTextBatchAsync(
-            IEnumerable<long> nonEnglishTextIds,
-            CancellationToken ct);
+        Task<string?> GetNonEnglishTextAsync(long nonEnglishTextId, CancellationToken ct);
     }
 
     public class SqlNonEnglishTextStorage : INonEnglishTextStorage
@@ -156,6 +152,66 @@ namespace DictionaryImporter.Infrastructure.Persistence
             }
 
             return result;
+        }
+
+        public async Task<long?> StoreNonEnglishTextAsync(
+            string originalText,
+            string sourceCode,
+            string fieldType,
+            CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(originalText))
+                return null;
+
+            // Check if it's actually non-English
+            if (!LanguageDetector.ContainsNonEnglishText(originalText))
+                return null;
+
+            // FIXED SQL SYNTAX - Added missing FieldType column
+            const string sql = """
+                               INSERT INTO dbo.DictionaryNonEnglishText (
+                                   OriginalText, 
+                                   DetectedLanguage, 
+                                   CharacterCount,
+                                   SourceCode, 
+                                   FieldType, 
+                                   CreatedUtc
+                               ) OUTPUT INSERTED.NonEnglishTextId
+                               VALUES (
+                                   @OriginalText, 
+                                   @DetectedLanguage, 
+                                   @CharacterCount,
+                                   @SourceCode, 
+                                   @FieldType, 
+                                   SYSUTCDATETIME()
+                               );
+                               """;
+
+            var languageCode = LanguageDetector.DetectLanguageCode(originalText);
+
+            var parameters = new
+            {
+                OriginalText = originalText,
+                DetectedLanguage = languageCode ?? (object)DBNull.Value,
+                CharacterCount = originalText.Length,
+                SourceCode = sourceCode,
+                FieldType = fieldType  // ADD THIS
+            };
+
+            await using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(ct);
+
+            var textId = await connection.ExecuteScalarAsync<long>(
+                new CommandDefinition(sql, parameters, cancellationToken: ct));
+
+            // Cache the result
+            _cache[textId] = originalText;
+
+            _logger.LogDebug(
+                "Stored non-English text: ID={TextId}, Language={Language}, Field={FieldType}, Length={Length}",
+                textId, languageCode, fieldType, originalText.Length);
+
+            return textId;
         }
     }
 }

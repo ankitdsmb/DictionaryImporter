@@ -118,7 +118,8 @@ namespace DictionaryImporter.Bootstrap.Extensions
                     sp.GetRequiredService<GenericSynonymExtractor>(),
                     sp.GetRequiredService<ILogger<SynonymExtractorRegistry>>()));
 
-            services.AddSingleton<IParsedDefinitionProcessor, DictionaryParsedDefinitionProcessor>(sp =>
+            // In ParsingRegistrationExtensions.cs - Update the DictionaryParsedDefinitionProcessor registration
+            services.AddScoped<DictionaryParsedDefinitionProcessor>(sp =>
             {
                 return new DictionaryParsedDefinitionProcessor(
                     connectionString,
@@ -127,7 +128,7 @@ namespace DictionaryImporter.Bootstrap.Extensions
                     sp.GetRequiredService<IDictionaryEntryCrossReferenceWriter>(),
                     sp.GetRequiredService<IDictionaryEntryAliasWriter>(),
                     sp.GetRequiredService<IEntryEtymologyWriter>(),
-                    sp.GetRequiredService<IDictionaryEntryVariantWriter>(),  // INTERFACE
+                    sp.GetRequiredService<IDictionaryEntryVariantWriter>(),
                     sp.GetRequiredService<IDictionaryEntryExampleWriter>(),
                     sp.GetRequiredService<IExampleExtractorRegistry>(),
                     sp.GetRequiredService<ISynonymExtractorRegistry>(),
@@ -135,10 +136,11 @@ namespace DictionaryImporter.Bootstrap.Extensions
                     sp.GetRequiredService<IEtymologyExtractorRegistry>(),
                     sp.GetRequiredService<IDictionaryTextFormatter>(),
                     sp.GetRequiredService<IGrammarEnrichedTextService>(),
+                    sp.GetRequiredService<ILanguageDetectionService>(),        // ADD THIS
+                    sp.GetRequiredService<INonEnglishTextStorage>(),          // ADD THIS
                     sp.GetRequiredService<ILogger<DictionaryParsedDefinitionProcessor>>()
                 );
             });
-
             return services;
         }
     }

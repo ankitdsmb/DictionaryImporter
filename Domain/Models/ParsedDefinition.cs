@@ -32,5 +32,8 @@ namespace DictionaryImporter.Domain.Models
         public string? SelfKey { get; set; }
         public string? ParentKey { get; set; }
         public string? PartOfSpeech { get; set; }
+        public string? DetectedLanguages { get; set; }
+        public string Etymology { get; internal set; }
+        public double? PartOfSpeechConfidence { get; internal set; }
     }
 }

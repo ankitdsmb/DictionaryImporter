@@ -1,299 +1,245 @@
 ﻿using Dapper;
 using DictionaryImporter.Core.Text;
+using DictionaryImporter.Sources.Common.Helper;
 using DictionaryImporter.Sources.Common.Parsing;
 using DictionaryImporter.Sources.EnglishChinese;
-using DictionaryImporter.Sources.EnglishChinese.Parsing; // Add this for SimpleEngChnExtractor
+using DictionaryImporter.Sources.EnglishChinese.Parsing;
+using HtmlAgilityPack;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Parsing;
 
-public sealed class DictionaryParsedDefinitionProcessor(
-    string connectionString,
-    IDictionaryDefinitionParserResolver parserResolver,
-    SqlParsedDefinitionWriter parsedWriter,
-    IDictionaryEntryCrossReferenceWriter crossRefWriter,    // CHANGE TO INTERFACE
-    IDictionaryEntryAliasWriter aliasWriter,                // CHANGE TO INTERFACE
-    IEntryEtymologyWriter etymologyWriter,
-    IDictionaryEntryVariantWriter variantWriter,            // CHANGE TO INTERFACE
-    IDictionaryEntryExampleWriter exampleWriter,
-    IExampleExtractorRegistry exampleExtractorRegistry,
-    ISynonymExtractorRegistry synonymExtractorRegistry,
-    IDictionaryEntrySynonymWriter synonymWriter,
-    IEtymologyExtractorRegistry etymologyExtractorRegistry,
-    IDictionaryTextFormatter formatter,
-    IGrammarEnrichedTextService grammarText,
-    ILogger<DictionaryParsedDefinitionProcessor> logger) : IParsedDefinitionProcessor
+public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProcessor
 {
-    private readonly IDictionaryEntryVariantWriter _variantWriter = variantWriter;
+    private readonly string _connectionString;
+    private readonly IDictionaryDefinitionParserResolver _parserResolver;
+    private readonly SqlParsedDefinitionWriter _parsedWriter;
+    private readonly IDictionaryEntryCrossReferenceWriter _crossRefWriter;
+    private readonly IDictionaryEntryAliasWriter _aliasWriter;
+    private readonly IEntryEtymologyWriter _etymologyWriter;
+    private readonly IDictionaryEntryVariantWriter _variantWriter;
+    private readonly IDictionaryEntryExampleWriter _exampleWriter;
+    private readonly IExampleExtractorRegistry _exampleExtractorRegistry;
+    private readonly ISynonymExtractorRegistry _synonymExtractorRegistry;
+    private readonly IDictionaryEntrySynonymWriter _synonymWriter;
+    private readonly IEtymologyExtractorRegistry _etymologyExtractorRegistry;
+    private readonly IDictionaryTextFormatter _formatter;
+    private readonly IGrammarEnrichedTextService _grammarText;
+    private readonly ILanguageDetectionService _languageDetectionService;
+    private readonly INonEnglishTextStorage _nonEnglishTextStorage;
+    private readonly ILogger<DictionaryParsedDefinitionProcessor> _logger;
 
-    public async Task ExecuteAsync(
-        string sourceCode,
-        CancellationToken ct)
+    public DictionaryParsedDefinitionProcessor(
+        string connectionString,
+        IDictionaryDefinitionParserResolver parserResolver,
+        SqlParsedDefinitionWriter parsedWriter,
+        IDictionaryEntryCrossReferenceWriter crossRefWriter,
+        IDictionaryEntryAliasWriter aliasWriter,
+        IEntryEtymologyWriter etymologyWriter,
+        IDictionaryEntryVariantWriter variantWriter,
+        IDictionaryEntryExampleWriter exampleWriter,
+        IExampleExtractorRegistry exampleExtractorRegistry,
+        ISynonymExtractorRegistry synonymExtractorRegistry,
+        IDictionaryEntrySynonymWriter synonymWriter,
+        IEtymologyExtractorRegistry etymologyExtractorRegistry,
+        IDictionaryTextFormatter formatter,
+        IGrammarEnrichedTextService grammarText,
+        ILanguageDetectionService languageDetectionService,
+        INonEnglishTextStorage nonEnglishTextStorage,
+        ILogger<DictionaryParsedDefinitionProcessor> logger)
     {
-        logger.LogInformation(
-            "Stage=Parsing started | Source={SourceCode}",
-            sourceCode);
+        _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+        _parserResolver = parserResolver ?? throw new ArgumentNullException(nameof(parserResolver));
+        _parsedWriter = parsedWriter ?? throw new ArgumentNullException(nameof(parsedWriter));
+        _crossRefWriter = crossRefWriter ?? throw new ArgumentNullException(nameof(crossRefWriter));
+        _aliasWriter = aliasWriter ?? throw new ArgumentNullException(nameof(aliasWriter));
+        _etymologyWriter = etymologyWriter ?? throw new ArgumentNullException(nameof(etymologyWriter));
+        _variantWriter = variantWriter ?? throw new ArgumentNullException(nameof(variantWriter));
+        _exampleWriter = exampleWriter ?? throw new ArgumentNullException(nameof(exampleWriter));
+        _exampleExtractorRegistry = exampleExtractorRegistry ?? throw new ArgumentNullException(nameof(exampleExtractorRegistry));
+        _synonymExtractorRegistry = synonymExtractorRegistry ?? throw new ArgumentNullException(nameof(synonymExtractorRegistry));
+        _synonymWriter = synonymWriter ?? throw new ArgumentNullException(nameof(synonymWriter));
+        _etymologyExtractorRegistry = etymologyExtractorRegistry ?? throw new ArgumentNullException(nameof(etymologyExtractorRegistry));
+        _formatter = formatter ?? throw new ArgumentNullException(nameof(formatter));
+        _grammarText = grammarText ?? throw new ArgumentNullException(nameof(grammarText));
+        _languageDetectionService = languageDetectionService ?? throw new ArgumentNullException(nameof(languageDetectionService));
+        _nonEnglishTextStorage = nonEnglishTextStorage ?? throw new ArgumentNullException(nameof(nonEnglishTextStorage));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
 
-        await using var conn = new SqlConnection(connectionString);
+    public async Task ExecuteAsync(string sourceCode, CancellationToken ct)
+    {
+        if (!SourceDataHelper.ShouldContinueProcessing(sourceCode, _logger))
+        {
+            _logger.LogInformation("Source {SourceCode} processing limit reached, skipping", sourceCode);
+            return;
+        }
+
+        _logger.LogInformation("Stage=Parsing started | Source={SourceCode}", sourceCode);
+
+        await using var conn = new SqlConnection(_connectionString);
         await conn.OpenAsync(ct);
 
         var entries = (await conn.QueryAsync<DictionaryEntry>(
-                """
-                SELECT *
-                FROM dbo.DictionaryEntry
-                WHERE SourceCode = @SourceCode
-                """,
-                new { SourceCode = sourceCode }))
+            """
+            SELECT DictionaryEntryId, Word, Definition, RawFragment, SenseNumber, SourceCode
+            FROM dbo.DictionaryEntry
+            WHERE SourceCode = @SourceCode
+            """,
+            new { SourceCode = sourceCode }))
             .ToList();
 
-        logger.LogInformation(
-            "DEBUG: Database entries for {SourceCode}: Count={Count} | Sample words: {SampleWords}",
-            sourceCode,
-            entries.Count,
-            string.Join(", ", entries.Take(5).Select(e => e.Word)));
-
-        // ✅ SPECIAL HANDLING FOR ENG_CHN - Log that we're using enhanced extraction
-        if (sourceCode == "ENG_CHN")
-        {
-            logger.LogInformation(
-                "ENG_CHN special processing: Using SimpleEngChnExtractor for Chinese preservation");
-        }
-
-        var exampleExtractor = exampleExtractorRegistry.GetExtractor(sourceCode);
-        logger.LogDebug(
-            "Using example extractor: {ExtractorType} for source {Source}",
-            exampleExtractor.GetType().Name,
-            sourceCode);
+        _logger.LogInformation(
+            "Processing {Count} entries for source {SourceCode}",
+            entries.Count, sourceCode);
 
         var entryIndex = 0;
         var parsedInserted = 0;
         var crossRefInserted = 0;
         var aliasInserted = 0;
-        var variantInserted = 0;
         var exampleInserted = 0;
         var synonymInserted = 0;
         var etymologyExtracted = 0;
-        var engChnFixedCount = 0; // Track how many ENG_CHN entries were specially processed
+        var nonEnglishEntries = 0;
+        var nonEnglishExamples = 0;
+        var nonEnglishSynonyms = 0;
+        var nonEnglishEtymology = 0;
 
         foreach (var entry in entries)
         {
-            logger.LogInformation(
-                "PARSER DEBUG: Source={SourceCode} | Word={Word} | RawFragmentLength={Length}",
-                sourceCode, entry.Word, entry.RawFragment?.Length ?? 0);
-
             ct.ThrowIfCancellationRequested();
             entryIndex++;
 
-            if (entryIndex % 1_000 == 0)
+            if (entryIndex % 1000 == 0)
             {
-                logger.LogInformation(
-                    "Stage=Parsing progress | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants} | Examples={Examples} | Synonyms={Synonyms} | ENG_CHN_Fixed={EngChnFixed}",
-                    sourceCode,
-                    entryIndex,
-                    parsedInserted,
-                    crossRefInserted,
-                    aliasInserted,
-                    variantInserted,
-                    exampleInserted,
-                    synonymInserted,
-                    engChnFixedCount);
+                _logger.LogInformation(
+                    "Parsing progress | Source={SourceCode} | Processed={Processed}/{Total}",
+                    sourceCode, entryIndex, entries.Count);
             }
 
-            var parser = parserResolver.Resolve(sourceCode);
-            logger.LogInformation(
-                "PARSER DEBUG: Using {ParserType} for {SourceCode} | Word={Word}",
-                parser.GetType().Name,
-                sourceCode,
-                entry.Word);
-
-            // In DictionaryParsedDefinitionProcessor.ExecuteAsync, replace the fallback section:
-
+            var parser = _parserResolver.Resolve(sourceCode);
             var parsedDefinitions = parser.Parse(entry)?.ToList();
 
-            // ✅ ADD PROPER ERROR LOGGING BEFORE FALLBACK
             if (parsedDefinitions == null || parsedDefinitions.Count == 0)
             {
-                logger.LogWarning(
-                    "⚠️ PARSER RETURNED EMPTY | Source={Source} | Word={Word} | RawFragmentPreview={Preview} | ParserType={ParserType}",
-                    sourceCode,
-                    entry.Word,
-                    GetPreview(entry.RawFragment, 100),
-                    parser.GetType().Name);
+                _logger.LogWarning(
+                    "Parser returned empty for entry {Word} ({Source})",
+                    entry.Word, sourceCode);
 
-                // ✅ SPECIAL CASE FOR ENG_CHN: Use SimpleEngChnExtractor directly if parser fails
-                if (sourceCode == "ENG_CHN" && !string.IsNullOrWhiteSpace(entry.RawFragment))
+                parsedDefinitions = new List<ParsedDefinition>
                 {
-                    logger.LogWarning(
-                        "ENG_CHN parser failed, using SimpleEngChnExtractor fallback for: {Word}",
-                        entry.Word);
-
-                    var extractedDefinition = SimpleEngChnExtractor.ExtractDefinition(entry.RawFragment);
-
-                    parsedDefinitions =
-                    [
-                        new ParsedDefinition
-                        {
-                            Definition = extractedDefinition,
-                            RawFragment = entry.RawFragment,
-                            SenseNumber = entry.SenseNumber,
-                            CrossReferences = new List<CrossReference>(),
-                            MeaningTitle = entry.Word ?? "unnamed sense"
-                        }
-                    ];
-                    engChnFixedCount++;
-                }
-                else
-                {
-                    parsedDefinitions =
-                    [
-                        new ParsedDefinition
-                        {
-                            Definition = null,
-                            RawFragment = entry.Definition,
-                            SenseNumber = entry.SenseNumber,
-                            CrossReferences = new List<CrossReference>(),
-                            MeaningTitle = entry.Word ?? "unnamed sense"
-                        }
-                    ];
-                }
+                    CreateFallbackDefinition(entry, sourceCode)
+                };
             }
 
             foreach (var parsed in parsedDefinitions)
             {
-                var currentParsed = parsed;
-                var inputDefinition =
-                    !string.IsNullOrWhiteSpace(currentParsed.Definition)
-                        ? currentParsed.Definition
-                        : currentParsed.RawFragment;
+                var (processedDefinition, definitionNonEnglishTextId) = await ProcessTextContent(
+                    parsed.Definition,
+                    "Definition",
+                    sourceCode,
+                    ct);
 
-                if (!string.IsNullOrWhiteSpace(inputDefinition))
+                var currentParsed = new ParsedDefinition
                 {
-                    // ✅ SPECIAL HANDLING FOR ENG_CHN: Don't over-normalize Chinese content
-                    string formattedDefinition;
-                    if (sourceCode == "ENG_CHN")
-                    {
-                        // For ENG_CHN, preserve original formatting as much as possible
-                        formattedDefinition = inputDefinition;
+                    ParentKey = parsed.ParentKey,
+                    SelfKey = parsed.SelfKey,
+                    MeaningTitle = parsed.MeaningTitle,
+                    SenseNumber = parsed.SenseNumber,
+                    Definition = processedDefinition,
+                    RawFragment = parsed.RawFragment,
+                    // In the ExecuteAsync method, when creating currentParsed:
+                    Domain = SourceDataHelper.ExtractProperDomain(sourceCode, parsed.Domain, parsed.Definition),
+                    UsageLabel = parsed.UsageLabel,
+                    Alias = parsed.Alias,
+                    Synonyms = parsed.Synonyms,
+                    CrossReferences = parsed.CrossReferences,
+                    SourceCode = sourceCode,
+                    HasNonEnglishText = definitionNonEnglishTextId.HasValue,
+                    NonEnglishTextId = definitionNonEnglishTextId
+                };
 
-                        // Only apply minimal formatting - preserve Chinese characters
-                        formattedDefinition = formatter.FormatDefinition(formattedDefinition);
-
-                        logger.LogDebug(
-                            "ENG_CHN definition processing | Word={Word} | OriginalLength={OrigLen} | FormattedLength={FormattedLen} | HasChinese={HasChinese}",
-                            entry.Word,
-                            inputDefinition.Length,
-                            formattedDefinition.Length,
-                            SimpleEngChnExtractor.ContainsChinese(formattedDefinition));
-                    }
-                    else
-                    {
-                        formattedDefinition = formatter.FormatDefinition(inputDefinition);
-                    }
-
-                    var correctedDefinition =
-                        await grammarText.NormalizeDefinitionAsync(formattedDefinition, ct);
-
-                    currentParsed = new ParsedDefinition
-                    {
-                        ParentKey = currentParsed.ParentKey,
-                        SelfKey = currentParsed.SelfKey,
-                        MeaningTitle = currentParsed.MeaningTitle,
-                        SenseNumber = currentParsed.SenseNumber,
-                        Definition = string.IsNullOrWhiteSpace(correctedDefinition)
-                            ? formattedDefinition  // Use formatted instead of input
-                            : correctedDefinition,
-                        RawFragment = currentParsed.RawFragment,
-                        Domain = currentParsed.Domain,
-                        UsageLabel = currentParsed.UsageLabel,
-                        Alias = currentParsed.Alias,
-                        Synonyms = currentParsed.Synonyms,
-                        CrossReferences = currentParsed.CrossReferences
-                    };
-                }
-
-                var parsedId = await parsedWriter.WriteAsync(
+                // Write parsed definition
+                var parsedId = await _parsedWriter.WriteAsync(
                     entry.DictionaryEntryId,
                     currentParsed,
-                    null,
+                    sourceCode,
                     ct);
 
                 if (parsedId <= 0)
                 {
-                    logger.LogError(
-                        "ParsedDefinition insert failed for DictionaryEntryId={DictionaryEntryId}, Word={Word}",
-                        entry.DictionaryEntryId,
-                        entry.Word);
-                    continue; // Skip this entry but continue processing others
+                    _logger.LogError(
+                        "Failed to insert parsed definition for entry {EntryId}, Word={Word}",
+                        entry.DictionaryEntryId, entry.Word);
+                    continue;
                 }
 
                 parsedInserted++;
+                if (definitionNonEnglishTextId.HasValue) nonEnglishEntries++;
 
-                // ✅ Examples are strings in your project
-                if (!string.IsNullOrWhiteSpace(currentParsed.Definition))
+                // Process and write examples
+                if (!string.IsNullOrWhiteSpace(parsed.Definition) || parsed.Examples?.Count > 0)
                 {
+                    var exampleExtractor = _exampleExtractorRegistry.GetExtractor(sourceCode);
                     var examples = exampleExtractor.Extract(currentParsed);
 
                     foreach (var exampleText in examples)
                     {
                         ct.ThrowIfCancellationRequested();
 
-                        var formattedExample = formatter.FormatExample(exampleText);
+                        var (processedExample, exampleNonEnglishTextId) = await ProcessTextContent(
+                            exampleText,
+                            "Example",
+                            sourceCode,
+                            ct);
 
-                        var correctedExample =
-                            await grammarText.NormalizeExampleAsync(formattedExample, ct);
+                        var formattedExample = _formatter.FormatExample(processedExample);
+                        var correctedExample = await _grammarText.NormalizeExampleAsync(formattedExample, ct);
 
-                        await exampleWriter.WriteAsync(
+                        await _exampleWriter.WriteAsync(
                             parsedId,
                             correctedExample,
                             sourceCode,
                             ct);
 
                         exampleInserted++;
+                        if (exampleNonEnglishTextId.HasValue) nonEnglishExamples++;
                     }
-
-                    if (examples.Count > 0)
-                        logger.LogDebug(
-                            "Extracted {Count} examples for parsed definition {ParsedId} | Word={Word}",
-                            examples.Count,
-                            parsedId,
-                            entry.Word);
                 }
 
-                // Synonyms
-                if (!string.IsNullOrWhiteSpace(currentParsed.Definition))
+                // Process and write synonyms
+                if (!string.IsNullOrWhiteSpace(parsed.Definition))
                 {
-                    var synonymExtractor = synonymExtractorRegistry.GetExtractor(sourceCode);
+                    var synonymExtractor = _synonymExtractorRegistry.GetExtractor(sourceCode);
                     var synonymResults = synonymExtractor.Extract(
                         entry.Word,
-                        currentParsed.Definition,
-                        currentParsed.RawFragment);
+                        parsed.Definition,
+                        parsed.RawFragment);
 
                     var validSynonyms = new List<string>();
-
                     foreach (var synonymResult in synonymResults)
                     {
-                        if (synonymResult.ConfidenceLevel != "high" &&
-                            synonymResult.ConfidenceLevel != "medium")
+                        if (synonymResult.ConfidenceLevel is not ("high" or "medium"))
                             continue;
 
                         if (!synonymExtractor.ValidateSynonymPair(entry.Word, synonymResult.TargetHeadword))
                             continue;
-                        var cleanedSynonym = formatter.FormatSynonym(synonymResult.TargetHeadword);
+
+                        var (processedSynonym, synonymNonEnglishTextId) = await ProcessTextContent(
+                            synonymResult.TargetHeadword,
+                            "Synonym",
+                            sourceCode,
+                            ct);
+
+                        var cleanedSynonym = _formatter.FormatSynonym(processedSynonym);
                         if (!string.IsNullOrWhiteSpace(cleanedSynonym))
                             validSynonyms.Add(cleanedSynonym);
-
-                        logger.LogDebug(
-                            "Synonym detected | Source={Source} | Headword={Headword} | Synonym={Synonym} | Confidence={Confidence}",
-                            sourceCode,
-                            entry.Word,
-                            synonymResult.TargetHeadword,
-                            synonymResult.ConfidenceLevel);
                     }
 
                     if (validSynonyms.Count > 0)
                     {
-                        await synonymWriter.WriteSynonymsForParsedDefinition(
+                        await _synonymWriter.WriteSynonymsForParsedDefinition(
                             parsedId,
                             validSynonyms,
                             sourceCode,
@@ -303,120 +249,149 @@ public sealed class DictionaryParsedDefinitionProcessor(
                     }
                 }
 
-                // Etymology extraction
-                if (!string.IsNullOrWhiteSpace(currentParsed.Definition))
+                // Process and write etymology
+                if (!string.IsNullOrWhiteSpace(parsed.Definition))
                 {
-                    var etymologyExtractor = etymologyExtractorRegistry.GetExtractor(sourceCode);
+                    var etymologyExtractor = _etymologyExtractorRegistry.GetExtractor(sourceCode);
                     var etymologyResult = etymologyExtractor.Extract(
                         entry.Word,
-                        currentParsed.Definition,
-                        currentParsed.RawFragment);
+                        parsed.Definition,
+                        parsed.RawFragment);
 
                     if (!string.IsNullOrWhiteSpace(etymologyResult.EtymologyText))
                     {
-                        await etymologyWriter.WriteAsync(
+                        var (processedEtymology, etymologyNonEnglishTextId) = await ProcessTextContent(
+                            etymologyResult.EtymologyText,
+                            "Etymology",
+                            sourceCode,
+                            ct);
+
+                        await _etymologyWriter.WriteAsync(
                             new DictionaryEntryEtymology
                             {
                                 DictionaryEntryId = entry.DictionaryEntryId,
-                                EtymologyText = etymologyResult.EtymologyText,
+                                EtymologyText = processedEtymology,
                                 LanguageCode = etymologyResult.LanguageCode,
+                                SourceCode = sourceCode,
+                                HasNonEnglishText = etymologyNonEnglishTextId.HasValue,
+                                NonEnglishTextId = etymologyNonEnglishTextId,
                                 CreatedUtc = DateTime.UtcNow
                             },
                             ct);
 
                         etymologyExtracted++;
-
-                        logger.LogDebug(
-                            "Etymology extracted from definition | Source={Source} | Headword={Headword} | Method={Method}",
-                            sourceCode,
-                            entry.Word,
-                            etymologyResult.DetectionMethod);
-
-                        if (!string.IsNullOrWhiteSpace(etymologyResult.CleanedDefinition))
-                        {
-                            currentParsed = new ParsedDefinition
-                            {
-                                ParentKey = currentParsed.ParentKey,
-                                SelfKey = currentParsed.SelfKey,
-                                MeaningTitle = currentParsed.MeaningTitle,
-                                SenseNumber = currentParsed.SenseNumber,
-                                Definition = etymologyResult.CleanedDefinition,
-                                RawFragment = currentParsed.RawFragment,
-                                Domain = currentParsed.Domain,
-                                UsageLabel = currentParsed.UsageLabel,
-                                Alias = currentParsed.Alias,
-                                Synonyms = currentParsed.Synonyms,
-                                CrossReferences = currentParsed.CrossReferences
-                            };
-                        }
+                        if (etymologyNonEnglishTextId.HasValue) nonEnglishEtymology++;
                     }
                 }
 
-                // Cross references
-                foreach (var cr in currentParsed.CrossReferences)
+                // Write cross references
+                if (currentParsed.CrossReferences != null)
                 {
-                    await crossRefWriter.WriteAsync(
-                        parsedId,
-                        cr,
-                        ct);
-
-                    crossRefInserted++;
+                    foreach (var cr in currentParsed.CrossReferences)
+                    {
+                        await _crossRefWriter.WriteAsync(parsedId, cr, sourceCode, ct);
+                        crossRefInserted++;
+                    }
                 }
 
-                // Alias
+                // Write alias
                 if (!string.IsNullOrWhiteSpace(currentParsed.Alias))
                 {
-                    await aliasWriter.WriteAsync(
-                        parsedId,
+                    var (processedAlias, aliasNonEnglishTextId) = await ProcessTextContent(
                         currentParsed.Alias,
+                        "Alias",
+                        sourceCode,
+                        ct);
+
+                    await _aliasWriter.WriteAsync(
+                        parsedId,
+                        processedAlias,
                         ct);
 
                     aliasInserted++;
                 }
 
-                // ✅ Log ENG_CHN specific details for debugging
-                if (sourceCode == "ENG_CHN" && parsedInserted % 100 == 0)
-                {
-                    var hasChinese = SimpleEngChnExtractor.ContainsChinese(currentParsed.Definition ?? "");
-                    logger.LogDebug(
-                        "ENG_CHN processing | Word={Word} | DefinitionPreview={Preview} | HasChinese={HasChinese} | Length={Length}",
-                        entry.Word,
-                        GetPreview(currentParsed.Definition, 30),
-                        hasChinese,
-                        currentParsed.Definition?.Length ?? 0);
-                }
+                // NOTE: Variant writing is not implemented yet
+                // The variant writer exists but we don't have variant data to pass
+                // If you need variants, you'll need to:
+                // 1. Extract variant data from parsed definitions
+                // 2. Call _variantWriter.WriteAsync with the correct parameters
+                // 3. Implement variant detection logic
             }
         }
 
-        // ✅ Final single completion log with ENG_CHN specific info
-        if (sourceCode == "ENG_CHN")
-        {
-            logger.LogInformation(
-                "Stage=Parsing completed | Source=ENG_CHN | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Examples={Examples} | Synonyms={Synonyms} | EtymologyExtracted={Etymology} | ENG_CHN_Fixed={EngChnFixed}",
-                entryIndex,
-                parsedInserted,
-                crossRefInserted,
-                exampleInserted,
-                synonymInserted,
-                etymologyExtracted,
-                engChnFixedCount);
-        }
-        else
-        {
-            logger.LogInformation(
-                "Stage=Parsing completed | Source={SourceCode} | Entries={Entries} | ParsedInserted={Parsed} | CrossRefs={CrossRefs} | Aliases={Aliases} | Variants={Variants} | Examples={Examples} | Synonyms={Synonyms} | EtymologyExtracted={Etymology}",
-                sourceCode,
-                entryIndex,
-                parsedInserted,
-                crossRefInserted,
-                aliasInserted,
-                variantInserted,
-                exampleInserted,
-                synonymInserted,
-                etymologyExtracted);
-        }
+        _logger.LogInformation(
+            "Stage=Parsing completed | Source={SourceCode} | " +
+            "Entries={Entries} | Parsed={Parsed} | CrossRefs={CrossRefs} | " +
+            "Aliases={Aliases} | Examples={Examples} | " +
+            "Synonyms={Synonyms} | Etymology={Etymology} | " +
+            "NonEnglish: Entries={NonEnglishEntries}, Examples={NonEnglishExamples}, Etymology={NonEnglishEtymology}",
+            sourceCode,
+            entries.Count,
+            parsedInserted,
+            crossRefInserted,
+            aliasInserted,
+            exampleInserted,
+            synonymInserted,
+            etymologyExtracted,
+            nonEnglishEntries,
+            nonEnglishExamples,
+            nonEnglishEtymology);
     }
 
+    private async Task<(string ProcessedText, long? NonEnglishTextId)> ProcessTextContent(
+        string text,
+        string fieldType,
+        string sourceCode,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return (string.Empty, null);
+
+        // ✅ DETECT BILINGUAL TEXT (CRITICAL FOR ENG_CHN)
+        var isBilingual = _languageDetectionService.IsBilingualText(text);
+        var containsNonEnglish = _languageDetectionService.ContainsNonEnglish(text);
+
+        if (!containsNonEnglish && !isBilingual)
+        {
+            // English-only text
+            var formattedText = _formatter.FormatDefinition(text);
+            var normalizedText = await _grammarText.NormalizeDefinitionAsync(formattedText, ct);
+            return (normalizedText ?? formattedText, null);
+        }
+
+        // ✅ Non-English or mixed language text
+        var nonEnglishTextId = await _nonEnglishTextStorage.StoreNonEnglishTextAsync(
+            text,
+            sourceCode,
+            fieldType,
+            ct);
+
+        var placeholder = isBilingual
+            ? $"[BILINGUAL_{fieldType.ToUpper()}]"
+            : $"[NON_ENGLISH_{fieldType.ToUpper()}]";
+
+        _logger.LogDebug(
+            "Stored {Type} text | Field={Field} | Source={Source} | TextId={TextId} | Bilingual={Bilingual}",
+            isBilingual ? "bilingual" : "non-English",
+            fieldType, sourceCode, nonEnglishTextId, isBilingual);
+
+        return (placeholder, nonEnglishTextId);
+    }
+
+    private ParsedDefinition CreateFallbackDefinition(DictionaryEntry entry, string sourceCode)
+    {
+        return new ParsedDefinition
+        {
+            MeaningTitle = entry.Word ?? "unnamed sense",
+            Definition = entry.Definition ?? string.Empty,
+            RawFragment = entry.RawFragment ?? entry.Definition ?? string.Empty,
+            SenseNumber = entry.SenseNumber,
+            CrossReferences = new List<CrossReference>(),
+            SourceCode = sourceCode,
+            HasNonEnglishText = false
+        };
+    }
     private string GetPreview(string text, int length)
     {
         if (string.IsNullOrWhiteSpace(text)) return "[empty]";

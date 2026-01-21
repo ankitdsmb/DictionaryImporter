@@ -4,9 +4,9 @@
         string connectionString,
         ILogger<SqlDictionaryEntryCrossReferenceWriter> logger) : IDictionaryEntryCrossReferenceWriter
     {
-        public async Task WriteAsync(
-            long parsedDefinitionId,
+        public async Task WriteAsync(long parsedDefinitionId,
             CrossReference crossRef,
+            string sourceCode,
             CancellationToken ct)
         {
             const string sql = """

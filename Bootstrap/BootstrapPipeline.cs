@@ -43,9 +43,8 @@ namespace DictionaryImporter.Bootstrap
             // ✅ KEEP: Register default validator (for fallback)
             services.AddSingleton<IDictionaryEntryValidator, DefaultDictionaryEntryValidator>();
 
-            // ✅ ADD BACK: Func that returns default validator
+            // ✅ Func that returns default validator
             services.AddSingleton<Func<IDictionaryEntryValidator>>(sp => () => sp.GetRequiredService<IDictionaryEntryValidator>());
-            services.AddSingleton<IDictionaryEntryValidator, DefaultDictionaryEntryValidator>();
 
             services.AddSingleton<Func<IDataMergeExecutor>>(sp => sp.GetRequiredService<IDataMergeExecutor>);
             services.AddSingleton<IDataMergeExecutor>(sp => new SqlDictionaryEntryMergeExecutor(
@@ -85,7 +84,7 @@ namespace DictionaryImporter.Bootstrap
             services.AddSingleton<ISourceDictionaryDefinitionParser, GutenbergDefinitionParser>();
             services.AddSingleton<ISourceDictionaryDefinitionParser, Century21DefinitionParser>();
             services.AddSingleton<ISourceDictionaryDefinitionParser, CollinsDefinitionParser>();
-            services.AddSingleton<ISourceDictionaryDefinitionParser, EnglishChineseEnhancedParser>();
+            services.AddSingleton<ISourceDictionaryDefinitionParser, EnglishChineseParser>();
             services.AddSingleton<ISourceDictionaryDefinitionParser, OxfordDefinitionParser>();
             services.AddSingleton<ISourceDictionaryDefinitionParser, StructuredJsonDefinitionParser>();
 
@@ -115,7 +114,16 @@ namespace DictionaryImporter.Bootstrap
             services.AddScoped<IImportPipelineStep, IpaSyllablesPipelineStep>();
             services.AddScoped<IImportPipelineStep, VerificationPipelineStep>();
 
-            services.AddScoped<IParsedDefinitionProcessor, DictionaryParsedDefinitionProcessor>();
+            // ✅ FIX: DictionaryParsedDefinitionProcessor requires connectionString (string), DI can't resolve string automatically
+            services.AddScoped<DictionaryParsedDefinitionProcessor>(sp =>
+                ActivatorUtilities.CreateInstance<DictionaryParsedDefinitionProcessor>(sp, connectionString));
+
+            // Existing interface registration (keep)
+            services.AddScoped<IParsedDefinitionProcessor>(sp =>
+                sp.GetRequiredService<DictionaryParsedDefinitionProcessor>());
+
+            // ✅ FIX: Required by ExampleExtractorRegistry (your earlier exception)
+            services.AddTransient<DictionaryImporter.Sources.Generic.GenericExampleExtractor>();
 
             foreach (var qa in KnownQaChecks.CreateAll(connectionString))
                 services.AddSingleton<IQaCheck>(qa);
@@ -156,35 +164,10 @@ namespace DictionaryImporter.Bootstrap
                     connectionString,
                     sp.GetRequiredService<ILogger<SqlDictionaryEntryVariantWriter>>()));
 
-            // ✅ FIXED: Register DictionaryParsedDefinitionProcessor as CONCRETE type
-            services.AddScoped<DictionaryParsedDefinitionProcessor>(sp =>
-            {
-                return new DictionaryParsedDefinitionProcessor(
-                    connectionString,
-                    sp.GetRequiredService<IDictionaryDefinitionParserResolver>(),
-                    sp.GetRequiredService<SqlParsedDefinitionWriter>(),
-                    sp.GetRequiredService<IDictionaryEntryCrossReferenceWriter>(),
-                    sp.GetRequiredService<IDictionaryEntryAliasWriter>(),
-                    sp.GetRequiredService<IEntryEtymologyWriter>(),
-                    sp.GetRequiredService<IDictionaryEntryVariantWriter>(),
-                    sp.GetRequiredService<IDictionaryEntryExampleWriter>(),
-                    sp.GetRequiredService<IExampleExtractorRegistry>(),
-                    sp.GetRequiredService<ISynonymExtractorRegistry>(),
-                    sp.GetRequiredService<IDictionaryEntrySynonymWriter>(),
-                    sp.GetRequiredService<IEtymologyExtractorRegistry>(),
-                    sp.GetRequiredService<IDictionaryTextFormatter>(),
-                    sp.GetRequiredService<IGrammarEnrichedTextService>(),
-                    sp.GetRequiredService<ILogger<DictionaryParsedDefinitionProcessor>>()
-                );
-            });
-
-            // ✅ ALSO register as interface
+            // ✅ ALSO register as interface (keep)
             services.AddScoped<IParsedDefinitionProcessor>(sp =>
                 sp.GetRequiredService<DictionaryParsedDefinitionProcessor>());
-
-
         }
-
         public static PipelineMode ResolvePipelineMode(IConfiguration configuration)
         {
             return configuration["Pipeline:Mode"] == "ImportOnly"
