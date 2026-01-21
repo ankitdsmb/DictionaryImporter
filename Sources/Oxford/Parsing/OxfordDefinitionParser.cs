@@ -8,14 +8,10 @@ using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Oxford.Parsing
 {
-    public sealed class OxfordDefinitionParser : ISourceDictionaryDefinitionParser
+    public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logger)
+        : ISourceDictionaryDefinitionParser
     {
-        private readonly ILogger<OxfordDefinitionParser> _logger;
-
-        public OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logger)
-        {
-            _logger = logger;
-        }
+        private readonly ILogger<OxfordDefinitionParser> _logger = logger;
 
         public string SourceCode => "ENG_OXFORD";
 
@@ -32,7 +28,7 @@ namespace DictionaryImporter.Sources.Oxford.Parsing
 
             var mainDefinition = SourceDataHelper.ExtractMainDefinition(definition);
 
-            var examples = OxfordParsingHelper.ExtractExamples(definition).ToList();
+            var examples = OxfordParsingHelper.ExtractExamples(definition);
 
             var crossRefs =
                 OxfordParsingHelper.ExtractCrossReferences(definition)

@@ -1,5 +1,7 @@
-﻿using System.Text.RegularExpressions;
+﻿using DictionaryImporter.Domain.Models;
 using DictionaryImporter.Sources.Common;
+using Microsoft.Extensions.Logging;
+using System.Text.RegularExpressions;
 
 namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
@@ -63,7 +65,7 @@ namespace DictionaryImporter.Sources.Gutenberg.Parsing
             yield return new ParsedDefinition
             {
                 MeaningTitle = entry.Word,
-                SenseNumber = null,
+                SenseNumber = 1,
                 Definition = string.Empty,
                 RawFragment = definition,
                 ParentKey = "headword"
@@ -112,7 +114,7 @@ namespace DictionaryImporter.Sources.Gutenberg.Parsing
 
                 yield return BuildParsed(
                     entry.Word,
-                    null,
+                    1,
                     definition,
                     definition,
                     "headword",
@@ -142,13 +144,17 @@ namespace DictionaryImporter.Sources.Gutenberg.Parsing
 
             foreach (Match sub in subs)
             {
+                var letter = sub.Groups["letter"].Value;
+                var subBody = sub.Groups["body"].Value.Trim();
+                var subKey = $"{parentKey}:{letter}";
+
                 yield return BuildParsed(
                     word,
                     senseNumber,
-                    sub.Groups["body"].Value.Trim(),
+                    subBody,
                     sub.Value.Trim(),
                     parentKey,
-                    null);
+                    subKey);
             }
         }
 
@@ -180,7 +186,7 @@ namespace DictionaryImporter.Sources.Gutenberg.Parsing
 
                 yield return BuildParsed(
                     title,
-                    null,
+                    1,
                     def,
                     "-- " + raw,
                     "headword",
@@ -190,7 +196,7 @@ namespace DictionaryImporter.Sources.Gutenberg.Parsing
 
         private ParsedDefinition BuildParsed(
             string title,
-            int? senseNumber,
+            int senseNumber,
             string definition,
             string raw,
             string parentKey,
@@ -206,14 +212,15 @@ namespace DictionaryImporter.Sources.Gutenberg.Parsing
 
             return new ParsedDefinition
             {
-                MeaningTitle = title.Trim(),
-                SenseNumber = senseNumber,
-                Definition = definition.Trim(),
+                MeaningTitle = title,
+                Definition = definition,
                 RawFragment = raw,
-                Alias = alias,
+                SenseNumber = senseNumber,
                 Domain = domain,
                 UsageLabel = usage,
                 CrossReferences = crossRefs,
+                Synonyms = null,
+                Alias = alias,
                 ParentKey = parentKey,
                 SelfKey = selfKey
             };

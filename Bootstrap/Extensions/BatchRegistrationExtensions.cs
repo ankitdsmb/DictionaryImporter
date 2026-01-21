@@ -1,4 +1,6 @@
-﻿using DictionaryImporter.Infrastructure.Persistence.Batched;
+﻿// File: Bootstrap/Extensions/BatchRegistrationExtensions.cs
+using DictionaryImporter.Infrastructure.Persistence;
+using DictionaryImporter.Infrastructure.Persistence.Batched;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -11,10 +13,9 @@ namespace DictionaryImporter.Bootstrap.Extensions
             this IServiceCollection services,
             string connectionString)
         {
-            services.AddSingleton<GenericSqlBatcher>(sp =>
-                new GenericSqlBatcher(
-                    connectionString,
-                    sp.GetRequiredService<ILogger<GenericSqlBatcher>>()));
+            services.AddSingleton<GenericSqlBatcher>(sp => new GenericSqlBatcher(
+                connectionString,
+                sp.GetRequiredService<ILogger<GenericSqlBatcher>>()));
 
             services.AddSingleton(sp =>
             {
@@ -24,6 +25,7 @@ namespace DictionaryImporter.Bootstrap.Extensions
             });
 
             RegisterRepositories(services, connectionString);
+
             return services;
         }
 
@@ -36,13 +38,14 @@ namespace DictionaryImporter.Bootstrap.Extensions
                 return new SqlDictionaryEntrySynonymWriter(connectionString, logger, batcher);
             });
 
+            // ✅ FIX: SqlParsedDefinitionWriter requires GenericSqlBatcher + ILogger
             services.AddTransient<SqlParsedDefinitionWriter>(sp =>
             {
                 var logger = sp.GetRequiredService<ILogger<SqlParsedDefinitionWriter>>();
-                return new SqlParsedDefinitionWriter(connectionString, logger);
+                var batcher = sp.GetRequiredService<GenericSqlBatcher>();
+                return new SqlParsedDefinitionWriter(connectionString, batcher, logger);
             });
 
-            // 5. Register other repositories similarly
             services.AddTransient<SqlDictionaryEntryCrossReferenceWriter>(sp =>
             {
                 var logger = sp.GetRequiredService<ILogger<SqlDictionaryEntryCrossReferenceWriter>>();
@@ -51,15 +54,23 @@ namespace DictionaryImporter.Bootstrap.Extensions
 
             services.AddTransient<SqlDictionaryAliasWriter>(sp =>
             {
-                return new SqlDictionaryAliasWriter(connectionString);
+                var logger = sp.GetRequiredService<ILogger<SqlDictionaryAliasWriter>>();
+                return new SqlDictionaryAliasWriter(connectionString, logger);
             });
         }
 
-        private class BatcherInitializer(GenericSqlBatcher batcher) : IHostedService
+        private class BatcherInitializer : IHostedService
         {
+            private readonly GenericSqlBatcher _batcher;
+
+            public BatcherInitializer(GenericSqlBatcher batcher)
+            {
+                _batcher = batcher;
+            }
+
             public Task StartAsync(CancellationToken cancellationToken)
             {
-                BatchedDapperExtensions.Initialize(batcher);
+                BatchedDapperExtensions.Initialize(_batcher);
                 return Task.CompletedTask;
             }
 

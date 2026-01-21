@@ -1,5 +1,7 @@
 ﻿using DictionaryImporter.Core.Pipeline.Steps;
+using DictionaryImporter.Core.Text;
 using DictionaryImporter.Infrastructure.OneTimeTasks;
+using DictionaryImporter.Infrastructure.Persistence.Batched;
 using DictionaryImporter.Sources.Century21.Parsing;
 using DictionaryImporter.Sources.Collins.Parsing;
 using DictionaryImporter.Sources.Common.Parsing;
@@ -9,6 +11,7 @@ using DictionaryImporter.Sources.Kaikki.Parsing;
 using DictionaryImporter.Sources.Oxford.Extractor;
 using DictionaryImporter.Sources.Oxford.Parsing;
 using DictionaryImporter.Sources.StructuredJson.Parsing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DictionaryImporter.Bootstrap
 {
@@ -21,36 +24,14 @@ namespace DictionaryImporter.Bootstrap
                 ?? throw new InvalidOperationException(
                     "Connection string 'DictionaryImporter' not configured");
 
-            // ✅ FACTORY REGISTRATIONS (keep these)
-            services.AddSingleton<ImportEngineFactory<KaikkiRawEntry>>();
-            services.AddSingleton<ImportEngineFactory<GutenbergRawEntry>>();
-            services.AddSingleton<ImportEngineFactory<StructuredJsonRawEntry>>();
-            services.AddSingleton<ImportEngineFactory<EnglishChineseRawEntry>>();
-            services.AddSingleton<ImportEngineFactory<CollinsRawEntry>>();
-            services.AddSingleton<ImportEngineFactory<OxfordRawEntry>>();
-            services.AddSingleton<ImportEngineFactory<Century21RawEntry>>();
-
             // ✅ FACTORY DELEGATE REGISTRATIONS (keep these)
-            services.AddSingleton<Func<ImportEngineFactory<KaikkiRawEntry>>>(sp =>
-                sp.GetRequiredService<ImportEngineFactory<KaikkiRawEntry>>);
-
-            services.AddSingleton<Func<ImportEngineFactory<GutenbergRawEntry>>>(sp =>
-                sp.GetRequiredService<ImportEngineFactory<GutenbergRawEntry>>);
-
-            services.AddSingleton<Func<ImportEngineFactory<StructuredJsonRawEntry>>>(sp =>
-                sp.GetRequiredService<ImportEngineFactory<StructuredJsonRawEntry>>);
-
-            services.AddSingleton<Func<ImportEngineFactory<EnglishChineseRawEntry>>>(sp =>
-                sp.GetRequiredService<ImportEngineFactory<EnglishChineseRawEntry>>);
-
-            services.AddSingleton<Func<ImportEngineFactory<CollinsRawEntry>>>(sp =>
-                sp.GetRequiredService<ImportEngineFactory<CollinsRawEntry>>);
-
-            services.AddSingleton<Func<ImportEngineFactory<OxfordRawEntry>>>(sp =>
-                sp.GetRequiredService<ImportEngineFactory<OxfordRawEntry>>);
-
-            services.AddSingleton<Func<ImportEngineFactory<Century21RawEntry>>>(sp =>
-                sp.GetRequiredService<ImportEngineFactory<Century21RawEntry>>);
+            services.AddSingleton<Func<ImportEngineFactory<KaikkiRawEntry>>>(sp => sp.GetRequiredService<ImportEngineFactory<KaikkiRawEntry>>);
+            services.AddSingleton<Func<ImportEngineFactory<GutenbergRawEntry>>>(sp => sp.GetRequiredService<ImportEngineFactory<GutenbergRawEntry>>);
+            services.AddSingleton<Func<ImportEngineFactory<StructuredJsonRawEntry>>>(sp => sp.GetRequiredService<ImportEngineFactory<StructuredJsonRawEntry>>);
+            services.AddSingleton<Func<ImportEngineFactory<EnglishChineseRawEntry>>>(sp => sp.GetRequiredService<ImportEngineFactory<EnglishChineseRawEntry>>);
+            services.AddSingleton<Func<ImportEngineFactory<CollinsRawEntry>>>(sp => sp.GetRequiredService<ImportEngineFactory<CollinsRawEntry>>);
+            services.AddSingleton<Func<ImportEngineFactory<OxfordRawEntry>>>(sp => sp.GetRequiredService<ImportEngineFactory<OxfordRawEntry>>);
+            services.AddSingleton<Func<ImportEngineFactory<Century21RawEntry>>>(sp => sp.GetRequiredService<ImportEngineFactory<Century21RawEntry>>);
 
             services.AddSingleton<IImportEngineRegistry, ImportEngineRegistry>();
 
@@ -63,51 +44,39 @@ namespace DictionaryImporter.Bootstrap
             services.AddSingleton<IDictionaryEntryValidator, DefaultDictionaryEntryValidator>();
 
             // ✅ ADD BACK: Func that returns default validator
-            services.AddSingleton<Func<IDictionaryEntryValidator>>(sp =>
-                () => sp.GetRequiredService<IDictionaryEntryValidator>());
-
+            services.AddSingleton<Func<IDictionaryEntryValidator>>(sp => () => sp.GetRequiredService<IDictionaryEntryValidator>());
             services.AddSingleton<IDictionaryEntryValidator, DefaultDictionaryEntryValidator>();
 
-            services.AddSingleton<Func<IDataMergeExecutor>>(sp =>
-                sp.GetRequiredService<IDataMergeExecutor>);
+            services.AddSingleton<Func<IDataMergeExecutor>>(sp => sp.GetRequiredService<IDataMergeExecutor>);
+            services.AddSingleton<IDataMergeExecutor>(sp => new SqlDictionaryEntryMergeExecutor(
+                connectionString,
+                sp.GetRequiredService<ILogger<SqlDictionaryEntryMergeExecutor>>()));
 
-            services.AddSingleton<IDataMergeExecutor>(sp =>
-                new SqlDictionaryEntryMergeExecutor(
-                    connectionString,
-                    sp.GetRequiredService<ILogger<SqlDictionaryEntryMergeExecutor>>()));
+            services.AddSingleton<DictionaryEntryLinguisticEnricher>(sp => new DictionaryEntryLinguisticEnricher(
+                connectionString,
+                sp.GetRequiredService<IPartOfSpeechInfererV2>(),
+                sp.GetRequiredService<ILogger<DictionaryEntryLinguisticEnricher>>()));
 
-            services.AddSingleton<DictionaryEntryLinguisticEnricher>(sp =>
-                new DictionaryEntryLinguisticEnricher(
-                    connectionString,
-                    sp.GetRequiredService<IPartOfSpeechInfererV2>(),
-                    sp.GetRequiredService<ILogger<DictionaryEntryLinguisticEnricher>>()));
+            services.AddSingleton<CanonicalWordIpaEnricher>(sp => new CanonicalWordIpaEnricher(
+                connectionString,
+                sp.GetRequiredService<SqlCanonicalWordPronunciationWriter>(),
+                sp.GetRequiredService<ILogger<CanonicalWordIpaEnricher>>()));
 
-            services.AddSingleton<CanonicalWordIpaEnricher>(sp =>
-                new CanonicalWordIpaEnricher(
-                    connectionString,
-                    sp.GetRequiredService<SqlCanonicalWordPronunciationWriter>(),
-                    sp.GetRequiredService<ILogger<CanonicalWordIpaEnricher>>()));
+            services.AddSingleton<CanonicalWordSyllableEnricher>(sp => new CanonicalWordSyllableEnricher(
+                connectionString,
+                sp.GetRequiredService<ILogger<CanonicalWordSyllableEnricher>>()));
 
-            services.AddSingleton<CanonicalWordSyllableEnricher>(sp =>
-                new CanonicalWordSyllableEnricher(
-                    connectionString,
-                    sp.GetRequiredService<ILogger<CanonicalWordSyllableEnricher>>()));
-
-            services.AddSingleton<IpaVerificationReporter>(sp =>
-                new IpaVerificationReporter(
-                    connectionString,
-                    sp.GetRequiredService<ILogger<IpaVerificationReporter>>()));
+            services.AddSingleton<IpaVerificationReporter>(sp => new IpaVerificationReporter(
+                connectionString,
+                sp.GetRequiredService<ILogger<IpaVerificationReporter>>()));
 
             services.AddSingleton<OrthographicSyllableRuleResolver>();
-
-            services.AddSingleton<CanonicalWordOrthographicSyllableEnricher>(sp =>
-                new CanonicalWordOrthographicSyllableEnricher(
-                    connectionString,
-                    sp.GetRequiredService<ILogger<CanonicalWordOrthographicSyllableEnricher>>()));
+            services.AddSingleton<CanonicalWordOrthographicSyllableEnricher>(sp => new CanonicalWordOrthographicSyllableEnricher(
+                connectionString,
+                sp.GetRequiredService<ILogger<CanonicalWordOrthographicSyllableEnricher>>()));
 
             services.AddSingleton<IOneTimeDatabaseTask>(
                 new EditorialIpaMigrationTask(connectionString));
-
             services.AddSingleton<IOneTimeDatabaseTask>(
                 new PromoteIpaFromNotesTask(connectionString));
 
@@ -124,12 +93,10 @@ namespace DictionaryImporter.Bootstrap
             services.AddSingleton<IDictionaryDefinitionParserResolver, DictionaryDefinitionParserResolver>();
 
             services.AddSingleton<OneTimeTaskRunner>();
-
             services.AddScoped<IAiAnnotationRepository, SqlAiAnnotationRepository>();
             services.AddScoped<AiEnhancementStep>();
 
             services.Configure<ImportPipelineOptions>(configuration.GetSection("ImportPipeline"));
-
             services.AddScoped<ImportPipelineOrderResolver>();
             services.AddScoped<ImportPipelineRunner>();
 
@@ -154,8 +121,68 @@ namespace DictionaryImporter.Bootstrap
                 services.AddSingleton<IQaCheck>(qa);
 
             services.AddSingleton<QaRunner>();
-
             services.AddScoped<ImportOrchestrator>();
+
+            // FIXED: Add proper registrations with all required parameters
+            services.AddTransient<IDictionaryEntryExampleWriter>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<SqlDictionaryEntryExampleWriter>>();
+                var batcher = sp.GetRequiredService<GenericSqlBatcher>();
+                return new SqlDictionaryEntryExampleWriter(connectionString, batcher, logger);
+            });
+
+            services.AddTransient<SqlParsedDefinitionWriter>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<SqlParsedDefinitionWriter>>();
+                var batcher = sp.GetRequiredService<GenericSqlBatcher>();
+                return new SqlParsedDefinitionWriter(connectionString, batcher, logger);
+            });
+
+            // ✅ Register IEntryEtymologyWriter implementation
+            services.AddSingleton<IEntryEtymologyWriter>(sp =>
+                new SqlDictionaryEntryEtymologyWriter(
+                    connectionString,
+                    sp.GetRequiredService<ILogger<SqlDictionaryEntryEtymologyWriter>>()));
+
+            // ✅ Register IDictionaryEntryVariantWriter implementation
+            services.AddSingleton<IDictionaryEntryVariantWriter>(sp =>
+                new SqlDictionaryEntryVariantWriter(
+                    connectionString,
+                    sp.GetRequiredService<ILogger<SqlDictionaryEntryVariantWriter>>()));
+
+            // ✅ Register concrete SqlDictionaryEntryVariantWriter for backward compatibility
+            services.AddSingleton<SqlDictionaryEntryVariantWriter>(sp =>
+                new SqlDictionaryEntryVariantWriter(
+                    connectionString,
+                    sp.GetRequiredService<ILogger<SqlDictionaryEntryVariantWriter>>()));
+
+            // ✅ FIXED: Register DictionaryParsedDefinitionProcessor as CONCRETE type
+            services.AddScoped<DictionaryParsedDefinitionProcessor>(sp =>
+            {
+                return new DictionaryParsedDefinitionProcessor(
+                    connectionString,
+                    sp.GetRequiredService<IDictionaryDefinitionParserResolver>(),
+                    sp.GetRequiredService<SqlParsedDefinitionWriter>(),
+                    sp.GetRequiredService<IDictionaryEntryCrossReferenceWriter>(),
+                    sp.GetRequiredService<IDictionaryEntryAliasWriter>(),
+                    sp.GetRequiredService<IEntryEtymologyWriter>(),
+                    sp.GetRequiredService<IDictionaryEntryVariantWriter>(),
+                    sp.GetRequiredService<IDictionaryEntryExampleWriter>(),
+                    sp.GetRequiredService<IExampleExtractorRegistry>(),
+                    sp.GetRequiredService<ISynonymExtractorRegistry>(),
+                    sp.GetRequiredService<IDictionaryEntrySynonymWriter>(),
+                    sp.GetRequiredService<IEtymologyExtractorRegistry>(),
+                    sp.GetRequiredService<IDictionaryTextFormatter>(),
+                    sp.GetRequiredService<IGrammarEnrichedTextService>(),
+                    sp.GetRequiredService<ILogger<DictionaryParsedDefinitionProcessor>>()
+                );
+            });
+
+            // ✅ ALSO register as interface
+            services.AddScoped<IParsedDefinitionProcessor>(sp =>
+                sp.GetRequiredService<DictionaryParsedDefinitionProcessor>());
+
+
         }
 
         public static PipelineMode ResolvePipelineMode(IConfiguration configuration)

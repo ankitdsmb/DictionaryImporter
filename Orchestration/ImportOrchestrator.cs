@@ -7,7 +7,7 @@ namespace DictionaryImporter.Orchestration
         Func<IDataMergeExecutor> mergeFactory,
         IImportEngineRegistry engineRegistry,
         ICanonicalWordResolver canonicalResolver,
-        DictionaryParsedDefinitionProcessor parsedDefinitionProcessor,
+        IParsedDefinitionProcessor parsedDefinitionProcessor,  // CHANGE TO INTERFACE
         DictionaryEntryLinguisticEnricher linguisticEnricher,
         CanonicalWordOrthographicSyllableEnricher orthographicSyllableEnricher,
         DictionaryGraphNodeBuilder graphNodeBuilder,
@@ -28,6 +28,9 @@ namespace DictionaryImporter.Orchestration
         ILogger<ImportOrchestrator> logger,
         QaRunner qaRunner)
     {
+        // Rest of the class remains the same...
+        private readonly IParsedDefinitionProcessor _parsedDefinitionProcessor = parsedDefinitionProcessor;
+
         public async Task RunAsync(
             IEnumerable<ImportSourceDefinition> sources,
             PipelineMode mode,

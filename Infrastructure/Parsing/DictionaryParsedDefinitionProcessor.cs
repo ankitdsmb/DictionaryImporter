@@ -12,10 +12,10 @@ public sealed class DictionaryParsedDefinitionProcessor(
     string connectionString,
     IDictionaryDefinitionParserResolver parserResolver,
     SqlParsedDefinitionWriter parsedWriter,
-    SqlDictionaryEntryCrossReferenceWriter crossRefWriter,
-    SqlDictionaryAliasWriter aliasWriter,
+    IDictionaryEntryCrossReferenceWriter crossRefWriter,    // CHANGE TO INTERFACE
+    IDictionaryEntryAliasWriter aliasWriter,                // CHANGE TO INTERFACE
     IEntryEtymologyWriter etymologyWriter,
-    SqlDictionaryEntryVariantWriter variantWriter,
+    IDictionaryEntryVariantWriter variantWriter,            // CHANGE TO INTERFACE
     IDictionaryEntryExampleWriter exampleWriter,
     IExampleExtractorRegistry exampleExtractorRegistry,
     ISynonymExtractorRegistry synonymExtractorRegistry,
@@ -25,7 +25,7 @@ public sealed class DictionaryParsedDefinitionProcessor(
     IGrammarEnrichedTextService grammarText,
     ILogger<DictionaryParsedDefinitionProcessor> logger) : IParsedDefinitionProcessor
 {
-    private readonly SqlDictionaryEntryVariantWriter _variantWriter = variantWriter;
+    private readonly IDictionaryEntryVariantWriter _variantWriter = variantWriter;
 
     public async Task ExecuteAsync(
         string sourceCode,

@@ -1,5 +1,8 @@
-﻿using DictionaryImporter.Sources.Common.Helper;
+﻿// File: Sources/Collins/Parsing/CollinsDefinitionParser.cs
+using DictionaryImporter.Domain.Models;
+using DictionaryImporter.Sources.Common.Helper;
 using DictionaryImporter.Sources.Common.Parsing;
+using System.Collections.Generic;
 
 namespace DictionaryImporter.Sources.Collins.Parsing
 {
@@ -17,20 +20,11 @@ namespace DictionaryImporter.Sources.Collins.Parsing
             }
 
             var definition = entry.Definition;
-
             var mainDefinition = CollinsSourceDataHelper.ExtractMainDefinition(definition);
-
-            var examples =
-                CollinsSourceDataHelper.ExtractExamples(definition).ToList();
-
-            var domain =
-                CollinsSourceDataHelper.ExtractDomain(definition);
-
-            var grammar =
-                CollinsSourceDataHelper.ExtractGrammar(definition);
-
-            var crossRefs =
-                CollinsSourceDataHelper.ExtractCrossReferences(definition);
+            var examples = CollinsSourceDataHelper.ExtractExamples(definition);
+            var domain = CollinsSourceDataHelper.ExtractDomain(definition);
+            var grammar = CollinsSourceDataHelper.ExtractGrammar(definition);
+            var crossRefs = CollinsSourceDataHelper.ExtractCrossReferences(definition);
 
             var parsedDefinition = new ParsedDefinition
             {
@@ -40,17 +34,13 @@ namespace DictionaryImporter.Sources.Collins.Parsing
                 SenseNumber = entry.SenseNumber,
                 Domain = domain,
                 UsageLabel = grammar,
-
-                // ✅ ensure concrete list
-                CrossReferences = crossRefs?.ToList() ?? new List<CrossReference>(),
-
+                CrossReferences = crossRefs,
                 Synonyms = CollinsSourceDataHelper.ExtractSynonymsFromExamples(examples),
                 Alias = null
             };
 
-            // ✅ attach examples if your ParsedDefinition supports it
-            if (examples.Count > 0)
-                parsedDefinition.Examples = examples;
+            // ✅ attach examples
+            parsedDefinition.Examples = examples;
 
             yield return parsedDefinition;
         }

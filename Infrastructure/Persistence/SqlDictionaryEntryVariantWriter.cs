@@ -1,6 +1,6 @@
 ﻿namespace DictionaryImporter.Infrastructure.Persistence
 {
-    public sealed class SqlDictionaryEntryVariantWriter(string cs)
+    public sealed class SqlDictionaryEntryVariantWriter(string cs, ILogger<SqlDictionaryEntryVariantWriter> logger) : IDictionaryEntryVariantWriter
     {
         public async Task WriteAsync(
             long entryId,

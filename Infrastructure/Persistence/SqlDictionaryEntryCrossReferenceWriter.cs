@@ -2,7 +2,7 @@
 {
     public sealed class SqlDictionaryEntryCrossReferenceWriter(
         string connectionString,
-        ILogger<SqlDictionaryEntryCrossReferenceWriter> logger)
+        ILogger<SqlDictionaryEntryCrossReferenceWriter> logger) : IDictionaryEntryCrossReferenceWriter
     {
         public async Task WriteAsync(
             long parsedDefinitionId,

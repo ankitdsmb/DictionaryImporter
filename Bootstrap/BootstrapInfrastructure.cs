@@ -15,19 +15,21 @@ namespace DictionaryImporter.Bootstrap
             // Add SQL batching
             services.AddSqlBatching(connectionString);
 
-            // Modified AddPersistence to skip IDictionaryEntrySynonymWriter registration
+            // Add non-English text services
+            services.AddNonEnglishTextServices(connectionString);
+
+            // ✅ CRITICAL FIX: Register Grammar BEFORE Parsing
             services
                 .AddIpaConfiguration(configuration)
                 .AddPersistenceWithoutSynonymWriter(connectionString)
                 .AddCanonical(connectionString)
                 .AddValidation(connectionString)
                 .AddLinguistics()
-                .AddParsing(connectionString)
+                .AddGrammar(configuration)          // ← MOVED BEFORE AddParsing
+                .AddParsing(connectionString)       // ← Now has all dependencies
                 .AddGraph(connectionString)
                 .AddConcepts(connectionString)
                 .AddIpa(connectionString)
-                .AddParsing(connectionString)
-                .AddGrammar(configuration)
                 .AddDistributedMemoryCache()
                 .AddDictionaryImporterAiGateway(configuration);
         }
