@@ -1,4 +1,7 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing
+﻿using System.Linq;
+using System.Text.RegularExpressions;
+
+namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
     public static class WebsterSynonymExtractor
     {
@@ -17,7 +20,7 @@
                 return [];
 
             return match.Groups["list"].Value
-                .Split(';', StringSplitOptions.RemoveEmptyEntries)
+                .Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(s => s.Trim())
                 .Where(s => s.Length > 1)
                 .Distinct(StringComparer.OrdinalIgnoreCase)

@@ -1,7 +1,13 @@
-﻿namespace DictionaryImporter.Sources.Kaikki.Parsing
+﻿using DictionaryImporter.Sources.Common.Helper;
+using DictionaryImporter.Sources.Common.Parsing;
+using System.Text.Json;
+
+namespace DictionaryImporter.Sources.Kaikki.Parsing
 {
-    public sealed class KaikkiDefinitionParser : IDictionaryDefinitionParser
+    public sealed class KaikkiDefinitionParser : ISourceDictionaryDefinitionParser
     {
+        public string SourceCode => "KAIKKI";
+
         private readonly ILogger<KaikkiDefinitionParser> _logger;
 
         public KaikkiDefinitionParser(ILogger<KaikkiDefinitionParser> logger)
@@ -9,341 +15,167 @@
             _logger = logger;
         }
 
-        public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
+        public IEnumerable<ParsedDefinition> Parse(DictionaryEntry? entry)
         {
-            if (string.IsNullOrWhiteSpace(entry.RawFragment))
+            if (entry is null)
+                yield break;
+
+            var raw = entry.RawFragment;
+
+            if (string.IsNullOrWhiteSpace(raw))
+                yield break;
+
+            raw = raw.TrimStart();
+
+            // ✅ FIX: Kaikki parser must only parse JSON fragments
+            // Prevent: 'A' is an invalid start of a value
+            // Prevent: ',' is invalid after a single JSON value
+            // Prevent: '-' is an invalid end of a number
+            if (!(raw.StartsWith("{") || raw.StartsWith("[")))
             {
-                yield return new ParsedDefinition
-                {
-                    MeaningTitle = entry.Word ?? "unnamed sense",
-                    Definition = entry.Definition ?? string.Empty,
-                    RawFragment = entry.Definition ?? string.Empty,
-                    SenseNumber = entry.SenseNumber,
-                    Domain = null,
-                    UsageLabel = null,
-                    CrossReferences = new List<CrossReference>(),
-                    Synonyms = null,
-                    Alias = null
-                };
+                _logger.LogWarning(
+                    "KaikkiDefinitionParser skipping non-JSON RawFragment. Word={Word}",
+                    entry.Word);
+
+                yield return SourceDataHelper.CreateFallbackParsedDefinition(entry);
                 yield break;
             }
 
-            // Do parsing work first
-            bool shouldSkip = false;
-            List<string> definitions = new List<string>();
-            List<ParsedDefinition> parsedDefinitions = new List<ParsedDefinition>();
+            var parsedDefinitions = new List<ParsedDefinition>();
 
             try
             {
-                // Skip non-English entries
-                if (!IsEnglishEntry(entry.RawFragment))
-                {
-                    _logger.LogDebug("Skipping non-English Kaikki entry: {Word}", entry.Word);
-                    shouldSkip = true;
-                }
-                else
-                {
-                    definitions = ExtractEnglishDefinitions(entry.RawFragment);
+                // ✅ FIX: parse the trimmed raw
+                using var doc = JsonDocument.Parse(raw);
+                var root = doc.RootElement;
 
-                    if (definitions.Count == 0)
+                // FIX: Use Kaikki JsonProcessor helper (consistent with transformer)
+                if (!JsonProcessor.IsEnglishEntry(root))
+                {
+                    _logger.LogDebug("Skipping non-English entry: {Word}", entry.Word);
+                    yield break;
+                }
+
+                if (root.TryGetProperty("senses", out var senses) && senses.ValueKind == JsonValueKind.Array)
+                {
+                    var senseIndex = 1;
+
+                    foreach (var sense in senses.EnumerateArray())
                     {
-                        _logger.LogDebug("No English definitions found for Kaikki entry: {Word}", entry.Word);
-                        shouldSkip = true;
-                    }
-                    else
-                    {
-                        var senseNumber = 1;
-                        foreach (var definition in definitions)
+                        // FIX: Use Kaikki JsonProcessor helper (safe)
+                        if (!JsonProcessor.IsEnglishSense(sense))
+                            continue;
+
+                        var parsed = ExtractParsedDefinition(sense, entry, senseIndex);
+
+                        // FIX: Never add null
+                        if (parsed != null)
                         {
-                            parsedDefinitions.Add(new ParsedDefinition
-                            {
-                                MeaningTitle = entry.Word ?? "unnamed sense",
-                                Definition = definition,
-                                RawFragment = entry.RawFragment,
-                                SenseNumber = senseNumber++,
-                                Domain = ExtractDomain(entry.RawFragment),
-                                UsageLabel = ExtractUsageLabel(entry.RawFragment),
-                                CrossReferences = ExtractCrossReferences(entry.RawFragment),
-                                Synonyms = ExtractSynonymsList(entry.RawFragment),
-                                Alias = null
-                            });
+                            parsedDefinitions.Add(parsed);
+                            senseIndex++;
                         }
                     }
                 }
+
+                if (parsedDefinitions.Count == 0)
+                {
+                    parsedDefinitions.Add(SourceDataHelper.CreateFallbackParsedDefinition(entry));
+                }
+            }
+            catch (System.Text.Json.JsonException ex) // ✅ FIX: correct exception type
+            {
+                _logger.LogError(ex, "Failed to parse JSON for entry: {Word}", entry.Word);
+                parsedDefinitions.Add(SourceDataHelper.CreateFallbackParsedDefinition(entry));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to parse Kaikki entry: {Word}", entry.Word);
-
-                // Fallback
-                parsedDefinitions.Add(new ParsedDefinition
-                {
-                    MeaningTitle = entry.Word ?? "unnamed sense",
-                    Definition = entry.Definition ?? string.Empty,
-                    RawFragment = entry.RawFragment,
-                    SenseNumber = entry.SenseNumber,
-                    Domain = null,
-                    UsageLabel = null,
-                    CrossReferences = new List<CrossReference>(),
-                    Synonyms = null,
-                    Alias = null
-                });
+                _logger.LogError(ex, "Unexpected error parsing entry: {Word}", entry.Word);
+                parsedDefinitions.Add(SourceDataHelper.CreateFallbackParsedDefinition(entry));
             }
 
-            // Now yield results
-            if (shouldSkip && parsedDefinitions.Count == 0)
-                yield break;
-
-            foreach (var parsedDef in parsedDefinitions)
-            {
-                yield return parsedDef;
-            }
+            foreach (var parsed in parsedDefinitions)
+                yield return parsed;
         }
 
-        private bool IsEnglishEntry(string json)
+        private ParsedDefinition? ExtractParsedDefinition(JsonElement sense, DictionaryEntry entry, int senseNumber)
         {
-            try
-            {
-                var doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
-
-                if (root.TryGetProperty("lang_code", out var langCode) &&
-                    langCode.ValueKind == JsonValueKind.String)
-                {
-                    return langCode.GetString() == "en";
-                }
-
-                if (root.TryGetProperty("lang", out var lang) &&
-                    lang.ValueKind == JsonValueKind.String)
-                {
-                    var langStr = lang.GetString();
-                    return langStr == "English" ||
-                           langStr?.Contains("english", StringComparison.OrdinalIgnoreCase) == true;
-                }
-
-                return false;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private List<string> ExtractEnglishDefinitions(string json)
-        {
-            var definitions = new List<string>();
-
-            try
-            {
-                var doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
-
-                if (root.TryGetProperty("senses", out var senses) && senses.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var sense in senses.EnumerateArray())
-                    {
-                        // Check if this sense is English
-                        if (!IsEnglishSense(sense))
-                            continue;
-
-                        if (sense.TryGetProperty("glosses", out var glosses) &&
-                            glosses.ValueKind == JsonValueKind.Array)
-                        {
-                            foreach (var gloss in glosses.EnumerateArray())
-                            {
-                                if (gloss.ValueKind == JsonValueKind.String)
-                                {
-                                    var definition = gloss.GetString();
-                                    if (!string.IsNullOrWhiteSpace(definition))
-                                    {
-                                        definitions.Add(definition);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // Ignore errors
-            }
-
-            return definitions;
-        }
-
-        private bool IsEnglishSense(JsonElement sense)
-        {
-            if (sense.TryGetProperty("lang_code", out var langCode) &&
-                langCode.ValueKind == JsonValueKind.String)
-            {
-                return langCode.GetString() == "en";
-            }
-
-            return true;
-        }
-
-        private string? ExtractDomain(string rawFragment)
-        {
-            try
-            {
-                var doc = JsonDocument.Parse(rawFragment);
-                var root = doc.RootElement;
-
-                if (root.TryGetProperty("senses", out var senses) && senses.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var sense in senses.EnumerateArray())
-                    {
-                        if (sense.TryGetProperty("categories", out var categories) &&
-                            categories.ValueKind == JsonValueKind.Array)
-                        {
-                            foreach (var category in categories.EnumerateArray())
-                            {
-                                if (category.TryGetProperty("name", out var name) &&
-                                    name.ValueKind == JsonValueKind.String)
-                                {
-                                    return name.GetString();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // Ignore
-            }
-
-            return null;
-        }
-
-        private string? ExtractUsageLabel(string rawFragment)
-        {
-            try
-            {
-                var doc = JsonDocument.Parse(rawFragment);
-                var root = doc.RootElement;
-
-                if (root.TryGetProperty("senses", out var senses) && senses.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var sense in senses.EnumerateArray())
-                    {
-                        if (sense.TryGetProperty("tags", out var tags) &&
-                            tags.ValueKind == JsonValueKind.Array)
-                        {
-                            var tagList = new List<string>();
-                            foreach (var tag in tags.EnumerateArray())
-                            {
-                                if (tag.ValueKind == JsonValueKind.String)
-                                {
-                                    tagList.Add(tag.GetString() ?? "");
-                                }
-                            }
-
-                            if (tagList.Count > 0)
-                                return string.Join(", ", tagList);
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // Ignore
-            }
-
-            return null;
-        }
-
-        private List<CrossReference> ExtractCrossReferences(string rawFragment)
-        {
-            var crossRefs = new List<CrossReference>();
-
-            try
-            {
-                var doc = JsonDocument.Parse(rawFragment);
-                var root = doc.RootElement;
-
-                if (root.TryGetProperty("senses", out var senses) && senses.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var sense in senses.EnumerateArray())
-                    {
-                        if (sense.TryGetProperty("related", out var related) &&
-                            related.ValueKind == JsonValueKind.Array)
-                        {
-                            foreach (var rel in related.EnumerateArray())
-                            {
-                                if (rel.TryGetProperty("word", out var word) &&
-                                    word.ValueKind == JsonValueKind.String)
-                                {
-                                    var targetWord = word.GetString();
-                                    var relationType = "related";
-
-                                    if (rel.TryGetProperty("sense", out var senseText) &&
-                                        senseText.ValueKind == JsonValueKind.String)
-                                    {
-                                        relationType = senseText.GetString() ?? "related";
-                                    }
-
-                                    if (!string.IsNullOrWhiteSpace(targetWord))
-                                    {
-                                        crossRefs.Add(new CrossReference
-                                        {
-                                            TargetWord = targetWord,
-                                            ReferenceType = relationType
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // Ignore
-            }
-
-            return crossRefs;
-        }
-
-        private List<string>? ExtractSynonymsList(string rawFragment)
-        {
-            try
-            {
-                var doc = JsonDocument.Parse(rawFragment);
-                var root = doc.RootElement;
-
-                var synonyms = new List<string>();
-
-                if (root.TryGetProperty("senses", out var senses) && senses.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var sense in senses.EnumerateArray())
-                    {
-                        if (sense.TryGetProperty("synonyms", out var synonymsArray) &&
-                            synonymsArray.ValueKind == JsonValueKind.Array)
-                        {
-                            foreach (var synonym in synonymsArray.EnumerateArray())
-                            {
-                                if (synonym.TryGetProperty("word", out var word) &&
-                                    word.ValueKind == JsonValueKind.String)
-                                {
-                                    var synonymWord = word.GetString();
-                                    if (!string.IsNullOrWhiteSpace(synonymWord))
-                                    {
-                                        synonyms.Add(synonymWord);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                return synonyms.Count > 0 ? synonyms : null;
-            }
-            catch
-            {
+            var definition = ExtractDefinitionFromSense(sense);
+            if (string.IsNullOrWhiteSpace(definition))
                 return null;
+
+            return new ParsedDefinition
+            {
+                MeaningTitle = entry.Word ?? "unnamed sense",
+                Definition = definition,
+                RawFragment = entry.RawFragment,
+                SenseNumber = senseNumber,
+                Domain = SourceDataHelper.ExtractDomain(sense),
+                UsageLabel = SourceDataHelper.ExtractUsageLabel(sense),
+                CrossReferences = SourceDataHelper.ExtractCrossReferences(sense),
+                Synonyms = ExtractSynonymsList(sense),
+                Alias = null
+            };
+        }
+
+        private static string? ExtractDefinitionFromSense(JsonElement sense)
+        {
+            if (sense.TryGetProperty("glosses", out var glosses) && glosses.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var gloss in glosses.EnumerateArray())
+                {
+                    if (gloss.ValueKind != JsonValueKind.String)
+                        continue;
+
+                    var definition = gloss.GetString()?.Trim();
+
+                    if (!string.IsNullOrWhiteSpace(definition) &&
+                        definition.Length > 3 &&
+                        !definition.Contains("→") &&
+                        !definition.StartsWith("{") &&
+                        !definition.Contains("\"lang\":"))
+                    {
+                        return definition;
+                    }
+                }
             }
+
+            if (sense.TryGetProperty("raw_glosses", out var rawGlosses) && rawGlosses.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var rawGloss in rawGlosses.EnumerateArray())
+                {
+                    if (rawGloss.ValueKind != JsonValueKind.String)
+                        continue;
+
+                    var definition = rawGloss.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(definition))
+                        return definition;
+                }
+            }
+
+            return null;
+        }
+
+        private static List<string> ExtractSynonymsList(JsonElement sense)
+        {
+            var synonyms = new List<string>();
+
+            if (sense.TryGetProperty("synonyms", out var synonymsArray) && synonymsArray.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var synonym in synonymsArray.EnumerateArray())
+                {
+                    if (synonym.ValueKind != JsonValueKind.Object)
+                        continue;
+
+                    if (synonym.TryGetProperty("word", out var word) && word.ValueKind == JsonValueKind.String)
+                    {
+                        var synonymWord = word.GetString();
+                        if (!string.IsNullOrWhiteSpace(synonymWord))
+                            synonyms.Add(synonymWord);
+                    }
+                }
+            }
+
+            return synonyms;
         }
     }
 }

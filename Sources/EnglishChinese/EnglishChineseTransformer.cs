@@ -1,49 +1,40 @@
-﻿namespace DictionaryImporter.Sources.EnglishChinese
+﻿using DictionaryImporter.Sources.Common.Helper;
+
+namespace DictionaryImporter.Sources.EnglishChinese
 {
-    public sealed class EnglishChineseTransformer
-        : IDataTransformer<EnglishChineseRawEntry>
+    public sealed class EnglishChineseTransformer : IDataTransformer<EnglishChineseRawEntry>
     {
-        public IEnumerable<DictionaryEntry> Transform(
-            EnglishChineseRawEntry raw)
+        private const string SourceCode = "ENG_CHN";
+        private readonly ILogger<EnglishChineseTransformer> _logger;
+
+        public EnglishChineseTransformer(ILogger<EnglishChineseTransformer> logger)
         {
+            _logger = logger;
+        }
+
+        public IEnumerable<DictionaryEntry> Transform(EnglishChineseRawEntry? raw)
+        {
+            if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, _logger))
+                yield break;
+
             if (raw == null)
-                throw new ArgumentNullException(nameof(raw));
-
-            var idx = raw.RawLine.IndexOf('⬄');
-            if (idx < 0 || idx == raw.RawLine.Length - 1)
                 yield break;
 
-            var rhs = raw.RawLine.Substring(idx + 1).Trim();
-
-            if (rhs.Length == 0)
-                yield break;
+            var normalizedWord = SourceDataHelper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
 
             yield return new DictionaryEntry
             {
                 Word = raw.Headword,
-                NormalizedWord = Normalize(raw.Headword),
-                Definition = rhs,
+                NormalizedWord = normalizedWord,
+                PartOfSpeech = null, // Let parser extract
+                Definition = raw.RawLine, // Full line for parsing
+                RawFragment = raw.RawLine, // CRITICAL for parser
                 SenseNumber = 1,
-                SourceCode = "ENG_CHN",
+                SourceCode = SourceCode,
                 CreatedUtc = DateTime.UtcNow
             };
-        }
 
-        private static string Normalize(string input)
-        {
-            if (string.IsNullOrWhiteSpace(input))
-                return input;
-
-            var s = input.ToLowerInvariant();
-
-            s = s.Replace("(", "")
-                .Replace(")", "");
-
-            s = s.Replace(",", " ");
-
-            s = Regex.Replace(s, @"\s+", " ").Trim();
-
-            return s;
+            _logger.LogDebug("ENG_CHN transformed: {Word}", raw.Headword);
         }
     }
 }

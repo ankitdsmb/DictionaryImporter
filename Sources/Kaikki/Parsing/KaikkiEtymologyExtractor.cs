@@ -1,122 +1,98 @@
-﻿using DictionaryImporter.Sources.Kaikki.Helpers;
+﻿using System.Text.Json;
+using DictionaryImporter.Sources.Common.Helper;
+using JsonException = Newtonsoft.Json.JsonException;
 
-namespace DictionaryImporter.Infrastructure.Parsing.EtymologyExtractor
+namespace DictionaryImporter.Sources.Kaikki.Parsing
 {
-    internal class KaikkiEtymologyExtractor : IEtymologyExtractor
+    internal class KaikkiEtymologyExtractor(ILogger<KaikkiEtymologyExtractor> logger) : IEtymologyExtractor
     {
-        private readonly ILogger<KaikkiEtymologyExtractor> _logger;
-
-        public KaikkiEtymologyExtractor(ILogger<KaikkiEtymologyExtractor> logger)
-        {
-            _logger = logger;
-        }
-
         public string SourceCode => "KAIKKI";
 
-        public EtymologyExtractionResult Extract(
-            string headword,
-            string definition,
-            string? rawDefinition = null)
+        public EtymologyExtractionResult Extract(string headword, string definition, string? rawDefinition = null)
         {
-            // Skip if not English Kaikki entry
-            if (string.IsNullOrWhiteSpace(rawDefinition) ||
-                !KaikkiJsonHelper.IsEnglishEntry(rawDefinition))
+            if (string.IsNullOrWhiteSpace(rawDefinition))
             {
                 return new EtymologyExtractionResult
                 {
                     EtymologyText = null,
                     LanguageCode = null,
                     CleanedDefinition = definition,
-                    DetectionMethod = "NotEnglishKaikkiEntry",
+                    DetectionMethod = "MissingRawDefinition",
                     SourceText = string.Empty
                 };
             }
 
             try
             {
-                var etymology = KaikkiJsonHelper.ExtractEtymology(rawDefinition);
+                using var doc = JsonDocument.Parse(rawDefinition);
+                var root = doc.RootElement;
+
+                // Skip non-English entries safely (consistent with Kaikki transformer/parser)
+                if (!JsonProcessor.IsEnglishEntry(root))
+                {
+                    return new EtymologyExtractionResult
+                    {
+                        EtymologyText = null,
+                        LanguageCode = null,
+                        CleanedDefinition = definition,
+                        DetectionMethod = "NotEnglishKaikkiEntry",
+                        SourceText = string.Empty
+                    };
+                }
+
+                var etymology = SourceDataHelper.ExtractEtymology(rawDefinition);
 
                 if (!string.IsNullOrWhiteSpace(etymology))
                 {
                     return new EtymologyExtractionResult
                     {
-                        EtymologyText = CleanEtymologyText(etymology),
-                        LanguageCode = DetectLanguageFromEtymology(etymology),
-                        CleanedDefinition = definition, // Don't modify definition
+                        EtymologyText = SourceDataHelper.CleanEtymologyText(etymology),
+                        LanguageCode = SourceDataHelper.DetectLanguageFromEtymology(etymology),
+                        CleanedDefinition = definition,
                         DetectionMethod = "KaikkiStructuredEtymology",
                         SourceText = etymology
                     };
                 }
+
+                return new EtymologyExtractionResult
+                {
+                    EtymologyText = null,
+                    LanguageCode = null,
+                    CleanedDefinition = definition,
+                    DetectionMethod = "NoEtymologyFound",
+                    SourceText = string.Empty
+                };
+            }
+            catch (JsonException ex)
+            {
+                logger.LogDebug(ex, "Failed to parse Kaikki JSON for etymology | Word={Word}", headword);
+
+                return new EtymologyExtractionResult
+                {
+                    EtymologyText = null,
+                    LanguageCode = null,
+                    CleanedDefinition = definition,
+                    DetectionMethod = "InvalidJson",
+                    SourceText = string.Empty
+                };
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Failed to extract etymology for {Headword}", headword);
-            }
+                logger.LogWarning(ex, "Unexpected error extracting Kaikki etymology | Word={Word}", headword);
 
-            return new EtymologyExtractionResult
-            {
-                EtymologyText = null,
-                LanguageCode = null,
-                CleanedDefinition = definition,
-                DetectionMethod = "NoEtymologyFound",
-                SourceText = string.Empty
-            };
-        }
-
-        private string? DetectLanguageFromEtymology(string etymology)
-        {
-            var languagePatterns = new Dictionary<string, string>
-            {
-                { @"\bLatin\b", "la" },
-                { @"\bAncient Greek\b|\bGreek\b", "el" },
-                { @"\bFrench\b", "fr" },
-                { @"\bGerman(ic)?\b", "de" },
-                { @"\bOld English\b", "ang" },
-                { @"\bMiddle English\b", "enm" },
-                { @"\bItalian\b", "it" },
-                { @"\bSpanish\b", "es" },
-                { @"\bDutch\b", "nl" },
-                { @"\bProto-Indo-European\b", "ine-pro" },
-                { @"\bOld Norse\b", "non" },
-                { @"\bOld French\b", "fro" },
-                { @"\bAnglo-Norman\b", "xno" }
-            };
-
-            foreach (var pattern in languagePatterns)
-            {
-                if (Regex.IsMatch(etymology, pattern.Key, RegexOptions.IgnoreCase))
+                return new EtymologyExtractionResult
                 {
-                    return pattern.Value;
-                }
+                    EtymologyText = null,
+                    LanguageCode = null,
+                    CleanedDefinition = definition,
+                    DetectionMethod = "ExtractorError",
+                    SourceText = string.Empty
+                };
             }
-
-            return null;
-        }
-
-        private string CleanEtymologyText(string etymology)
-        {
-            if (string.IsNullOrWhiteSpace(etymology))
-                return string.Empty;
-
-            // Clean up etymology text
-            etymology = Regex.Replace(etymology, @"\s+", " ").Trim();
-
-            // Remove template markers
-            etymology = etymology
-                .Replace("{{", "")
-                .Replace("}}", "")
-                .Replace("[[", "")
-                .Replace("]]", "");
-
-            // Remove HTML tags
-            etymology = Regex.Replace(etymology, @"<[^>]+>", "");
-
-            return etymology.Trim();
         }
 
         public (string? Etymology, string? LanguageCode) ExtractFromText(string text)
         {
-            // Not used for Kaikki - we need structured JSON
             return (null, null);
         }
     }

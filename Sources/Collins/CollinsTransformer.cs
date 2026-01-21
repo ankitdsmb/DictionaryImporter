@@ -1,34 +1,63 @@
-﻿namespace DictionaryImporter.Sources.Collins
+﻿using DictionaryImporter.Sources.Common.Helper;
+
+namespace DictionaryImporter.Sources.Collins
 {
-    public sealed class CollinsTransformer : IDataTransformer<CollinsRawEntry>
+    public sealed class CollinsTransformer(ILogger<CollinsTransformer> logger)
+        : IDataTransformer<CollinsRawEntry>
     {
-        public IEnumerable<DictionaryEntry> Transform(CollinsRawEntry raw)
+        private const string SourceCode = "ENG_COLLINS";
+
+        public IEnumerable<DictionaryEntry> Transform(CollinsRawEntry? raw)
         {
+            if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
+                yield break;
+
             if (raw == null || !raw.Senses.Any())
                 yield break;
 
-            foreach (var sense in raw.Senses)
-            {
-                var fullDefinition = BuildFullDefinition(sense);
+            foreach (var entry in ProcessCollinsEntry(raw))
+                yield return entry;
+        }
 
-                yield return new DictionaryEntry
+        private IEnumerable<DictionaryEntry> ProcessCollinsEntry(CollinsRawEntry raw)
+        {
+            var entries = new List<DictionaryEntry>();
+
+            try
+            {
+                var normalizedWord = SourceDataHelper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
+
+                foreach (var sense in raw.Senses)
                 {
-                    Word = raw.Headword,
-                    NormalizedWord = NormalizeWord(raw.Headword),
-                    PartOfSpeech = sense.PartOfSpeech,
-                    Definition = fullDefinition,
-                    SenseNumber = sense.SenseNumber,
-                    SourceCode = "ENG_COLLINS",
-                    CreatedUtc = DateTime.UtcNow
-                };
+                    var fullDefinition = BuildFullDefinition(sense);
+
+                    entries.Add(new DictionaryEntry
+                    {
+                        Word = raw.Headword,
+                        NormalizedWord = normalizedWord,
+                        PartOfSpeech = SourceDataHelper.NormalizePartOfSpeech(sense.PartOfSpeech),
+                        Definition = fullDefinition,
+                        RawFragment = fullDefinition, // FIX: avoid missing RawFragment warnings
+                        SenseNumber = sense.SenseNumber,
+                        SourceCode = SourceCode,
+                        CreatedUtc = DateTime.UtcNow
+                    });
+                }
+
+                SourceDataHelper.LogProgress(logger, SourceCode, SourceDataHelper.GetCurrentCount(SourceCode));
             }
+            catch (Exception ex)
+            {
+                SourceDataHelper.HandleError(logger, ex, SourceCode, "transforming");
+            }
+
+            foreach (var entry in entries)
+                yield return entry;
         }
 
         private static string BuildFullDefinition(CollinsSenseRaw sense)
         {
-            var parts = new List<string>();
-
-            parts.Add(sense.Definition);
+            var parts = new List<string> { sense.Definition };
 
             if (!string.IsNullOrEmpty(sense.UsageNote))
                 parts.Add($"【Note】{sense.UsageNote}");
@@ -47,11 +76,6 @@
                 parts.Add($"【Grammar】{sense.GrammarInfo}");
 
             return string.Join("\n", parts);
-        }
-
-        private static string NormalizeWord(string word)
-        {
-            return word.ToLowerInvariant().Trim();
         }
     }
 }

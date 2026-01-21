@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing
+﻿using System.Text.RegularExpressions;
+
+namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
     internal static class WebsterEtymologyExtractor
     {
@@ -13,10 +15,16 @@
                 return null;
 
             var match = EtymRegex.Match(definition);
+            if (!match.Success)
+                return null;
 
-            return match.Success
-                ? match.Groups["text"].Value.Trim()
-                : null;
+            var text = match.Groups["text"].Value.Trim();
+
+            // SAFE: prevent extremely large values
+            if (text.Length > 2000)
+                text = text[..2000];
+
+            return text;
         }
     }
 }

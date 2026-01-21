@@ -1,37 +1,78 @@
-﻿namespace DictionaryImporter.Core.Validation
+﻿using DictionaryImporter.Sources.Common.Helper;
+
+namespace DictionaryImporter.Core.Validation
 {
-    public sealed class DefaultDictionaryEntryValidator
+    public sealed class DefaultDictionaryEntryValidator(ILogger<DefaultDictionaryEntryValidator> logger)
         : IDictionaryEntryValidator
     {
-        private const int MaxWordLength = 200;
-        private const int MinDefinitionLength = 10;
-
-        public ValidationResult Validate(
-            DictionaryEntry e)
+        public ValidationResult Validate(DictionaryEntry entry)
         {
-            if (string.IsNullOrWhiteSpace(e.Word))
-                return ValidationResult.Invalid("Word is empty");
+            if (entry == null)
+                return ValidationResult.Invalid("Entry is null");
 
-            if (e.Word.Length > MaxWordLength)
-                return ValidationResult.Invalid("Word too long");
+            // Validate Word
+            if (string.IsNullOrWhiteSpace(entry.Word))
+                return ValidationResult.Invalid("Word missing");
 
-            if (string.IsNullOrWhiteSpace(e.NormalizedWord))
-                return ValidationResult.Invalid("NormalizedWord missing");
+            var word = entry.Word.Trim();
+            if (word.Length < 1)
+                return ValidationResult.Invalid("Word too short");
 
-            if (string.IsNullOrWhiteSpace(e.Definition))
-                return ValidationResult.Invalid("Definition empty");
+            // Validate NormalizedWord (generate if missing)
+            if (string.IsNullOrWhiteSpace(entry.NormalizedWord))
+            {
+                entry.NormalizedWord = TextNormalizer.NormalizeWord(entry.Word);
+                if (string.IsNullOrWhiteSpace(entry.NormalizedWord))
+                    return ValidationResult.Invalid("NormalizedWord missing");
+            }
 
-            if (e.Definition.Length < MinDefinitionLength)
+            // Validate Definition (more lenient for Kaikki)
+            if (string.IsNullOrWhiteSpace(entry.Definition))
+            {
+                // For Kaikki, RawFragment might contain the definition
+                if (entry.SourceCode == "KAIKKI" && !string.IsNullOrWhiteSpace(entry.RawFragment))
+                {
+                    // Try to extract definition from RawFragment
+                    var definitions = JsonProcessor.ExtractEnglishDefinitions(entry.RawFragment);
+                    if (definitions.Count > 0)
+                    {
+                        entry.Definition = definitions.First();
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(entry.Definition))
+                    return ValidationResult.Invalid("Definition missing");
+            }
+
+            // Check definition length (more lenient for certain words)
+            var definition = entry.Definition.Trim();
+
+            // Single-letter words (like "A", "I") can have short definitions
+            if (word.Length == 1 && definition.Length >= 3)
+            {
+                // Accept short definitions for single letters
+                return ValidationResult.Valid();
+            }
+
+            // Common short words might have brief definitions
+            var commonShortWords = new[] { "a", "i", "an", "be", "is", "am", "to", "do", "go", "no", "so" };
+            if (commonShortWords.Contains(word.ToLowerInvariant()) && definition.Length >= 3)
+            {
+                return ValidationResult.Valid();
+            }
+
+            // Default minimum length
+            if (definition.Length < 5)
+            {
+                logger.LogDebug(
+                    "Entry rejected | Word={Word} | Source={Source} | Definition={Definition}",
+                    word, entry.SourceCode, definition);
                 return ValidationResult.Invalid("Definition too short");
+            }
 
-            if (!e.Word.Any(char.IsLetter))
-                return ValidationResult.Invalid("Word contains no letters");
-
-            if (string.IsNullOrWhiteSpace(e.SourceCode))
-                return ValidationResult.Invalid("SourceCode missing");
-
-            if (e.SenseNumber <= 0)
-                return ValidationResult.Invalid("Invalid sense number");
+            // Check for valid content
+            if (!definition.Any(char.IsLetter))
+                return ValidationResult.Invalid("Definition contains no letters");
 
             return ValidationResult.Valid();
         }

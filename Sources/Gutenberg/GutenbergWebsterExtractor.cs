@@ -1,91 +1,70 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg
+﻿using DictionaryImporter.Sources.Common.Helper;
+
+namespace DictionaryImporter.Sources.Gutenberg
 {
     public sealed class GutenbergWebsterExtractor(ILogger<GutenbergWebsterExtractor> logger)
         : IDataExtractor<GutenbergRawEntry>
     {
+        private const string SourceCode = "GUT_WEBSTER";
+
         public async IAsyncEnumerable<GutenbergRawEntry> ExtractAsync(
-            Stream source,
+            Stream stream,
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
-            logger.LogInformation("Gutenberg extraction started");
+            ExtractionHelper.LogExtractionStart(logger, SourceCode);
 
-            using var reader = new StreamReader(
-                source,
-                Encoding.UTF8,
-                false,
-                16 * 1024,
-                true);
+            var context = ExtractionHelper.CreateExtractorContext(logger, SourceCode);
+            var lines = ExtractionHelper.ProcessGutenbergStreamAsync(stream, logger, cancellationToken);
 
-            string? line;
-            var bodyStarted = false;
             GutenbergRawEntry? current = null;
-            long count = 0;
 
-            while ((line = await reader.ReadLineAsync()) != null)
+            await foreach (var line in lines.WithCancellation(cancellationToken))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (!bodyStarted)
+                if (TextProcessingHelper.IsHeadword(line, maxLength: 40, requireUppercase: true))
                 {
-                    if (line.StartsWith("*** START"))
+                    // Yield previous entry if exists
+                    if (current != null && ValidateGutenbergEntry(current))
                     {
-                        bodyStarted = true;
-                        logger.LogInformation("Gutenberg body detected");
-                    }
+                        // ✅ STRICT: stop before yielding
+                        if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
+                            yield break;
 
-                    continue;
-                }
-
-                if (line.StartsWith("*** END"))
-                    break;
-
-                if (IsHeadword(line))
-                {
-                    if (current != null)
-                    {
+                        ExtractionHelper.UpdateProgress(ref context);
                         yield return current;
-                        count++;
                     }
 
+                    // Create new entry
                     current = new GutenbergRawEntry
                     {
                         Headword = line.Trim()
                     };
+                    current.Lines.Clear();
+
                     continue;
                 }
 
-                current?.Lines.Add(line);
+                if (current != null)
+                    current.Lines.Add(line);
             }
 
-            if (current != null)
+            // Yield the last entry
+            if (current != null && ValidateGutenbergEntry(current))
             {
+                // ✅ STRICT: stop before yielding
+                if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
+                    yield break;
+
+                ExtractionHelper.UpdateProgress(ref context);
                 yield return current;
-                count++;
             }
 
-            logger.LogInformation(
-                "Gutenberg extraction completed. Entries: {Count}",
-                count);
+            ExtractionHelper.LogExtractionComplete(logger, SourceCode, context.EntryCount);
         }
 
-        private static bool IsHeadword(string line)
+        private bool ValidateGutenbergEntry(GutenbergRawEntry entry)
         {
-            if (string.IsNullOrWhiteSpace(line))
-                return false;
-
-            var text = line.Trim();
-
-            if (text.Length > 40)
-                return false;
-
-            if (!text.Equals(text.ToUpperInvariant(), StringComparison.Ordinal))
-                return false;
-
-            var hasLetter = text.Any(char.IsLetter);
-            if (!hasLetter)
-                return false;
-
-            return true;
+            return !string.IsNullOrWhiteSpace(entry.Headword) &&
+                   entry.Lines.Count > 0;
         }
     }
 }

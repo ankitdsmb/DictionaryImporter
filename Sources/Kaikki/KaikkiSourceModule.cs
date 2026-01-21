@@ -1,35 +1,44 @@
-﻿using DictionaryImporter.Sources.Kaikki;
+﻿using System;
+using System.IO;
 using DictionaryImporter.Sources.Kaikki.Parsing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
-public sealed class KaikkiSourceModule : IDictionarySourceModule
+namespace DictionaryImporter.Sources.Kaikki
 {
-    public string SourceCode => "KAIKKI";
-
-    public void RegisterServices(IServiceCollection services, IConfiguration configuration)
+    public sealed class KaikkiSourceModule : IDictionarySourceModule
     {
-        services.AddSingleton<IDataExtractor<KaikkiRawEntry>, KaikkiExtractor>();
-        services.AddSingleton<IDataTransformer<KaikkiRawEntry>, KaikkiTransformer>();
-        services.AddSingleton<IDictionaryDefinitionParser, KaikkiDefinitionParser>();
-        services.AddSingleton<IDictionaryDefinitionParser, KaikkiDefinitionParser>();
-        services.AddSingleton<ImportEngineFactory<KaikkiRawEntry>>();
+        public string SourceCode => "KAIKKI";
 
-        // Register Kaikki-specific extractors
-        services.AddSingleton<IEtymologyExtractor, KaikkiEtymologyExtractor>();
-        services.AddSingleton<IExampleExtractor, KaikkiExampleExtractor>();
-        services.AddSingleton<ISynonymExtractor, KaikkiSynonymExtractor>();
-    }
-
-    public ImportSourceDefinition BuildSource(IConfiguration config)
-    {
-        var filePath = config["Sources:Kaikki:FilePath"]
-                       ?? throw new InvalidOperationException("Kaikki file path not configured");
-
-        return new ImportSourceDefinition
+        public void RegisterServices(IServiceCollection services, IConfiguration configuration)
         {
-            SourceCode = SourceCode,
-            SourceName = "Kaikki Wiktionary Data",
-            OpenStream = () => File.OpenRead(filePath),
-            GraphRebuildMode = GraphRebuildMode.Rebuild
-        };
+            // FIX: Register ALL required services for Kaikki
+            services.AddSingleton<IDataExtractor<KaikkiRawEntry>, KaikkiExtractor>();
+            services.AddSingleton<IDataTransformer<KaikkiRawEntry>, KaikkiTransformer>();
+            services.AddSingleton<IDictionaryDefinitionParser, KaikkiDefinitionParser>();
+            services.AddSingleton<IDictionaryEntryValidator, KaikkiEntryValidator>();
+
+            // FIX: Register Kaikki-specific extractors
+            services.AddSingleton<IEtymologyExtractor, KaikkiEtymologyExtractor>();
+            services.AddSingleton<IExampleExtractor, KaikkiExampleExtractor>();
+            services.AddSingleton<ISynonymExtractor, KaikkiSynonymExtractor>();
+
+            // FIX: Register the factory
+            services.AddSingleton<ImportEngineFactory<KaikkiRawEntry>>();
+        }
+
+        public ImportSourceDefinition BuildSource(IConfiguration config)
+        {
+            var filePath = config["Sources:Kaikki:FilePath"]
+                           ?? throw new InvalidOperationException("Kaikki file path not configured");
+
+            return new ImportSourceDefinition
+            {
+                SourceCode = SourceCode,
+                SourceName = "Kaikki Wiktionary Data",
+                OpenStream = () => File.OpenRead(filePath),
+                GraphRebuildMode = GraphRebuildMode.Rebuild
+            };
+        }
     }
 }

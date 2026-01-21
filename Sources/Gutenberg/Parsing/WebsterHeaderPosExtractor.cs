@@ -1,11 +1,7 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing
+﻿using System.Text.RegularExpressions;
+
+namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
-    /// <summary>
-    ///     Extracts authoritative Part-of-Speech from Webster
-    ///     headword headers such as:
-    ///     ABASE, v.t.
-    ///     ABASED, a.
-    /// </summary>
     public static class WebsterHeaderPosExtractor
     {
         private static readonly Regex HeaderPosRegex =
@@ -13,21 +9,17 @@
                 @",\s*(?<pos>v\.t\.|v\.i\.|v\.|a\.|n\.)",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-        public static (string? Pos, int? Confidence) Extract(
-            string definition)
+        public static (string? Pos, int? Confidence) Extract(string definition)
         {
             if (string.IsNullOrWhiteSpace(definition))
                 return (null, null);
 
-            var match =
-                HeaderPosRegex.Match(definition);
+            var match = HeaderPosRegex.Match(definition);
 
             if (!match.Success)
                 return (null, null);
 
-            var token =
-                match.Groups["pos"].Value
-                    .ToLowerInvariant();
+            var token = match.Groups["pos"].Value.ToLowerInvariant();
 
             return token switch
             {

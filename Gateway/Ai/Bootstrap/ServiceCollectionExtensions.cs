@@ -1,8 +1,13 @@
-using DictionaryImporter.Gateway.Ai.Abstractions;
+﻿using DictionaryImporter.Gateway.Ai.Abstractions;
 using DictionaryImporter.Gateway.Ai.Configuration;
+using DictionaryImporter.Gateway.Ai.Core;
 using DictionaryImporter.Gateway.Ai.Merging;
 using DictionaryImporter.Gateway.Ai.Providers;
 using DictionaryImporter.Gateway.Ai.Routing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using System.Collections.Generic;
 
 namespace DictionaryImporter.Gateway.Ai.Bootstrap
 {
@@ -19,8 +24,8 @@ namespace DictionaryImporter.Gateway.Ai.Bootstrap
             services.AddSingleton<IAiProviderSelector, DefaultProviderSelector>();
             services.AddSingleton<IAiResultMerger, SimpleTextMerger>();
 
-            // Register main gateway
-            services.AddScoped<IAiGateway, Core.AiGateway>();
+            // ✅ FIX: Correct implementation type
+            services.AddScoped<IAiGateway, AiGateway>();
 
             // Register provider clients from configuration dynamically
             services.AddScoped<IEnumerable<IAiProviderClient>>(sp =>

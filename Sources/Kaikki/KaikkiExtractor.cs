@@ -1,13 +1,13 @@
-﻿namespace DictionaryImporter.Sources.Kaikki
-{
-    public sealed class KaikkiExtractor : IDataExtractor<KaikkiRawEntry>
-    {
-        private readonly ILogger<KaikkiExtractor> _logger;
+﻿using DictionaryImporter.Sources.Common.Helper;
 
-        public KaikkiExtractor(ILogger<KaikkiExtractor> logger)
-        {
-            _logger = logger;
-        }
+namespace DictionaryImporter.Sources.Kaikki
+{
+    public sealed class KaikkiExtractor(ILogger<KaikkiExtractor> logger)
+        : IDataExtractor<KaikkiRawEntry>
+    {
+        private const string SourceCode = "KAIKKI";
+
+        private readonly ILogger<KaikkiExtractor> _logger = logger;
 
         public async IAsyncEnumerable<KaikkiRawEntry> ExtractAsync(
             Stream stream,
@@ -15,15 +15,18 @@
         {
             using var reader = new StreamReader(stream);
 
-            string? line;
-            while ((line = await reader.ReadLineAsync()) != null)
+            while (await reader.ReadLineAsync() is { } line)
             {
                 ct.ThrowIfCancellationRequested();
 
-                if (string.IsNullOrWhiteSpace(line))
+                var trimmed = line.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed))
                     continue;
 
-                yield return new KaikkiRawEntry { RawJson = line };
+                if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, _logger))
+                    yield break;
+
+                yield return new KaikkiRawEntry { RawJson = trimmed };
             }
         }
     }

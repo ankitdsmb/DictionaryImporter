@@ -1,28 +1,39 @@
-﻿namespace DictionaryImporter.Domain.Models
+﻿// File: Domain/Models/ParsedDefinition.cs
+using System.Collections.Generic;
+
+namespace DictionaryImporter.Domain.Models
 {
-    public sealed class ParsedDefinition
+    public class ParsedDefinition
     {
-        public string? ParentKey { get; set; }
-
-        public string? SelfKey { get; set; }
-
-        public string MeaningTitle { get; set; } = null!;
-
-        public int? SenseNumber { get; set; }
-        public string Definition { get; set; } = null!;
-        public string RawFragment { get; set; } = null!;
-
+        public long? DictionaryEntryParsedId { get; set; }
+        public long DictionaryEntryId { get; set; }
+        public string? MeaningTitle { get; set; }
+        public string? Definition { get; set; }
+        public string? RawFragment { get; set; }
+        public int SenseNumber { get; set; }
         public string? Domain { get; set; }
-
         public string? UsageLabel { get; set; }
         public string? Alias { get; set; }
 
-        public IReadOnlyList<string>? Synonyms { get; set; }
+        // FIXED: Change to IReadOnlyList
+        public IReadOnlyList<CrossReference>? CrossReferences { get; set; } = new List<CrossReference>();
+        public IReadOnlyList<string>? Synonyms { get; set; } = new List<string>();
+        public IReadOnlyList<string>? Examples { get; set; } = new List<string>();
 
-        public IReadOnlyList<CrossReference> CrossReferences { get; set; }
-            = new List<CrossReference>();
+        // Add this property for parent relationship
+        public long? ParentParsedId { get; set; }
 
+        // Add these properties for non-English text handling
+        public bool HasNonEnglishText { get; set; }
+        public long? NonEnglishTextId { get; set; }
+        public string? SourceCode { get; set; }
+
+        // Helper properties
+        public string? SelfKey { get; set; }
+        public string? ParentKey { get; set; }
         public string? PartOfSpeech { get; set; }
-        public List<string> Examples { get; internal set; }
+        public string? DetectedLanguages { get; set; }
+        public string Etymology { get; internal set; }
+        public double? PartOfSpeechConfidence { get; internal set; }
     }
 }

@@ -25,6 +25,7 @@
                         PartOfSpeech = e.PartOfSpeech,
                         Definition = e.Definition,
                         Etymology = e.Etymology,
+                        RawFragment = e.RawFragment, // ← ADD THIS
                         SenseNumber = e.SenseNumber,
                         SourceCode = e.SourceCode,
                         CreatedUtc = e.CreatedUtc < SqlMinDate
@@ -34,27 +35,14 @@
                 .ToList();
 
             const string sql = """
-                               INSERT INTO dbo.DictionaryEntry_Staging
-                               (
-                                   Word,
-                                   NormalizedWord,
-                                   PartOfSpeech,
-                                   Definition,
-                                   Etymology,
-                                   SenseNumber,
-                                   SourceCode,
-                                   CreatedUtc
-                               )
-                               VALUES
-                               (
-                                   @Word,
-                                   @NormalizedWord,
-                                   @PartOfSpeech,
-                                   @Definition,
-                                   @Etymology,
-                                   @SenseNumber,
-                                   @SourceCode,
-                                   @CreatedUtc
+                               INSERT INTO dbo.DictionaryEntry_Staging (
+                                   Word, NormalizedWord, PartOfSpeech, Definition,
+                                   Etymology, SenseNumber, SourceCode, CreatedUtc,
+                                   RawFragment
+                               ) VALUES (
+                                   @Word, @NormalizedWord, @PartOfSpeech, @Definition,
+                                   @Etymology, @SenseNumber, @SourceCode, @CreatedUtc,
+                                   @RawFragment
                                );
                                """;
 
@@ -72,17 +60,24 @@
 
                 await tx.CommitAsync(ct);
 
+                // Log diagnostic info about RawFragment
+                var withRawFragment = sanitized.Count(e => !string.IsNullOrWhiteSpace(e.RawFragment));
                 logger.LogInformation(
-                    "Committed batch of {Count} staging rows",
-                    sanitized.Count);
+                    "Committed batch of {Count} staging rows | WithRawFragment={WithRaw}",
+                    sanitized.Count,
+                    withRawFragment);
             }
-            catch
+            catch (Exception ex)
             {
                 await tx.RollbackAsync(ct);
 
+                // Log more detailed error information
+                var withRawFragment = sanitized.Count(e => !string.IsNullOrWhiteSpace(e.RawFragment));
                 logger.LogError(
-                    "Rolled back batch of {Count} staging rows",
-                    sanitized.Count);
+                    ex,
+                    "Rolled back batch of {Count} staging rows | WithRawFragment={WithRaw}",
+                    sanitized.Count,
+                    withRawFragment);
 
                 throw;
             }

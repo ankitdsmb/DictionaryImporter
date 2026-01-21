@@ -2,7 +2,7 @@
 {
     public sealed class GutenbergRawEntry
     {
-        public string Headword { get; init; } = null!;
+        public string Headword { get; set; } = null!;
 
         public List<string> Lines { get; init; } = [];
     }

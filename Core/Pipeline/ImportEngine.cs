@@ -1,4 +1,5 @@
-﻿using LanguageDetector = DictionaryImporter.Core.PreProcessing.LanguageDetector;
+﻿using Microsoft.ML;
+using LanguageDetector = DictionaryImporter.Core.PreProcessing.LanguageDetector;
 
 namespace DictionaryImporter.Core.Pipeline
 {
@@ -11,6 +12,9 @@ namespace DictionaryImporter.Core.Pipeline
         : IImportEngine
     {
         private const int BatchSize = 10000;
+        private int _totalProcessed = 0;
+        private int _totalValid = 0;
+        private int _totalInvalid = 0;
 
         async Task IImportEngine.ImportAsync(
             Stream source,
@@ -19,93 +23,161 @@ namespace DictionaryImporter.Core.Pipeline
             await ImportAsync(source, ct);
         }
 
-        public async Task<ImportMetrics> ImportAsync(
-            Stream source,
-            CancellationToken ct)
+        public async Task ImportAsync(Stream stream, CancellationToken cancellationToken)
         {
-            var metrics = new ImportMetrics();
-            metrics.Start();
+            if (stream == null)
+                throw new ArgumentNullException(nameof(stream));
 
-            var batch = new List<DictionaryEntry>(BatchSize);
+            var entries = new List<DictionaryEntry>();
 
-            await foreach (var raw in extractor.ExtractAsync(source, ct))
+            try
             {
-                metrics.IncrementRaw();
+                logger.LogInformation("Starting import process");
 
-                foreach (var rawEntry in transformer.Transform(raw))
+                // ✅ FIX: Track total entries properly
+                _totalProcessed = 0;
+                _totalValid = 0;
+                _totalInvalid = 0;
+
+                // Extract raw entries
+                await foreach (var rawEntry in extractor.ExtractAsync(stream, cancellationToken))
                 {
-                    ct.ThrowIfCancellationRequested();
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                    var entry = Preprocess(rawEntry);
+                    // ✅ FIX: Log raw entry extraction
+                    logger.LogDebug("Extracted raw entry: {RawType}", rawEntry?.GetType().Name);
 
-                    var result = validator.Validate(entry);
+                    // Transform each raw entry to DictionaryEntry
+                    var transformedEntries = transformer.Transform(rawEntry);
+                    var transformedList = transformedEntries?.ToList() ?? new List<DictionaryEntry>();
 
-                    if (!result.IsValid)
+                    // ✅ FIX: Handle null/empty transformation
+                    if (transformedList.Count == 0)
                     {
-                        if (string.IsNullOrWhiteSpace(entry.NormalizedWord))
-                            metrics.IncrementCanonicalEligibilityRejected();
-                        else
-                            metrics.IncrementValidatorRejected();
-
-                        logger.LogWarning(
-                            "Entry rejected | Word={Word} | Source={Source} | Reason={Reason}",
-                            entry.Word,
-                            entry.SourceCode,
-                            result.Reason);
-
+                        logger.LogDebug("Transformer returned empty result for raw entry");
                         continue;
                     }
 
-                    batch.Add(entry);
-                    metrics.AddTransformed(1);
-
-                    if (batch.Count >= BatchSize)
+                    foreach (var entry in transformedList)
                     {
-                        await FlushBatchAsync(batch, ct);
-                        batch.Clear();
+                        cancellationToken.ThrowIfCancellationRequested();
+                        _totalProcessed++;
+
+                        // ✅ FIX: Apply preprocessing BEFORE validation
+                        var processedEntry = Preprocess(entry);
+
+                        // VALIDATE each entry
+                        var validationResult = validator.Validate(processedEntry);
+
+                        if (validationResult.IsValid)
+                        {
+                            entries.Add(processedEntry);
+                            _totalValid++;
+
+                            if (_totalValid % 100 == 0)
+                            {
+                                logger.LogInformation("Import progress: {Valid} valid entries", _totalValid);
+                            }
+                        }
+                        else
+                        {
+                            _totalInvalid++;
+                            var errorMessage = GetValidationErrorMessage(validationResult);
+                            logger.LogDebug("Skipped invalid entry: {Word} - {Reason}",
+                                processedEntry.Word, errorMessage);
+                        }
+
+                        // Check batch size and load if needed
+                        if (entries.Count >= BatchSize)
+                        {
+                            await FlushBatchAsync(entries, cancellationToken);
+                        }
                     }
                 }
+
+                // ✅ FIX: Load any remaining entries
+                if (entries.Count > 0)
+                {
+                    await FlushBatchAsync(entries, cancellationToken);
+                }
+
+                logger.LogInformation(
+                    "Import completed successfully. " +
+                    "Total processed: {Processed}, " +
+                    "Valid: {Valid}, " +
+                    "Invalid: {Invalid}, " +
+                    "Loaded to staging: {Loaded}",
+                    _totalProcessed,
+                    _totalValid,
+                    _totalInvalid,
+                    _totalValid); // Assuming all valid entries were loaded
             }
-
-            if (batch.Count > 0)
-                await FlushBatchAsync(batch, ct);
-
-            metrics.Stop();
-
-            logger.LogInformation(
-                "ETL completed | Raw={Raw} | Accepted={Accepted} | Rejected={Rejected} | Duration={Ms}ms",
-                metrics.RawEntriesExtracted,
-                metrics.EntriesStaged,
-                metrics.EntriesRejected,
-                metrics.Duration.TotalMilliseconds);
-
-            logger.LogInformation(
-                "Rejection breakdown | CanonicalEligibility={Canonical} | Validator={Validator}",
-                metrics.RejectedByCanonicalEligibility,
-                metrics.RejectedByValidator);
-
-            return metrics;
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Import failed. Stats: Processed={Processed}, Valid={Valid}, Invalid={Invalid}",
+                    _totalProcessed, _totalValid, _totalInvalid);
+                throw;
+            }
         }
 
         private async Task FlushBatchAsync(
             List<DictionaryEntry> batch,
             CancellationToken ct)
         {
-            await loader.LoadAsync(batch, ct);
+            if (batch == null || batch.Count == 0)
+                return;
+
+            try
+            {
+                logger.LogDebug("Flushing batch of {Count} entries", batch.Count);
+                await loader.LoadAsync(batch, ct);
+                logger.LogDebug("Batch flushed successfully");
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to flush batch of {Count} entries", batch.Count);
+                throw;
+            }
+        }
+
+        private string GetValidationErrorMessage(ValidationResult result)
+        {
+            return result.Reason ?? "Validation failed";
         }
 
         private static DictionaryEntry Preprocess(DictionaryEntry entry)
         {
-            var cleanedWord =
-                DomainMarkerStripper.Strip(entry.Word);
+            if (entry == null)
+                return null;
 
-            var language =
-                LanguageDetector.Detect(cleanedWord);
+            var cleanedWord = DomainMarkerStripper.Strip(entry.Word ?? string.Empty);
 
-            var normalized =
-                NormalizedWordSanitizer.Sanitize(cleanedWord, language);
+            // ✅ FIX: Handle empty/null word
+            if (string.IsNullOrWhiteSpace(cleanedWord))
+            {
+                return new DictionaryEntry
+                {
+                    Word = string.Empty,
+                    NormalizedWord = string.Empty,
+                    PartOfSpeech = entry.PartOfSpeech,
+                    Definition = entry.Definition,
+                    Etymology = entry.Etymology,
+                    SenseNumber = entry.SenseNumber,
+                    SourceCode = entry.SourceCode,
+                    CreatedUtc = entry.CreatedUtc,
+                    RawFragment = entry.RawFragment
+                };
+            }
 
-            if (!CanonicalEligibility.IsEligible(normalized)) normalized = string.Empty;
+            var language = LanguageDetector.Detect(cleanedWord);
+            var normalized = NormalizedWordSanitizer.Sanitize(cleanedWord, language);
+
+            // ✅ FIX: Check eligibility and handle appropriately
+            if (!CanonicalEligibility.IsEligible(normalized))
+            {
+                normalized = string.Empty;
+            }
 
             return new DictionaryEntry
             {
@@ -116,7 +188,8 @@ namespace DictionaryImporter.Core.Pipeline
                 Etymology = entry.Etymology,
                 SenseNumber = entry.SenseNumber,
                 SourceCode = entry.SourceCode,
-                CreatedUtc = entry.CreatedUtc
+                CreatedUtc = entry.CreatedUtc,
+                RawFragment = entry.RawFragment
             };
         }
     }

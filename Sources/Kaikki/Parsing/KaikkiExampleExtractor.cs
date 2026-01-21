@@ -1,6 +1,8 @@
-﻿using DictionaryImporter.Sources.Kaikki.Helpers;
+﻿using System.Text.Json;
+using DictionaryImporter.Sources.Common.Helper;
+using JsonException = Newtonsoft.Json.JsonException;
 
-namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor
+namespace DictionaryImporter.Sources.Kaikki.Parsing
 {
     public sealed class KaikkiExampleExtractor : IExampleExtractor
     {
@@ -19,20 +21,25 @@ namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor
 
             try
             {
-                // Only process English Kaikki entries
-                if (string.IsNullOrWhiteSpace(parsed.RawFragment) ||
-                    !KaikkiJsonHelper.IsEnglishEntry(parsed.RawFragment))
-                {
+                if (string.IsNullOrWhiteSpace(parsed.RawFragment))
                     return examples;
-                }
 
-                examples = KaikkiJsonHelper.ExtractExamples(parsed.RawFragment);
+                using var doc = JsonDocument.Parse(parsed.RawFragment);
+                var root = doc.RootElement;
 
-                // Clean the examples
-                for (int i = 0; i < examples.Count; i++)
+                if (!JsonProcessor.IsEnglishEntry(root))
+                    return examples;
+
+                examples = SourceDataHelper.ExtractExamples(parsed.RawFragment);
+
+                for (var i = 0; i < examples.Count; i++)
                 {
-                    examples[i] = CleanExampleText(examples[i]);
+                    examples[i] = SourceDataHelper.CleanExampleText(examples[i]);
                 }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogDebug(ex, "Failed to parse Kaikki JSON for example extraction");
             }
             catch (Exception ex)
             {
@@ -44,26 +51,6 @@ namespace DictionaryImporter.Infrastructure.Parsing.ExampleExtractor
                 .Select(e => e.Trim())
                 .Distinct()
                 .ToList();
-        }
-
-        private string CleanExampleText(string example)
-        {
-            if (string.IsNullOrWhiteSpace(example))
-                return string.Empty;
-
-            // Remove quotation marks
-            example = example.Trim('"', '\'', '`', '«', '»', '「', '」', '『', '』');
-
-            // Remove translation in parentheses
-            example = Regex.Replace(example, @"\s*\([^)]*\)\s*", " ");
-
-            // Ensure proper punctuation
-            if (!example.EndsWith(".") && !example.EndsWith("!") && !example.EndsWith("?"))
-            {
-                example += ".";
-            }
-
-            return example.Trim();
         }
     }
 }

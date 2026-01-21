@@ -1,7 +1,19 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing
+﻿using DictionaryImporter.Domain.Models;
+using DictionaryImporter.Sources.Common;
+using Microsoft.Extensions.Logging;
+using System.Text.RegularExpressions;
+
+namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
-    public sealed class WebsterSubEntryParser(ILogger<WebsterSubEntryParser> logger) : IDictionaryDefinitionParser
+    public sealed class WebsterSubEntryParser : IDictionaryDefinitionParser
     {
+        private readonly ILogger<WebsterSubEntryParser> _logger;
+
+        public WebsterSubEntryParser(ILogger<WebsterSubEntryParser> logger)
+        {
+            _logger = logger;
+        }
+
         private static readonly Regex NumberedSenseRegex =
             new(
                 @"(?<!\w)(?<num>\d+)\.\s+(?<body>.*?)(?=(\s+\d+\.\s+|$))",
@@ -34,48 +46,47 @@
 
         public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
         {
-            if (string.IsNullOrWhiteSpace(entry.Definition))
+            // FIX: Prefer RawFragment, fallback to Definition
+            var rawText = entry.RawFragment;
+            if (string.IsNullOrWhiteSpace(rawText))
+                rawText = entry.Definition;
+
+            if (string.IsNullOrWhiteSpace(rawText))
                 yield break;
 
-            logger.LogDebug(
+            _logger.LogDebug(
                 "Parsing Webster entry | Word={Word} | EntryId={Id}",
                 entry.Word,
                 entry.DictionaryEntryId);
 
-            var definition = entry.Definition.Trim();
+            var definition = rawText.Trim();
 
+            // Root node
             yield return new ParsedDefinition
             {
                 MeaningTitle = entry.Word,
-                SenseNumber = null,
+                SenseNumber = 1,
                 Definition = string.Empty,
                 RawFragment = definition,
                 ParentKey = "headword"
             };
 
-            logger.LogDebug(
-                "Root parsed | Word={Word}",
-                entry.Word);
+            _logger.LogDebug("Root parsed | Word={Word}", entry.Word);
 
             var numbered = NumberedSenseRegex.Matches(definition);
 
             if (numbered.Count > 0)
             {
-                logger.LogDebug(
+                _logger.LogDebug(
                     "Numbered senses detected | Word={Word} | Count={Count}",
                     entry.Word,
                     numbered.Count);
 
                 foreach (Match sense in numbered)
                 {
-                    var senseNumber =
-                        int.Parse(sense.Groups["num"].Value);
-
-                    var body =
-                        sense.Groups["body"].Value.Trim();
-
-                    var senseKey =
-                        $"sense:{senseNumber}";
+                    var senseNumber = int.Parse(sense.Groups["num"].Value);
+                    var body = sense.Groups["body"].Value.Trim();
+                    var senseKey = $"sense:{senseNumber}";
 
                     yield return BuildParsed(
                         entry.Word,
@@ -96,22 +107,21 @@
                 yield break;
             }
 
-            if (IsValidMeaningTitle(entry.Word))
+            // FIX: use Gutenberg guard
+            if (WebsterMeaningGuard.IsValidMeaningTitle(entry.Word))
             {
-                logger.LogDebug(
-                    "Single unnumbered sense | Word={Word}",
-                    entry.Word);
+                _logger.LogDebug("Single unnumbered sense | Word={Word}", entry.Word);
 
                 yield return BuildParsed(
                     entry.Word,
-                    null,
+                    1,
                     definition,
                     definition,
                     "headword",
                     null);
             }
 
-            foreach (var idiom in ParseIdioms(entry))
+            foreach (var idiom in ParseIdioms(entry, definition))
                 yield return idiom;
         }
 
@@ -121,65 +131,62 @@
             int senseNumber,
             string parentKey)
         {
-            var subs =
-                LetteredSubSenseRegex.Matches(body);
+            var subs = LetteredSubSenseRegex.Matches(body);
 
             if (subs.Count == 0)
                 yield break;
 
-            logger.LogDebug(
+            _logger.LogDebug(
                 "Lettered sub-senses detected | Word={Word} | Sense={Sense} | Count={Count}",
                 word,
                 senseNumber,
                 subs.Count);
 
             foreach (Match sub in subs)
+            {
+                var letter = sub.Groups["letter"].Value;
+                var subBody = sub.Groups["body"].Value.Trim();
+                var subKey = $"{parentKey}:{letter}";
+
                 yield return BuildParsed(
                     word,
                     senseNumber,
-                    sub.Groups["body"].Value.Trim(),
+                    subBody,
                     sub.Value.Trim(),
                     parentKey,
-                    null);
+                    subKey);
+            }
         }
 
-        private IEnumerable<ParsedDefinition> ParseIdioms(
-            DictionaryEntry entry)
+        private IEnumerable<ParsedDefinition> ParseIdioms(DictionaryEntry entry, string definitionText)
         {
-            var matches =
-                IdiomSplitRegex.Matches(entry.Definition);
+            var matches = IdiomSplitRegex.Matches(definitionText);
 
             foreach (Match m in matches)
             {
-                var raw =
-                    m.Groups["body"].Value.Trim();
+                var raw = m.Groups["body"].Value.Trim();
 
                 if (string.IsNullOrWhiteSpace(raw))
                     continue;
 
-                var parsed =
-                    IdiomParseRegex.Match(raw);
-
+                var parsed = IdiomParseRegex.Match(raw);
                 if (!parsed.Success)
                     continue;
 
-                var title =
-                    parsed.Groups["title"].Value.Trim();
-
-                if (!IsValidMeaningTitle(title))
+                var title = parsed.Groups["title"].Value.Trim();
+                if (!WebsterMeaningGuard.IsValidMeaningTitle(title))
                     continue;
 
-                var def =
-                    parsed.Groups["def"].Value.Trim();
+                var def = parsed.Groups["def"].Value.Trim();
 
-                logger.LogDebug(
+                _logger.LogDebug(
                     "Idiom parsed | Word={Word} | Idiom={Idiom}",
                     entry.Word,
                     title);
 
                 yield return BuildParsed(
                     title,
-                    null,
+                    1,
                     def,
                     "-- " + raw,
                     "headword",
@@ -189,50 +196,42 @@
 
         private ParsedDefinition BuildParsed(
             string title,
-            int? senseNumber,
+            int senseNumber,
             string definition,
             string raw,
             string parentKey,
             string? selfKey)
         {
-            var usage =
-                WebsterUsageExtractor.Extract(ref definition);
+            var usage = WebsterUsageExtractor.Extract(ref definition);
+            var domain = WebsterDomainExtractor.Extract(ref definition);
 
-            var domain =
-                WebsterDomainExtractor.Extract(ref definition);
+            var aliasMatch = AliasRegex.Match(definition);
+            var alias = aliasMatch.Success ? aliasMatch.Groups["alias"].Value.Trim() : null;
 
-            var aliasMatch =
-                AliasRegex.Match(definition);
-
-            var alias =
-                aliasMatch.Success
-                    ? aliasMatch.Groups["alias"].Value.Trim()
-                    : null;
-
-            var crossRefs =
-                ExtractCrossReferences(definition);
+            var crossRefs = ExtractCrossReferences(definition);
 
             return new ParsedDefinition
             {
-                MeaningTitle = title.Trim(),
-                SenseNumber = senseNumber,
-                Definition = definition.Trim(),
+                MeaningTitle = title,
+                Definition = definition,
                 RawFragment = raw,
-                Alias = alias,
+                SenseNumber = senseNumber,
                 Domain = domain,
                 UsageLabel = usage,
                 CrossReferences = crossRefs,
+                Synonyms = null,
+                Alias = alias,
                 ParentKey = parentKey,
                 SelfKey = selfKey
             };
         }
 
-        private static IReadOnlyList<CrossReference> ExtractCrossReferences(
-            string text)
+        private static IReadOnlyList<CrossReference> ExtractCrossReferences(string text)
         {
             var list = new List<CrossReference>();
 
             foreach (Match m in CrossRefRegex.Matches(text))
+            {
                 list.Add(new CrossReference
                 {
                     TargetWord = m.Groups["target"].Value.Trim(),
@@ -240,19 +239,9 @@
                         .Replace(".", string.Empty)
                         .Replace(" ", string.Empty)
                 });
+            }
 
             return list;
-        }
-
-        private static bool IsValidMeaningTitle(string title)
-        {
-            if (string.IsNullOrWhiteSpace(title))
-                return false;
-
-            if (title.StartsWith("[") || title.StartsWith("("))
-                return false;
-
-            return true;
         }
     }
 }

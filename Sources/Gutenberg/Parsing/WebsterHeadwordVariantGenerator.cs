@@ -1,51 +1,41 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing
+﻿using System.Linq;
+using System.Text.RegularExpressions;
+
+namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
     internal static class WebsterHeadwordVariantGenerator
     {
-        public static IReadOnlyList<(string Variant, string Type)>
-            Generate(string headword)
+        public static IReadOnlyList<(string Variant, string Type)> Generate(string headword)
         {
-            var results =
-                new List<(string Variant, string Type)>();
+            var results = new List<(string Variant, string Type)>();
 
             if (string.IsNullOrWhiteSpace(headword))
                 return results;
 
-            var original =
-                headword.Trim();
-
-            var lower =
-                original.ToLowerInvariant();
+            var original = headword.Trim();
+            var lower = original.ToLowerInvariant();
 
             if (lower.Contains('-'))
             {
-                var noHyphen =
-                    lower.Replace("-", string.Empty);
-
+                var noHyphen = lower.Replace("-", string.Empty);
                 Add(results, noHyphen, "hyphen");
             }
 
             if (lower.Contains('\''))
             {
-                var noApostrophe =
-                    lower.Replace("'", string.Empty);
-
+                var noApostrophe = lower.Replace("'", string.Empty);
                 Add(results, noApostrophe, "apostrophe");
             }
 
             if (lower.Contains(' '))
             {
-                var collapsed =
-                    Regex.Replace(lower, @"\s+", string.Empty);
-
+                var collapsed = Regex.Replace(lower, @"\s+", string.Empty);
                 Add(results, collapsed, "spacing");
             }
 
             if (lower.Contains("ph"))
             {
-                var modern =
-                    lower.Replace("ph", "f");
-
+                var modern = lower.Replace("ph", "f");
                 Add(results, modern, "archaic");
             }
 

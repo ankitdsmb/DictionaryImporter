@@ -1,6 +1,9 @@
-﻿using DictionaryImporter.Sources.Kaikki.Helpers;
+﻿using System.Text.Json;
+using System.Text.RegularExpressions;
+using DictionaryImporter.Sources.Common.Helper;
+using JsonException = System.Text.Json.JsonException;
 
-namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor
+namespace DictionaryImporter.Sources.Kaikki.Parsing
 {
     internal class KaikkiSynonymExtractor : ISynonymExtractor
     {
@@ -22,28 +25,38 @@ namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor
 
             try
             {
-                // Only process English Kaikki entries
-                if (string.IsNullOrWhiteSpace(rawDefinition) ||
-                    !KaikkiJsonHelper.IsEnglishEntry(rawDefinition))
-                {
+                if (string.IsNullOrWhiteSpace(rawDefinition))
                     return results;
-                }
 
-                var synonyms = KaikkiJsonHelper.ExtractSynonyms(rawDefinition);
+                using var doc = JsonDocument.Parse(rawDefinition);
+                var root = doc.RootElement;
+
+                if (!JsonProcessor.IsEnglishEntry(root))
+                    return results;
+
+                var synonyms = SourceDataHelper.ExtractSynonyms(rawDefinition);
 
                 foreach (var synonym in synonyms)
                 {
-                    if (ValidateSynonymPair(headword, synonym))
+                    if (!ValidateSynonymPair(headword, synonym))
+                        continue;
+
+                    var normalizedTarget = SourceDataHelper.NormalizeWord(synonym);
+                    if (string.IsNullOrWhiteSpace(normalizedTarget))
+                        continue;
+
+                    results.Add(new SynonymDetectionResult
                     {
-                        results.Add(new SynonymDetectionResult
-                        {
-                            TargetHeadword = synonym.ToLowerInvariant(),
-                            ConfidenceLevel = "high",
-                            DetectionMethod = "KaikkiStructuredSynonym",
-                            SourceText = $"Kaikki synonym: {synonym}"
-                        });
-                    }
+                        TargetHeadword = normalizedTarget,
+                        ConfidenceLevel = "high",
+                        DetectionMethod = "KaikkiStructuredSynonym",
+                        SourceText = $"Kaikki synonym: {synonym}"
+                    });
                 }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogDebug(ex, "Failed to parse Kaikki JSON for synonym extraction | Headword={Headword}", headword);
             }
             catch (Exception ex)
             {
@@ -80,8 +93,8 @@ namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor
             };
 
             return !antonyms.Any(p =>
-                (p.Item1 == a && p.Item2 == b) ||
-                (p.Item1 == b && p.Item2 == a));
+                p.Item1 == a && p.Item2 == b ||
+                p.Item1 == b && p.Item2 == a);
         }
 
         private bool IsValidHeadword(string word)
@@ -89,11 +102,10 @@ namespace DictionaryImporter.Infrastructure.Parsing.SynonymExtractor
             if (string.IsNullOrWhiteSpace(word) || word.Length < 2)
                 return false;
 
-            // Must contain at least one letter
             if (!word.Any(char.IsLetter))
                 return false;
 
-            // Allow letters, hyphens, apostrophes, and spaces (for phrases)
+            // Allow letters, hyphens, apostrophes, and spaces (phrases)
             return Regex.IsMatch(word, @"^[a-z\s\-']+$");
         }
     }

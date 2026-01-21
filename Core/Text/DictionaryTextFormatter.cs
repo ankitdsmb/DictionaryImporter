@@ -129,5 +129,45 @@ namespace DictionaryImporter.Core.Text
 
             return text;
         }
+
+        public string FormatNote(string note)
+        {
+            throw new NotImplementedException();
+        }
+
+        public string FormatDomain(string domain)
+        {
+            throw new NotImplementedException();
+        }
+
+        public string FormatUsageLabel(string usageLabel)
+        {
+            throw new NotImplementedException();
+        }
+
+        public string FormatCrossReference(CrossReference crossReference)
+        {
+            throw new NotImplementedException();
+        }
+
+        public string CleanHtml(string html)
+        {
+            throw new NotImplementedException();
+        }
+
+        public string NormalizeSpacing(string text)
+        {
+            throw new NotImplementedException();
+        }
+
+        public string EnsureProperPunctuation(string text)
+        {
+            throw new NotImplementedException();
+        }
+
+        public string RemoveFormattingMarkers(string text)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

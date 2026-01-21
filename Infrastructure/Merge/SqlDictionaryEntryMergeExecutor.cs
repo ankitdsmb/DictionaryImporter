@@ -9,13 +9,10 @@
             string sourceCode,
             CancellationToken ct)
         {
-            await using var connection =
-                new SqlConnection(connectionString);
-
+            await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync(ct);
 
-            await using var tx =
-                await connection.BeginTransactionAsync(ct);
+            await using var tx = (SqlTransaction)await connection.BeginTransactionAsync(ct); // Explicit cast
 
             try
             {
@@ -27,17 +24,14 @@
                                                    ) AS UniqueKeys
                                                FROM dbo.DictionaryEntry_Staging
                                                WHERE SourceCode = @SourceCode;
-                                               """
-                    ;
+                                               """;
 
-                var stats =
-                    await connection.QuerySingleAsync<StagingStats>(
-                        stagingStatsSql,
-                        new { SourceCode = sourceCode },
-                        tx);
+                var stats = await connection.QuerySingleAsync<StagingStats>(
+                    stagingStatsSql,
+                    new { SourceCode = sourceCode },
+                    tx); // Now this works with SqlTransaction
 
-                var duplicateCount =
-                    stats.TotalRows - stats.UniqueKeys;
+                var duplicateCount = stats.TotalRows - stats.UniqueKeys;
 
                 logger.LogInformation(
                     "Staging analysis | Source={SourceCode} | Total={Total} | Unique={Unique} | Duplicates={Duplicates}",
@@ -57,6 +51,7 @@
                                                 PartOfSpeech,
                                                 Definition,
                                                 Etymology,
+                                                RawFragment,  -- ← ADD THIS
                                                 SenseNumber,
                                                 SourceCode,
                                                 CreatedUtc,
@@ -81,6 +76,7 @@
                                                 PartOfSpeech,
                                                 Definition,
                                                 Etymology,
+                                                RawFragment,  -- ← ADD THIS
                                                 SenseNumber,
                                                 SourceCode,
                                                 CreatedUtc
@@ -100,6 +96,7 @@
                                                 PartOfSpeech,
                                                 Definition,
                                                 Etymology,
+                                                RawFragment,  -- ← ADD THIS
                                                 SenseNumber,
                                                 SourceCode,
                                                 CreatedUtc
@@ -111,6 +108,7 @@
                                                 Source.PartOfSpeech,
                                                 Source.Definition,
                                                 Source.Etymology,
+                                                Source.RawFragment,  -- ← ADD THIS
                                                 Source.SenseNumber,
                                                 Source.SourceCode,
                                                 Source.CreatedUtc
@@ -128,11 +126,10 @@
                                                WHERE SourceCode = @SourceCode;
                                                """;
 
-                var cleared =
-                    await connection.ExecuteAsync(
-                        clearStagingSql,
-                        new { SourceCode = sourceCode },
-                        tx);
+                var cleared = await connection.ExecuteAsync(
+                    clearStagingSql,
+                    new { SourceCode = sourceCode },
+                    tx);
 
                 logger.LogInformation(
                     "Cleared {Count} staging rows for source {SourceCode}",

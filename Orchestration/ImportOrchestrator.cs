@@ -1,11 +1,13 @@
-﻿namespace DictionaryImporter.Orchestration
+﻿using DictionaryImporter.Sources.Common.Helper;
+
+namespace DictionaryImporter.Orchestration
 {
     public sealed class ImportOrchestrator(
         Func<IDictionaryEntryValidator> validatorFactory,
         Func<IDataMergeExecutor> mergeFactory,
         IImportEngineRegistry engineRegistry,
         ICanonicalWordResolver canonicalResolver,
-        DictionaryParsedDefinitionProcessor parsedDefinitionProcessor,
+        IParsedDefinitionProcessor parsedDefinitionProcessor,  // CHANGE TO INTERFACE
         DictionaryEntryLinguisticEnricher linguisticEnricher,
         CanonicalWordOrthographicSyllableEnricher orthographicSyllableEnricher,
         DictionaryGraphNodeBuilder graphNodeBuilder,
@@ -26,6 +28,9 @@
         ILogger<ImportOrchestrator> logger,
         QaRunner qaRunner)
     {
+        // Rest of the class remains the same...
+        private readonly IParsedDefinitionProcessor _parsedDefinitionProcessor = parsedDefinitionProcessor;
+
         public async Task RunAsync(
             IEnumerable<ImportSourceDefinition> sources,
             PipelineMode mode,
@@ -43,6 +48,8 @@
 
                 try
                 {
+                    SourceDataHelper.ResetProcessingState(source.SourceCode);
+
                     // Always run import/merge (and stop early for ImportOnly)
                     await RunImportMergeAsync(source, mode, ct);
 

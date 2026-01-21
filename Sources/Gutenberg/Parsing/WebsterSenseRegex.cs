@@ -1,11 +1,13 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing
+﻿using System.Text.RegularExpressions;
+
+namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
     internal static class WebsterSenseRegex
     {
         public static readonly Regex NumberedSense =
             new(
-                @"(?<!\w)(?<num>\d+)\.\s+(?<body>[^0-9]+)",
-                RegexOptions.Compiled);
+                @"(?<!\w)(?<num>\d+)\.\s+(?<body>.*?)(?=(?<!\w)\d+\.\s+|$)",
+                RegexOptions.Compiled | RegexOptions.Singleline);
 
         public static readonly Regex Lettered =
             new(

@@ -1,6 +1,6 @@
 ﻿namespace DictionaryImporter.Sources.StructuredJson.Models
 {
-    internal sealed class StructuredJsonDefinition
+    public sealed class StructuredJsonDefinition
     {
         [JsonPropertyName("part_of_speech")] public string PartOfSpeech { get; set; } = null!;
 
