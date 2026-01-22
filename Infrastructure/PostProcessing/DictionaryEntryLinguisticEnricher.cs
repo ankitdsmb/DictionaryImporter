@@ -1,80 +1,72 @@
-﻿using IpaNormalizer = DictionaryImporter.Core.PreProcessing.IpaNormalizer;
+﻿using Dapper;
+using DictionaryImporter.Core.PreProcessing;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
+
+using IpaNormalizer = DictionaryImporter.Core.PreProcessing.IpaNormalizer;
 
 namespace DictionaryImporter.Infrastructure.PostProcessing
 {
     public sealed class DictionaryEntryLinguisticEnricher(
         string connectionString,
         IPartOfSpeechInfererV2 posInferer,
+        IDictionaryEntryPartOfSpeechRepository posRepository,
         ILogger<DictionaryEntryLinguisticEnricher> logger)
     {
+        private readonly string _connectionString =
+            connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+
+        private readonly IPartOfSpeechInfererV2 _posInferer =
+            posInferer ?? throw new ArgumentNullException(nameof(posInferer));
+
+        private readonly IDictionaryEntryPartOfSpeechRepository _posRepository =
+            posRepository ?? throw new ArgumentNullException(nameof(posRepository));
+
+        private readonly ILogger<DictionaryEntryLinguisticEnricher> _logger =
+            logger ?? throw new ArgumentNullException(nameof(logger));
+
         public async Task ExecuteAsync(
             string sourceCode,
             CancellationToken ct)
         {
-            logger.LogInformation(
-                "Linguistic enrichment started | Source={SourceCode}",
+            sourceCode = string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode;
+
+            _logger.LogInformation(
+                "Linguistic enrichment started | SourceCode={SourceCode}",
                 sourceCode);
 
-            await using var conn = new SqlConnection(connectionString);
+            await using var conn = new SqlConnection(_connectionString);
             await conn.OpenAsync(ct);
 
-            await InferAndPersistPartOfSpeech(conn, sourceCode, ct);
+            await InferAndPersistPartOfSpeech(sourceCode, ct);
 
-            await BackfillExplicitPartOfSpeechConfidence(conn, sourceCode, ct);
+            await BackfillExplicitPartOfSpeechConfidence(sourceCode, ct);
 
-            await PersistPartOfSpeechHistory(conn, sourceCode, ct);
+            await PersistPartOfSpeechHistory(sourceCode, ct);
 
             await ExtractSynonymsFromCrossReferences(conn, sourceCode, ct);
 
             await EnrichCanonicalWordIpaFromDefinition(conn, sourceCode, ct);
 
-            logger.LogInformation(
-                "Linguistic enrichment completed | Source={SourceCode}",
+            _logger.LogInformation(
+                "Linguistic enrichment completed | SourceCode={SourceCode}",
                 sourceCode);
         }
 
+        // ============================================================
+        // Part of Speech (Repository-driven)
+        // ============================================================
+
         private async Task InferAndPersistPartOfSpeech(
-            SqlConnection conn,
             string sourceCode,
             CancellationToken ct)
         {
-            logger.LogInformation(
-                "POS inference started | Source={SourceCode}",
+            _logger.LogInformation(
+                "POS inference started | SourceCode={SourceCode}",
                 sourceCode);
 
-            const string selectSql = """
-                                     WITH RankedDefinitions AS
-                                     (
-                                         SELECT
-                                             e.DictionaryEntryId,
-                                             p.Definition,
-                                             ROW_NUMBER() OVER
-                                             (
-                                                 PARTITION BY e.DictionaryEntryId
-                                                 ORDER BY
-                                                     CASE
-                                                         WHEN p.ParentParsedId IS NULL THEN 0
-                                                         WHEN p.SenseNumber IS NOT NULL THEN 1
-                                                         ELSE 2
-                                                     END
-                                             ) AS rn
-                                         FROM dbo.DictionaryEntry e
-                                         JOIN dbo.DictionaryEntryParsed p
-                                             ON p.DictionaryEntryId = e.DictionaryEntryId
-                                         WHERE e.SourceCode = @SourceCode
-                                           AND (e.PartOfSpeech IS NULL OR e.PartOfSpeech = 'unk')
-                                     )
-                                     SELECT
-                                         DictionaryEntryId,
-                                         Definition
-                                     FROM RankedDefinitions
-                                     WHERE rn = 1;
-                                     """;
-
             var rows =
-                await conn.QueryAsync<(long Id, string Definition)>(
-                    selectSql,
-                    new { SourceCode = sourceCode });
+                await _posRepository.GetEntriesNeedingPosAsync(sourceCode, ct);
 
             var updated = 0;
 
@@ -82,126 +74,85 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
             {
                 ct.ThrowIfCancellationRequested();
 
-                var result =
-                    posInferer.InferWithConfidence(row.Definition);
-
-                if (result.Pos == "unk")
+                if (string.IsNullOrWhiteSpace(row.Definition))
                     continue;
 
-                const string updateSql = """
-                                         UPDATE dbo.DictionaryEntry
-                                         SET
-                                             PartOfSpeech = @Pos,
-                                             PartOfSpeechConfidence = @Confidence
-                                         WHERE DictionaryEntryId = @Id
-                                           AND (PartOfSpeech IS NULL OR PartOfSpeech = 'unk');
-                                         """;
+                var result =
+                    _posInferer.InferWithConfidence(row.Definition);
+
+                if (string.IsNullOrWhiteSpace(result.Pos) || result.Pos == "unk")
+                    continue;
 
                 var affected =
-                    await conn.ExecuteAsync(
-                        updateSql,
-                        new
-                        {
-                            row.Id,
-                            result.Pos,
-                            result.Confidence
-                        });
+                    await _posRepository.UpdatePartOfSpeechIfUnknownAsync(
+                        row.EntryId,
+                        result.Pos,
+                        result.Confidence,
+                        ct);
 
                 if (affected > 0)
                     updated++;
             }
 
-            logger.LogInformation(
-                "POS inference completed | Source={SourceCode} | Updated={Count}",
+            _logger.LogInformation(
+                "POS inference completed | SourceCode={SourceCode} | Updated={Count}",
                 sourceCode,
                 updated);
         }
 
         private async Task BackfillExplicitPartOfSpeechConfidence(
-            SqlConnection conn,
             string sourceCode,
             CancellationToken ct)
         {
-            const string sql = """
-                               UPDATE dbo.DictionaryEntry
-                               SET PartOfSpeechConfidence = 100
-                               WHERE SourceCode = @SourceCode
-                                 AND PartOfSpeech IS NOT NULL
-                                 AND PartOfSpeechConfidence IS NULL;
-                               """;
-
             var rows =
-                await conn.ExecuteAsync(
-                    new CommandDefinition(
-                        sql,
-                        new { SourceCode = sourceCode },
-                        cancellationToken: ct));
+                await _posRepository.BackfillConfidenceAsync(sourceCode, ct);
 
-            logger.LogInformation(
-                "POS confidence backfilled | Source={SourceCode} | Rows={Rows}",
+            _logger.LogInformation(
+                "POS confidence backfilled | SourceCode={SourceCode} | Rows={Rows}",
                 sourceCode,
                 rows);
         }
 
         private async Task PersistPartOfSpeechHistory(
-            SqlConnection conn,
             string sourceCode,
             CancellationToken ct)
         {
-            const string sql = """
-                               INSERT INTO dbo.DictionaryEntryPartOfSpeech
-                               (
-                                   DictionaryEntryId,
-                                   PartOfSpeech,
-                                   Confidence,
-                                   Source,
-                                   CreatedUtc
-                               )
-                               SELECT
-                                   e.DictionaryEntryId,
-                                   LOWER(e.PartOfSpeech),
-                                   ISNULL(e.PartOfSpeechConfidence, 100),
-                                   e.SourceCode,
-                                   SYSUTCDATETIME()
-                               FROM dbo.DictionaryEntry e
-                               WHERE e.SourceCode = @SourceCode
-                                 AND e.PartOfSpeech IS NOT NULL
-                                 AND NOT EXISTS
-                               (
-                                   SELECT 1
-                                   FROM dbo.DictionaryEntryPartOfSpeech p
-                                   WHERE p.DictionaryEntryId = e.DictionaryEntryId
-                                     AND p.PartOfSpeech = LOWER(e.PartOfSpeech)
-                               );
-                               """;
+            await _posRepository.PersistHistoryAsync(sourceCode, ct);
 
-            var rows =
-                await conn.ExecuteAsync(sql, new { SourceCode = sourceCode });
-
-            logger.LogInformation(
-                "POS history persisted | Source={SourceCode} | Rows={Rows}",
-                sourceCode,
-                rows);
+            _logger.LogInformation(
+                "POS history persisted | SourceCode={SourceCode}",
+                sourceCode);
         }
+
+        // ============================================================
+        // Synonyms extracted from CrossRefs (FIXED: SourceCode)
+        // ============================================================
 
         private async Task ExtractSynonymsFromCrossReferences(
             SqlConnection conn,
             string sourceCode,
             CancellationToken ct)
         {
+            // ✅ FIX:
+            // Table dbo.DictionaryEntrySynonym has SourceCode column (NOT Source).
+            // Also keep SourceCode for extracted synonyms = "CROSSREF"
             const string sql = """
                                INSERT INTO dbo.DictionaryEntrySynonym
                                (
                                    DictionaryEntryParsedId,
                                    SynonymText,
-                                   Source,
-                                   CreatedUtc
+                                   SourceCode,
+                                   CreatedUtc,
+                                   HasNonEnglishText,
+                                   NonEnglishTextId
                                )
                                SELECT DISTINCT
                                    cr.SourceParsedId,
                                    LOWER(cr.TargetWord),
-                                   'crossref',
-                                   SYSUTCDATETIME()
+                                   'CROSSREF',
+                                   SYSUTCDATETIME(),
+                                   0,
+                                   NULL
                                FROM dbo.DictionaryEntryCrossReference cr
                                JOIN dbo.DictionaryEntryParsed p
                                    ON p.DictionaryEntryParsedId = cr.SourceParsedId
@@ -215,22 +166,34 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
                                    FROM dbo.DictionaryEntrySynonym s
                                    WHERE s.DictionaryEntryParsedId = cr.SourceParsedId
                                      AND s.SynonymText = LOWER(cr.TargetWord)
+                                     AND s.SourceCode = 'CROSSREF'
                                );
                                """;
 
             var rows =
-                await conn.ExecuteAsync(sql, new { SourceCode = sourceCode });
+                await conn.ExecuteAsync(
+                    new CommandDefinition(
+                        sql,
+                        new { SourceCode = sourceCode },
+                        cancellationToken: ct));
 
-            logger.LogInformation(
-                "Synonyms extracted | Source={SourceCode} | Rows={Rows}",
+            _logger.LogInformation(
+                "Synonyms extracted from cross-references | SourceCode={SourceCode} | Rows={Rows}",
                 sourceCode,
                 rows);
         }
 
-        private async Task EnrichCanonicalWordIpaFromDefinition(SqlConnection conn, string sourceCode, CancellationToken ct)
+        // ============================================================
+        // IPA enrichment (no change, only safety)
+        // ============================================================
+
+        private async Task EnrichCanonicalWordIpaFromDefinition(
+            SqlConnection conn,
+            string sourceCode,
+            CancellationToken ct)
         {
-            logger.LogInformation(
-                "IPA enrichment started | Source={SourceCode}",
+            _logger.LogInformation(
+                "IPA enrichment started | SourceCode={SourceCode}",
                 sourceCode);
 
             const string sql = """
@@ -243,13 +206,15 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
                                JOIN dbo.CanonicalWord cw
                                    ON cw.CanonicalWordId = e.CanonicalWordId
                                WHERE e.SourceCode = @SourceCode
-                                   AND p.RawFragment LIKE '%/%';
+                                 AND p.RawFragment LIKE '%/%';
                                """;
 
             var rows =
                 await conn.QueryAsync<(long CanonicalWordId, string RawFragment)>(
-                    sql,
-                    new { SourceCode = sourceCode });
+                    new CommandDefinition(
+                        sql,
+                        new { SourceCode = sourceCode },
+                        cancellationToken: ct));
 
             var inserted = 0;
             var candidates = 0;
@@ -258,6 +223,12 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
             foreach (var row in rows)
             {
                 ct.ThrowIfCancellationRequested();
+
+                if (string.IsNullOrWhiteSpace(row.RawFragment))
+                {
+                    skipped++;
+                    continue;
+                }
 
                 var ipaMap =
                     GenericIpaExtractor.ExtractIpaWithLocale(row.RawFragment);
@@ -297,20 +268,22 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
                                                  SELECT 1
                                                  FROM dbo.CanonicalWordPronunciation
                                                  WHERE CanonicalWordId = @CanonicalWordId
-                                                     AND LocaleCode = @LocaleCode
+                                                   AND LocaleCode = @LocaleCode
                                              )
-                                             INSERT INTO dbo.CanonicalWordPronunciation
-                                             (
-                                                 CanonicalWordId,
-                                                 LocaleCode,
-                                                 Ipa
-                                             )
-                                             VALUES
-                                             (
-                                                 @CanonicalWordId,
-                                                 @LocaleCode,
-                                                 @Ipa
-                                             );
+                                             BEGIN
+                                                 INSERT INTO dbo.CanonicalWordPronunciation
+                                                 (
+                                                     CanonicalWordId,
+                                                     LocaleCode,
+                                                     Ipa
+                                                 )
+                                                 VALUES
+                                                 (
+                                                     @CanonicalWordId,
+                                                     @LocaleCode,
+                                                     @Ipa
+                                                 );
+                                             END
                                              """;
 
                     var affected =
@@ -330,8 +303,8 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
                 }
             }
 
-            logger.LogInformation(
-                "IPA enrichment completed | Source={SourceCode} | Candidates={Candidates} | Inserted={Inserted} | Skipped={Skipped}",
+            _logger.LogInformation(
+                "IPA enrichment completed | SourceCode={SourceCode} | Candidates={Candidates} | Inserted={Inserted} | Skipped={Skipped}",
                 sourceCode,
                 candidates,
                 inserted,

@@ -1,12 +1,11 @@
 ﻿using Dapper;
 using DictionaryImporter.Core.Text;
+using DictionaryImporter.Domain.Models;
 using DictionaryImporter.Sources.Common.Helper;
 using DictionaryImporter.Sources.Common.Parsing;
-using DictionaryImporter.Sources.EnglishChinese;
-using DictionaryImporter.Sources.EnglishChinese.Parsing;
-using HtmlAgilityPack;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
+using System.Text.RegularExpressions;
 
 namespace DictionaryImporter.Infrastructure.Parsing;
 
@@ -70,11 +69,7 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
 
     public async Task ExecuteAsync(string sourceCode, CancellationToken ct)
     {
-        //if (!SourceDataHelper.ShouldContinueProcessing(sourceCode, _logger))
-        //{
-        //    _logger.LogInformation("Source {SourceCode} processing limit reached, skipping", sourceCode);
-        //    return;
-        //}
+        sourceCode = string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode;
 
         _logger.LogInformation("Stage=Parsing started | Source={SourceCode}", sourceCode);
 
@@ -101,10 +96,13 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
         var exampleInserted = 0;
         var synonymInserted = 0;
         var etymologyExtracted = 0;
+        var variantInserted = 0;
+
         var nonEnglishEntries = 0;
         var nonEnglishExamples = 0;
         var nonEnglishSynonyms = 0;
         var nonEnglishEtymology = 0;
+        var nonEnglishAliases = 0;
 
         foreach (var entry in entries)
         {
@@ -137,7 +135,7 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
             {
                 var (processedDefinition, definitionNonEnglishTextId) = await ProcessTextContent(
                     parsed.Definition,
-                    "Definition",
+                    fieldType: "Definition",
                     sourceCode,
                     ct);
 
@@ -149,7 +147,6 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
                     SenseNumber = parsed.SenseNumber,
                     Definition = processedDefinition,
                     RawFragment = parsed.RawFragment,
-                    // In the ExecuteAsync method, when creating currentParsed:
                     Domain = SourceDataHelper.ExtractProperDomain(sourceCode, parsed.Domain, parsed.Definition),
                     UsageLabel = parsed.UsageLabel,
                     Alias = parsed.Alias,
@@ -160,7 +157,6 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
                     NonEnglishTextId = definitionNonEnglishTextId
                 };
 
-                // Write parsed definition
                 var parsedId = await _parsedWriter.WriteAsync(
                     entry.DictionaryEntryId,
                     currentParsed,
@@ -178,11 +174,21 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
                 parsedInserted++;
                 if (definitionNonEnglishTextId.HasValue) nonEnglishEntries++;
 
-                // Process and write examples
+                // ✅ Examples (CLIENT-SIDE DISTINCT)
                 if (!string.IsNullOrWhiteSpace(parsed.Definition) || parsed.Examples?.Count > 0)
                 {
                     var exampleExtractor = _exampleExtractorRegistry.GetExtractor(sourceCode);
-                    var examples = exampleExtractor.Extract(currentParsed);
+                    var rawExamples = exampleExtractor.Extract(currentParsed) ?? new List<string>();
+
+                    // 1) normalize + trim
+                    // 2) drop placeholders
+                    // 3) distinct
+                    var examples = rawExamples
+                        .Select(e => NormalizeForExampleDedupe(e))
+                        .Where(e => !string.IsNullOrWhiteSpace(e))
+                        .Where(e => !IsPlaceholderExample(e))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
 
                     foreach (var exampleText in examples)
                     {
@@ -190,16 +196,21 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
 
                         var (processedExample, exampleNonEnglishTextId) = await ProcessTextContent(
                             exampleText,
-                            "Example",
+                            fieldType: "Example",
                             sourceCode,
                             ct);
 
+                        // If placeholder, skip writing (important to stop hash collisions + duplicates)
+                        if (IsPlaceholderExample(processedExample))
+                            continue;
+
                         var formattedExample = _formatter.FormatExample(processedExample);
                         var correctedExample = await _grammarText.NormalizeExampleAsync(formattedExample, ct);
+                        var finalExample = correctedExample ?? formattedExample;
 
                         await _exampleWriter.WriteAsync(
                             parsedId,
-                            correctedExample,
+                            finalExample,
                             sourceCode,
                             ct);
 
@@ -208,7 +219,7 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
                     }
                 }
 
-                // Process and write synonyms
+                // ✅ Synonyms (CLIENT-SIDE DISTINCT)
                 if (!string.IsNullOrWhiteSpace(parsed.Definition))
                 {
                     var synonymExtractor = _synonymExtractorRegistry.GetExtractor(sourceCode);
@@ -218,6 +229,7 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
                         parsed.RawFragment);
 
                     var validSynonyms = new List<string>();
+
                     foreach (var synonymResult in synonymResults)
                     {
                         if (synonymResult.ConfidenceLevel is not ("high" or "medium"))
@@ -226,16 +238,33 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
                         if (!synonymExtractor.ValidateSynonymPair(entry.Word, synonymResult.TargetHeadword))
                             continue;
 
+                        var rawSyn = synonymResult.TargetHeadword;
+
                         var (processedSynonym, synonymNonEnglishTextId) = await ProcessTextContent(
-                            synonymResult.TargetHeadword,
-                            "Synonym",
+                            rawSyn,
+                            fieldType: "Synonym",
                             sourceCode,
                             ct);
 
+                        // placeholders are noise -> skip
+                        if (IsPlaceholderSynonym(processedSynonym))
+                            continue;
+
                         var cleanedSynonym = _formatter.FormatSynonym(processedSynonym);
+
+                        cleanedSynonym = NormalizeForSynonymDedupe(cleanedSynonym);
+
                         if (!string.IsNullOrWhiteSpace(cleanedSynonym))
                             validSynonyms.Add(cleanedSynonym);
+
+                        if (synonymNonEnglishTextId.HasValue)
+                            nonEnglishSynonyms++;
                     }
+
+                    validSynonyms = validSynonyms
+                        .Where(s => !string.IsNullOrWhiteSpace(s))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
 
                     if (validSynonyms.Count > 0)
                     {
@@ -249,7 +278,7 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
                     }
                 }
 
-                // Process and write etymology
+                // ✅ Etymology
                 if (!string.IsNullOrWhiteSpace(parsed.Definition))
                 {
                     var etymologyExtractor = _etymologyExtractorRegistry.GetExtractor(sourceCode);
@@ -262,7 +291,7 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
                     {
                         var (processedEtymology, etymologyNonEnglishTextId) = await ProcessTextContent(
                             etymologyResult.EtymologyText,
-                            "Etymology",
+                            fieldType: "Etymology",
                             sourceCode,
                             ct);
 
@@ -284,7 +313,7 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
                     }
                 }
 
-                // Write cross references
+                // ✅ Cross references
                 if (currentParsed.CrossReferences != null)
                 {
                     foreach (var cr in currentParsed.CrossReferences)
@@ -294,48 +323,60 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
                     }
                 }
 
-                // Write alias
+                // ✅ Alias
                 if (!string.IsNullOrWhiteSpace(currentParsed.Alias))
                 {
                     var (processedAlias, aliasNonEnglishTextId) = await ProcessTextContent(
                         currentParsed.Alias,
-                        "Alias",
+                        fieldType: "Alias",
                         sourceCode,
                         ct);
 
                     await _aliasWriter.WriteAsync(
                         parsedId,
                         processedAlias,
+                        sourceCode,
                         ct);
 
                     aliasInserted++;
-                }
+                    if (aliasNonEnglishTextId.HasValue) nonEnglishAliases++;
 
-                // NOTE: Variant writing is not implemented yet
-                // The variant writer exists but we don't have variant data to pass
-                // If you need variants, you'll need to:
-                // 1. Extract variant data from parsed definitions
-                // 2. Call _variantWriter.WriteAsync with the correct parameters
-                // 3. Implement variant detection logic
+                    if (!string.IsNullOrWhiteSpace(entry.Word)
+                        && !string.Equals(entry.Word.Trim(), currentParsed.Alias.Trim(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        await _variantWriter.WriteAsync(
+                            entry.DictionaryEntryId,
+                            currentParsed.Alias.Trim(),
+                            variantType: "alias",
+                            sourceCode: sourceCode,
+                            ct);
+
+                        variantInserted++;
+                    }
+                }
             }
         }
 
         _logger.LogInformation(
             "Stage=Parsing completed | Source={SourceCode} | " +
             "Entries={Entries} | Parsed={Parsed} | CrossRefs={CrossRefs} | " +
-            "Aliases={Aliases} | Examples={Examples} | " +
+            "Aliases={Aliases} | Variants={Variants} | Examples={Examples} | " +
             "Synonyms={Synonyms} | Etymology={Etymology} | " +
-            "NonEnglish: Entries={NonEnglishEntries}, Examples={NonEnglishExamples}, Etymology={NonEnglishEtymology}",
+            "NonEnglish: Entries={NonEnglishEntries}, Examples={NonEnglishExamples}, Synonyms={NonEnglishSynonyms}, " +
+            "Aliases={NonEnglishAliases}, Etymology={NonEnglishEtymology}",
             sourceCode,
             entries.Count,
             parsedInserted,
             crossRefInserted,
             aliasInserted,
+            variantInserted,
             exampleInserted,
             synonymInserted,
             etymologyExtracted,
             nonEnglishEntries,
             nonEnglishExamples,
+            nonEnglishSynonyms,
+            nonEnglishAliases,
             nonEnglishEtymology);
     }
 
@@ -348,19 +389,29 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
         if (string.IsNullOrWhiteSpace(text))
             return (string.Empty, null);
 
-        // ✅ DETECT BILINGUAL TEXT (CRITICAL FOR ENG_CHN)
         var isBilingual = _languageDetectionService.IsBilingualText(text);
         var containsNonEnglish = _languageDetectionService.ContainsNonEnglish(text);
 
         if (!containsNonEnglish && !isBilingual)
         {
-            // English-only text
-            var formattedText = _formatter.FormatDefinition(text);
+            string formattedText = fieldType switch
+            {
+                "Example" => _formatter.FormatExample(text),
+                "Synonym" => _formatter.FormatSynonym(text),
+                "Alias" => _formatter.FormatSynonym(text),
+                _ => _formatter.FormatDefinition(text)
+            };
+
+            if (fieldType == "Example")
+            {
+                var normalized = await _grammarText.NormalizeExampleAsync(formattedText, ct);
+                return (normalized ?? formattedText, null);
+            }
+
             var normalizedText = await _grammarText.NormalizeDefinitionAsync(formattedText, ct);
             return (normalizedText ?? formattedText, null);
         }
 
-        // ✅ Non-English or mixed language text
         var nonEnglishTextId = await _nonEnglishTextStorage.StoreNonEnglishTextAsync(
             text,
             sourceCode,
@@ -368,8 +419,8 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
             ct);
 
         var placeholder = isBilingual
-            ? $"[BILINGUAL_{fieldType.ToUpper()}]"
-            : $"[NON_ENGLISH_{fieldType.ToUpper()}]";
+            ? $"[BILINGUAL_{fieldType.ToUpperInvariant()}]"
+            : $"[NON_ENGLISH_{fieldType.ToUpperInvariant()}]";
 
         _logger.LogDebug(
             "Stored {Type} text | Field={Field} | Source={Source} | TextId={TextId} | Bilingual={Bilingual}",
@@ -392,6 +443,58 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
             HasNonEnglishText = false
         };
     }
+
+    private static bool IsPlaceholderExample(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return true;
+
+        return text.StartsWith("[NON_ENGLISH_", StringComparison.OrdinalIgnoreCase)
+               || text.StartsWith("[BILINGUAL_", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPlaceholderSynonym(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return true;
+
+        return text.StartsWith("[NON_ENGLISH_", StringComparison.OrdinalIgnoreCase)
+               || text.StartsWith("[BILINGUAL_", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeForExampleDedupe(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        var t = text.Trim();
+
+        t = Regex.Replace(t, @"\s+", " ").Trim();
+        t = t.Replace("’", "'");
+
+        t = t.Trim('\"', '\'', '“', '”', '‘', '’', '.', ',', ';', ':', '!', '?');
+
+        if (t.Length > 800)
+            t = t.Substring(0, 800).Trim();
+
+        return t;
+    }
+
+    private static string NormalizeForSynonymDedupe(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        var t = text.Trim();
+        t = Regex.Replace(t, @"\s+", " ").Trim();
+        t = t.Replace("’", "'");
+
+        if (t.Length > 200)
+            t = t.Substring(0, 200).Trim();
+
+        return t;
+    }
+
     private string GetPreview(string text, int length)
     {
         if (string.IsNullOrWhiteSpace(text)) return "[empty]";

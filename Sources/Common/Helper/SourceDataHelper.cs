@@ -78,25 +78,7 @@ namespace DictionaryImporter.Sources.Common.Helper
             normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
             return normalized;
         }
-
-        // ADD: Helper method to check for Chinese characters (simpler version)
-        public static bool ContainsChineseCharacters(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text)) return false;
-            // Check for Chinese characters using Unicode ranges
-            foreach (char c in text)
-            {
-                int code = (int)c;
-                if ((code >= 0x4E00 && code <= 0x9FFF) || // CJK Unified Ideographs
-                    (code >= 0x3400 && code <= 0x4DBF) || // CJK Extension A
-                    (code >= 0x3000 && code <= 0x303F))   // CJK Symbols and Punctuation
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
+        
         #endregion Entry Validation
 
         #region Shared Validation and Extraction
@@ -209,40 +191,6 @@ namespace DictionaryImporter.Sources.Common.Helper
         }
 
         #endregion Text Normalization
-
-        #region Kaikki JSON Processing
-
-        public static string? ExtractEtymology(string rawFragment)
-        {
-            return JsonProcessor.ExtractEtymology(rawFragment);
-        }
-
-        public static List<string> ExtractExamples(string rawFragment)
-        {
-            return JsonProcessor.ExtractExamples(rawFragment);
-        }
-
-        public static List<string> ExtractSynonyms(string rawFragment)
-        {
-            return JsonProcessor.ExtractSynonyms(rawFragment);
-        }
-
-        public static string? ExtractDomain(JsonElement sense)
-        {
-            return JsonProcessor.ExtractDomain(sense);
-        }
-
-        public static string? ExtractUsageLabel(JsonElement sense)
-        {
-            return JsonProcessor.ExtractUsageLabel(sense);
-        }
-
-        public static List<CrossReference> ExtractCrossReferences(JsonElement sense)
-        {
-            return JsonProcessor.ExtractCrossReferences(sense);
-        }
-
-        #endregion Kaikki JSON Processing
 
         #region Webster and General Parser
 

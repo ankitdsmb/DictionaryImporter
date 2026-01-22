@@ -33,7 +33,7 @@ namespace DictionaryImporter.Core.Validation
                 if (entry.SourceCode == "KAIKKI" && !string.IsNullOrWhiteSpace(entry.RawFragment))
                 {
                     // Try to extract definition from RawFragment
-                    var definitions = JsonProcessor.ExtractEnglishDefinitions(entry.RawFragment);
+                    var definitions = KaikkiParsingHelper.ExtractEnglishDefinitions(entry.RawFragment);
                     if (definitions.Count > 0)
                     {
                         entry.Definition = definitions.First();

@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Infrastructure.Persistence;
-using DictionaryImporter.Infrastructure.Persistence.Batched;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Bootstrap.Extensions

@@ -2,8 +2,8 @@
 {
     public sealed class DictionaryEntryEtymology
     {
-        public long DictionaryEntryId { get; init; }
-        public string EtymologyText { get; init; } = null!;
+        public long DictionaryEntryId { get; set; }
+        public string EtymologyText { get; set; } = null!;
         public string? LanguageCode { get; init; }
         public DateTime CreatedUtc { get; init; }
         public string SourceCode { get; set; } = string.Empty;

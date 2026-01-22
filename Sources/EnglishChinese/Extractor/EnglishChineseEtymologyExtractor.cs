@@ -1,68 +1,120 @@
-﻿namespace DictionaryImporter.Sources.EnglishChinese.Extractor
+﻿using DictionaryImporter.Domain.Models;
+using DictionaryImporter.Sources.Common.Helper;
+using Microsoft.Extensions.Logging;
+
+namespace DictionaryImporter.Sources.EnglishChinese.Extractor
 {
     public sealed class EnglishChineseEtymologyExtractor(ILogger<EnglishChineseEtymologyExtractor> logger)
         : IEtymologyExtractor
     {
-        private static readonly Regex LanguageOriginRegex =
-            new(@"(?:源自|来自|源于|从…演变而来)\s*(?<language>[^\s，。]+)",
-                RegexOptions.Compiled);
-
-        private static readonly Dictionary<string, string> ChineseLanguageMappings =
-            new(StringComparer.OrdinalIgnoreCase)
-            {
-                { "拉丁语", "la" },
-                { "希腊语", "el" },
-                { "法语", "fr" },
-                { "德语", "de" },
-                { "英语", "en" },
-                { "古英语", "ang" },
-                { "中古英语", "enm" },
-                { "意大利语", "it" },
-                { "西班牙语", "es" },
-                { "荷兰语", "nl" },
-                { "日语", "ja" },
-                { "韩语", "ko" },
-                { "俄语", "ru" },
-                { "阿拉伯语", "ar" },
-                { "梵语", "sa" }
-            };
-
-        private readonly ILogger<EnglishChineseEtymologyExtractor> _logger = logger;
-
         public string SourceCode => "ENG_CHN";
 
-        public EtymologyExtractionResult Extract(
-            string headword,
-            string definition,
-            string? rawDefinition = null)
+        public EtymologyExtractionResult Extract(string headword, string definition, string? rawDefinition = null)
         {
-            return new EtymologyExtractionResult
+            if (string.IsNullOrWhiteSpace(definition))
             {
-                EtymologyText = null,
-                LanguageCode = null,
-                CleanedDefinition = definition,
-                DetectionMethod = "NotApplicable",
-                SourceText = string.Empty
-            };
-        }
-
-        public (string? Etymology, string? LanguageCode) ExtractFromText(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return (null, null);
-
-            var match = LanguageOriginRegex.Match(text);
-            if (match.Success)
-            {
-                var language = match.Groups["language"].Value.Trim();
-
-                if (ChineseLanguageMappings.TryGetValue(language, out var languageCode))
-                    return ($"源自{language}", languageCode);
-
-                return ($"源自{language}", null);
+                return new EtymologyExtractionResult
+                {
+                    EtymologyText = null,
+                    LanguageCode = null,
+                    CleanedDefinition = definition,
+                    DetectionMethod = "MissingDefinition",
+                    SourceText = string.Empty
+                };
             }
 
-            return (null, null);
+            try
+            {
+                // Use helper class to parse the English-Chinese entry
+                var parsedData = EnglishChineseParsingHelper.ParseEngChnEntry(definition);
+
+                // Extract etymology from parsed data
+                var etymologyText = parsedData.Etymology;
+
+                if (!string.IsNullOrWhiteSpace(etymologyText))
+                {
+                    return new EtymologyExtractionResult
+                    {
+                        EtymologyText = CleanEtymologyText(etymologyText),
+                        CleanedDefinition = GetCleanedDefinition(parsedData),
+                        DetectionMethod = "ENG_CHN_ParsingHelper",
+                        SourceText = etymologyText
+                    };
+                }
+
+                // Check additional senses for etymology
+                if (parsedData.AdditionalSenses != null && parsedData.AdditionalSenses.Count > 0)
+                {
+                    foreach (var sense in parsedData.AdditionalSenses)
+                    {
+                        if (!string.IsNullOrWhiteSpace(sense.Etymology))
+                        {
+                            return new EtymologyExtractionResult
+                            {
+                                EtymologyText = CleanEtymologyText(sense.Etymology),
+                                CleanedDefinition = GetCleanedDefinition(parsedData),
+                                DetectionMethod = "ENG_CHN_ParsingHelper_AdditionalSense",
+                                SourceText = sense.Etymology
+                            };
+                        }
+                    }
+                }
+
+                return new EtymologyExtractionResult
+                {
+                    EtymologyText = null,
+                    LanguageCode = null,
+                    CleanedDefinition = GetCleanedDefinition(parsedData),
+                    DetectionMethod = "NoEtymologyFound",
+                    SourceText = string.Empty
+                };
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Error extracting ENG_CHN etymology | Word={Word}", headword);
+
+                return new EtymologyExtractionResult
+                {
+                    EtymologyText = null,
+                    LanguageCode = null,
+                    CleanedDefinition = definition,
+                    DetectionMethod = "ExtractorError",
+                    SourceText = string.Empty
+                };
+            }
+        }
+
+        private static string CleanEtymologyText(string etymology)
+        {
+            if (string.IsNullOrWhiteSpace(etymology))
+                return etymology;
+
+            // Remove brackets and angle brackets if present
+            var cleaned = etymology
+                .Replace("[", "")
+                .Replace("]", "")
+                .Replace("<", "")
+                .Replace(">", "")
+                .Trim();
+
+            // Remove "字面意义：" prefix if present
+            if (cleaned.StartsWith("字面意义："))
+                cleaned = cleaned["字面意义：".Length..].Trim();
+
+            return cleaned;
+        }
+        private static string GetCleanedDefinition(EnglishChineseParsedData parsedData)
+        {
+            // Use the main definition from parsed data
+            var cleaned = parsedData.MainDefinition;
+
+            // If main definition is empty, extract Chinese definition from English side
+            if (string.IsNullOrWhiteSpace(cleaned) && !string.IsNullOrWhiteSpace(parsedData.EnglishDefinition))
+            {
+                cleaned = EnglishChineseParsingHelper.ExtractChineseDefinition(parsedData.EnglishDefinition);
+            }
+
+            return cleaned ?? string.Empty;
         }
     }
 }

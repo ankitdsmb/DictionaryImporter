@@ -1,6 +1,10 @@
-﻿using DictionaryImporter.Sources.Common.Helper;
-using DictionaryImporter.Sources.Common.Parsing;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
+using DictionaryImporter.Sources.Common.Helper;
+using DictionaryImporter.Sources.Common.Parsing;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Kaikki.Parsing
 {
@@ -23,15 +27,14 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
             var raw = entry.RawFragment;
 
             if (string.IsNullOrWhiteSpace(raw))
+            {
+                yield return SourceDataHelper.CreateFallbackParsedDefinition(entry);
                 yield break;
+            }
 
             raw = raw.TrimStart();
 
-            // ✅ FIX: Kaikki parser must only parse JSON fragments
-            // Prevent: 'A' is an invalid start of a value
-            // Prevent: ',' is invalid after a single JSON value
-            // Prevent: '-' is an invalid end of a number
-            if (!(raw.StartsWith("{") || raw.StartsWith("[")))
+            if (!KaikkiParsingHelper.IsJsonRawFragment(raw))
             {
                 _logger.LogWarning(
                     "KaikkiDefinitionParser skipping non-JSON RawFragment. Word={Word}",
@@ -43,18 +46,22 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
             var parsedDefinitions = new List<ParsedDefinition>();
 
+            // ✅ Parse safely using helper (clone root + safe fail)
+            if (!KaikkiParsingHelper.TryParseJsonRoot(raw, out var root))
+            {
+                _logger.LogDebug(
+                    "KaikkiDefinitionParser JSON invalid/truncated. Using fallback. Word={Word} Len={Len}",
+                    entry.Word,
+                    raw.Length);
+
+                yield return SourceDataHelper.CreateFallbackParsedDefinition(entry);
+                yield break;
+            }
+
             try
             {
-                // ✅ FIX: parse the trimmed raw
-                using var doc = JsonDocument.Parse(raw);
-                var root = doc.RootElement;
-
-                // FIX: Use Kaikki JsonProcessor helper (consistent with transformer)
-                if (!JsonProcessor.IsEnglishEntry(root))
-                {
-                    _logger.LogDebug("Skipping non-English entry: {Word}", entry.Word);
+                if (!KaikkiParsingHelper.IsEnglishEntry(root))
                     yield break;
-                }
 
                 if (root.TryGetProperty("senses", out var senses) && senses.ValueKind == JsonValueKind.Array)
                 {
@@ -62,13 +69,11 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
                     foreach (var sense in senses.EnumerateArray())
                     {
-                        // FIX: Use Kaikki JsonProcessor helper (safe)
-                        if (!JsonProcessor.IsEnglishSense(sense))
+                        if (!KaikkiParsingHelper.IsEnglishSense(sense))
                             continue;
 
                         var parsed = ExtractParsedDefinition(sense, entry, senseIndex);
 
-                        // FIX: Never add null
                         if (parsed != null)
                         {
                             parsedDefinitions.Add(parsed);
@@ -78,18 +83,23 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                 }
 
                 if (parsedDefinitions.Count == 0)
-                {
                     parsedDefinitions.Add(SourceDataHelper.CreateFallbackParsedDefinition(entry));
-                }
-            }
-            catch (System.Text.Json.JsonException ex) // ✅ FIX: correct exception type
-            {
-                _logger.LogError(ex, "Failed to parse JSON for entry: {Word}", entry.Word);
-                parsedDefinitions.Add(SourceDataHelper.CreateFallbackParsedDefinition(entry));
+
+                parsedDefinitions = parsedDefinitions
+                    .GroupBy(d => $"{d.MeaningTitle}|{d.SenseNumber}|{(d.Definition ?? "").Trim()}",
+                        StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.First())
+                    .ToList();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error parsing entry: {Word}", entry.Word);
+                // ✅ Never crash import
+                _logger.LogDebug(
+                    ex,
+                    "KaikkiDefinitionParser unexpected error (fallback used). Word={Word}",
+                    entry.Word);
+
+                parsedDefinitions.Clear();
                 parsedDefinitions.Add(SourceDataHelper.CreateFallbackParsedDefinition(entry));
             }
 
@@ -99,8 +109,14 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
         private ParsedDefinition? ExtractParsedDefinition(JsonElement sense, DictionaryEntry entry, int senseNumber)
         {
-            var definition = ExtractDefinitionFromSense(sense);
+            var definition = KaikkiParsingHelper.ExtractDefinitionFromSense(sense);
             if (string.IsNullOrWhiteSpace(definition))
+                return null;
+
+            definition = KaikkiParsingHelper.NormalizeBrokenHtmlEntities(definition);
+            definition = KaikkiParsingHelper.CleanKaikkiText(definition);
+
+            if (!KaikkiParsingHelper.IsAcceptableEnglishText(definition))
                 return null;
 
             return new ParsedDefinition
@@ -109,73 +125,12 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                 Definition = definition,
                 RawFragment = entry.RawFragment,
                 SenseNumber = senseNumber,
-                Domain = SourceDataHelper.ExtractDomain(sense),
-                UsageLabel = SourceDataHelper.ExtractUsageLabel(sense),
-                CrossReferences = SourceDataHelper.ExtractCrossReferences(sense),
-                Synonyms = ExtractSynonymsList(sense),
+                Domain = KaikkiParsingHelper.ExtractDomain(sense),
+                UsageLabel = KaikkiParsingHelper.ExtractUsageLabel(sense),
+                CrossReferences = KaikkiParsingHelper.ExtractCrossReferences(sense),
+                Synonyms = KaikkiParsingHelper.ExtractSynonymsList(sense),
                 Alias = null
             };
-        }
-
-        private static string? ExtractDefinitionFromSense(JsonElement sense)
-        {
-            if (sense.TryGetProperty("glosses", out var glosses) && glosses.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var gloss in glosses.EnumerateArray())
-                {
-                    if (gloss.ValueKind != JsonValueKind.String)
-                        continue;
-
-                    var definition = gloss.GetString()?.Trim();
-
-                    if (!string.IsNullOrWhiteSpace(definition) &&
-                        definition.Length > 3 &&
-                        !definition.Contains("→") &&
-                        !definition.StartsWith("{") &&
-                        !definition.Contains("\"lang\":"))
-                    {
-                        return definition;
-                    }
-                }
-            }
-
-            if (sense.TryGetProperty("raw_glosses", out var rawGlosses) && rawGlosses.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var rawGloss in rawGlosses.EnumerateArray())
-                {
-                    if (rawGloss.ValueKind != JsonValueKind.String)
-                        continue;
-
-                    var definition = rawGloss.GetString()?.Trim();
-                    if (!string.IsNullOrWhiteSpace(definition))
-                        return definition;
-                }
-            }
-
-            return null;
-        }
-
-        private static List<string> ExtractSynonymsList(JsonElement sense)
-        {
-            var synonyms = new List<string>();
-
-            if (sense.TryGetProperty("synonyms", out var synonymsArray) && synonymsArray.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var synonym in synonymsArray.EnumerateArray())
-                {
-                    if (synonym.ValueKind != JsonValueKind.Object)
-                        continue;
-
-                    if (synonym.TryGetProperty("word", out var word) && word.ValueKind == JsonValueKind.String)
-                    {
-                        var synonymWord = word.GetString();
-                        if (!string.IsNullOrWhiteSpace(synonymWord))
-                            synonyms.Add(synonymWord);
-                    }
-                }
-            }
-
-            return synonyms;
         }
     }
 }

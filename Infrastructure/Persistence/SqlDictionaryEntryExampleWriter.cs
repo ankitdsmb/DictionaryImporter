@@ -1,15 +1,17 @@
-﻿// File: Infrastructure/Persistence/SqlDictionaryEntryExampleWriter.cs
+﻿using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using Dapper;
-using DictionaryImporter.Core.Persistence; // Add this using
 using DictionaryImporter.Core.Text;
-using DictionaryImporter.Infrastructure.Persistence.Batched;
-using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using LanguageDetector = DictionaryImporter.Core.Text.LanguageDetector;
 
 namespace DictionaryImporter.Infrastructure.Persistence
 {
-    public sealed class SqlDictionaryEntryExampleWriter : IDictionaryEntryExampleWriter // Implement interface
+    public sealed class SqlDictionaryEntryExampleWriter : IDictionaryEntryExampleWriter
     {
         private readonly string _connectionString;
         private readonly GenericSqlBatcher _batcher;
@@ -31,46 +33,109 @@ namespace DictionaryImporter.Infrastructure.Persistence
             string sourceCode,
             CancellationToken ct)
         {
-            // Check for non-English content
+            sourceCode = string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode;
+
+            if (dictionaryEntryParsedId <= 0)
+                return;
+
+            exampleText ??= string.Empty;
+            exampleText = exampleText.Trim();
+
+            if (string.IsNullOrWhiteSpace(exampleText))
+                return;
+
+            // Do not store placeholders
+            if (IsPlaceholderExample(exampleText))
+                return;
+
             bool hasNonEnglishText = LanguageDetector.ContainsNonEnglishText(exampleText);
             long? nonEnglishTextId = null;
-            string exampleToStore = exampleText;
+            string? exampleToStore = exampleText;
 
             if (hasNonEnglishText)
             {
-                // Store original in non-English table
                 nonEnglishTextId = await StoreNonEnglishTextAsync(
-                    exampleText,
-                    sourceCode,
+                    originalText: exampleText,
+                    sourceCode: sourceCode,
+                    fieldType: "Example",
                     ct);
 
-                // Replace with placeholder for main table
-                exampleToStore = "[NON_ENGLISH]";
+                // Non-English example stored via NonEnglishTextId, do not store ExampleText
+                exampleToStore = null;
 
                 _logger.LogDebug(
                     "Stored non-English example text for ParsedId={ParsedId}, NonEnglishTextId={TextId}",
                     dictionaryEntryParsedId, nonEnglishTextId);
             }
+            else
+            {
+                exampleToStore = NormalizeExampleForDedupe(exampleToStore ?? string.Empty);
+                if (string.IsNullOrWhiteSpace(exampleToStore))
+                    return;
+            }
 
+            // ✅ IMPORTANT:
+            // ExampleHash is COMPUTED => never insert/update it.
+
+            // FIX:
+            // Deduplicate at DictionaryEntryId (word-level), not only ParsedId-level.
+            // This prevents the same example being inserted multiple times for multiple senses.
             const string sql = """
-                INSERT INTO dbo.DictionaryEntryExample (
-                    DictionaryEntryParsedId, ExampleText,
-                    SourceCode, HasNonEnglishText, NonEnglishTextId,
-                    CreatedUtc
-                ) VALUES (
-                    @DictionaryEntryParsedId, @ExampleText,
-                    @SourceCode, @HasNonEnglishText, @NonEnglishTextId,
-                    SYSUTCDATETIME()
-                );
+                DECLARE @DictionaryEntryId BIGINT;
+
+                SELECT @DictionaryEntryId = p.DictionaryEntryId
+                FROM dbo.DictionaryEntryParsed p WITH (NOLOCK)
+                WHERE p.DictionaryEntryParsedId = @DictionaryEntryParsedId;
+
+                IF @DictionaryEntryId IS NULL
+                    RETURN;
+
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.DictionaryEntryExample e WITH (UPDLOCK, HOLDLOCK)
+                    INNER JOIN dbo.DictionaryEntryParsed p2 WITH (NOLOCK)
+                        ON p2.DictionaryEntryParsedId = e.DictionaryEntryParsedId
+                    WHERE p2.DictionaryEntryId = @DictionaryEntryId
+                      AND e.SourceCode = @SourceCode
+                      AND (
+                            (
+                                @HasNonEnglishText = 0
+                                AND e.NonEnglishTextId IS NULL
+                                AND e.ExampleText = @ExampleText
+                            )
+                            OR
+                            (
+                                @HasNonEnglishText = 1
+                                AND e.NonEnglishTextId = @NonEnglishTextId
+                            )
+                          )
+                )
+                BEGIN
+                    INSERT INTO dbo.DictionaryEntryExample (
+                        DictionaryEntryParsedId,
+                        ExampleText,
+                        SourceCode,
+                        CreatedUtc,
+                        HasNonEnglishText,
+                        NonEnglishTextId
+                    ) VALUES (
+                        @DictionaryEntryParsedId,
+                        @ExampleText,
+                        @SourceCode,
+                        SYSUTCDATETIME(),
+                        @HasNonEnglishText,
+                        @NonEnglishTextId
+                    );
+                END
                 """;
 
             var parameters = new
             {
                 DictionaryEntryParsedId = dictionaryEntryParsedId,
-                ExampleText = exampleToStore,
+                ExampleText = exampleToStore, // null for non-English
                 SourceCode = sourceCode,
                 HasNonEnglishText = hasNonEnglishText,
-                NonEnglishTextId = (object?)nonEnglishTextId ?? DBNull.Value
+                NonEnglishTextId = nonEnglishTextId
             };
 
             await _batcher.QueueOperationAsync(
@@ -78,22 +143,45 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 sql,
                 parameters,
                 CommandType.Text,
-                30);
+                30,
+                ct);
+        }
+
+        private static bool IsPlaceholderExample(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var t = text.Trim();
+
+            return t.Equals("[NON_ENGLISH]", StringComparison.OrdinalIgnoreCase)
+                || t.Equals("[BILINGUAL_EXAMPLE]", StringComparison.OrdinalIgnoreCase)
+                || t.Equals("NON_ENGLISH", StringComparison.OrdinalIgnoreCase)
+                || t.Equals("BILINGUAL_EXAMPLE", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task<long> StoreNonEnglishTextAsync(
             string originalText,
             string sourceCode,
+            string fieldType,
             CancellationToken ct)
         {
             const string sql = """
                 INSERT INTO dbo.DictionaryNonEnglishText (
-                    OriginalText, DetectedLanguage, CharacterCount,
-                    SourceCode, CreatedUtc
+                    OriginalText,
+                    DetectedLanguage,
+                    CharacterCount,
+                    SourceCode,
+                    FieldType,
+                    CreatedUtc
                 ) OUTPUT INSERTED.NonEnglishTextId
                 VALUES (
-                    @OriginalText, @DetectedLanguage, @CharacterCount,
-                    @SourceCode, SYSUTCDATETIME()
+                    @OriginalText,
+                    @DetectedLanguage,
+                    @CharacterCount,
+                    @SourceCode,
+                    @FieldType,
+                    SYSUTCDATETIME()
                 );
                 """;
 
@@ -102,9 +190,10 @@ namespace DictionaryImporter.Infrastructure.Persistence
             var parameters = new
             {
                 OriginalText = originalText,
-                DetectedLanguage = languageCode ?? (object)DBNull.Value,
+                DetectedLanguage = languageCode,
                 CharacterCount = originalText.Length,
-                SourceCode = sourceCode
+                SourceCode = string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode,
+                FieldType = fieldType
             };
 
             await using var connection = new SqlConnection(_connectionString);
@@ -112,6 +201,21 @@ namespace DictionaryImporter.Infrastructure.Persistence
 
             return await connection.ExecuteScalarAsync<long>(
                 new CommandDefinition(sql, parameters, cancellationToken: ct));
+        }
+
+        private static string NormalizeExampleForDedupe(string example)
+        {
+            if (string.IsNullOrWhiteSpace(example))
+                return string.Empty;
+
+            var t = example.Trim();
+
+            t = Regex.Replace(t, @"\s+", " ").Trim();
+
+            if (t.Length > 800)
+                t = t.Substring(0, 800).Trim();
+
+            return t;
         }
     }
 }
