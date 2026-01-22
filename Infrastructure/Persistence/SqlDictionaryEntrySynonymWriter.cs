@@ -1,8 +1,16 @@
-﻿using DictionaryImporter.Infrastructure.Persistence.Batched;
-using Microsoft.Data.SqlClient;
+﻿// File: Infrastructure/Persistence/SqlDictionaryEntrySynonymWriter.cs
+using Dapper;
+using DictionaryImporter.Core.Text;
+using DictionaryImporter.Domain.Models;
 using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
 using System.Data;
-using System.Data.Common;
+using System.Linq;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using LanguageDetector = DictionaryImporter.Core.Text.LanguageDetector;
 
 namespace DictionaryImporter.Infrastructure.Persistence
 {
@@ -10,10 +18,9 @@ namespace DictionaryImporter.Infrastructure.Persistence
     {
         private readonly string _connectionString;
         private readonly ILogger<SqlDictionaryEntrySynonymWriter> _logger;
-        private GenericSqlBatcher _batcher;
-        private bool _ownsBatcher = false;
+        private readonly GenericSqlBatcher _batcher;
+        private readonly bool _ownsBatcher;
 
-        // Constructor 1: With batcher (for DI)
         public SqlDictionaryEntrySynonymWriter(
             string connectionString,
             ILogger<SqlDictionaryEntrySynonymWriter> logger,
@@ -27,7 +34,6 @@ namespace DictionaryImporter.Infrastructure.Persistence
             _logger.LogInformation("SqlDictionaryEntrySynonymWriter initialized with injected batcher");
         }
 
-        // Constructor 2: Without batcher (creates its own) - FIXED
         public SqlDictionaryEntrySynonymWriter(
             string connectionString,
             ILogger<SqlDictionaryEntrySynonymWriter> logger)
@@ -35,7 +41,6 @@ namespace DictionaryImporter.Infrastructure.Persistence
             _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-            // FIXED: Create batcher WITHOUT AddConsole (use existing logger)
             _batcher = CreateInternalBatcher();
             _ownsBatcher = true;
 
@@ -46,12 +51,8 @@ namespace DictionaryImporter.Infrastructure.Persistence
         {
             try
             {
-                // Option 1: Use a NullLogger if you don't need batcher logs
                 var nullLogger = Microsoft.Extensions.Logging.Abstractions.NullLogger<GenericSqlBatcher>.Instance;
                 return new GenericSqlBatcher(_connectionString, nullLogger);
-
-                // Option 2: Forward logs through our existing logger (simplified)
-                // return new GenericSqlBatcher(_connectionString, new ForwardingLogger(_logger));
             }
             catch (Exception ex)
             {
@@ -60,88 +61,130 @@ namespace DictionaryImporter.Infrastructure.Persistence
             }
         }
 
-        // Forwarding logger implementation
-        private class ForwardingLogger : ILogger<GenericSqlBatcher>
-        {
-            private readonly ILogger _targetLogger;
-
-            public ForwardingLogger(ILogger targetLogger)
-            {
-                _targetLogger = targetLogger;
-            }
-
-            public IDisposable BeginScope<TState>(TState state) => _targetLogger.BeginScope(state);
-
-            public bool IsEnabled(LogLevel logLevel) => _targetLogger.IsEnabled(logLevel);
-
-            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
-                Func<TState, Exception?, string> formatter)
-            {
-                _targetLogger.Log(logLevel, eventId, state, exception, formatter);
-            }
-        }
-
         public async Task WriteAsync(DictionaryEntrySynonym synonym, CancellationToken ct)
         {
-            const string sql = @"
+            if (synonym == null)
+                throw new ArgumentNullException(nameof(synonym));
+
+            synonym.SourceCode = string.IsNullOrWhiteSpace(synonym.SourceCode) ? "UNKNOWN" : synonym.SourceCode.Trim();
+
+            if (synonym.DictionaryEntryParsedId <= 0)
+                return;
+
+            var rawSynonymText = synonym.SynonymText ?? string.Empty;
+            rawSynonymText = rawSynonymText.Trim();
+
+            if (string.IsNullOrWhiteSpace(rawSynonymText))
+                return;
+
+            // Detect non-English synonym
+            bool hasNonEnglishText = LanguageDetector.ContainsNonEnglishText(rawSynonymText);
+            long? nonEnglishTextId = null;
+
+            string? synonymToStore = rawSynonymText;
+
+            if (hasNonEnglishText)
+            {
+                nonEnglishTextId = await StoreNonEnglishTextAsync(
+                    originalText: rawSynonymText,
+                    sourceCode: synonym.SourceCode,
+                    fieldType: "Synonym",
+                    ct);
+
+                // Store SynonymText as NULL and link via NonEnglishTextId
+                synonymToStore = null;
+            }
+            else
+            {
+                synonymToStore = NormalizeSynonymText(synonymToStore);
+
+                if (string.IsNullOrWhiteSpace(synonymToStore))
+                    return;
+            }
+
+            // Concurrency-safe dedupe (NOLOCK removed)
+            const string sql = """
                 IF NOT EXISTS (
-                    SELECT 1 FROM dbo.DictionaryEntrySynonym
+                    SELECT 1
+                    FROM dbo.DictionaryEntrySynonym WITH (UPDLOCK, HOLDLOCK)
                     WHERE DictionaryEntryParsedId = @DictionaryEntryParsedId
-                    AND SynonymText = @SynonymText
+                      AND SourceCode = @SourceCode
+                      AND (
+                            (
+                                @HasNonEnglishText = 0
+                                AND SynonymText = @SynonymText
+                                AND NonEnglishTextId IS NULL
+                            )
+                            OR
+                            (
+                                @HasNonEnglishText = 1
+                                AND NonEnglishTextId = @NonEnglishTextId
+                            )
+                          )
                 )
                 BEGIN
                     INSERT INTO dbo.DictionaryEntrySynonym
-                    (DictionaryEntryParsedId, SynonymText, Source, CreatedUtc)
-                    VALUES (@DictionaryEntryParsedId, @SynonymText,
-                            ISNULL(@Source, 'dictionary'), SYSUTCDATETIME());
-                END";
+                    (DictionaryEntryParsedId, SynonymText, SourceCode, CreatedUtc, HasNonEnglishText, NonEnglishTextId)
+                    VALUES
+                    (@DictionaryEntryParsedId, @SynonymText, @SourceCode, SYSUTCDATETIME(), @HasNonEnglishText, @NonEnglishTextId);
+                END
+                """;
 
-            if (_batcher == null)
+            var parameters = new
             {
-                _logger.LogError("Batcher is null, using direct execution");
-                await using var conn = new SqlConnection(_connectionString);
-                await conn.ExecuteAsync(new CommandDefinition(sql, synonym, cancellationToken: ct));
-                return;
-            }
+                DictionaryEntryParsedId = synonym.DictionaryEntryParsedId,
+                SynonymText = synonymToStore,
+                SourceCode = synonym.SourceCode,
+                HasNonEnglishText = hasNonEnglishText,
+                NonEnglishTextId = nonEnglishTextId
+            };
 
             await _batcher.QueueOperationAsync(
                 "INSERT_Synonym",
                 sql,
-                synonym,
+                parameters,
                 CommandType.Text,
-                30);
+                30,
+                ct);
         }
 
         public async Task BulkWriteAsync(
             IEnumerable<DictionaryEntrySynonym> synonyms,
             CancellationToken ct)
         {
+            // Keep bulk write ONLY for English normalized synonyms
+            if (synonyms == null)
+                return;
+
+            var synonymTable = CreateSynonymTable(synonyms);
+
+            if (synonymTable.Rows.Count == 0)
+                return;
+
             const string sql = @"
                 INSERT INTO dbo.DictionaryEntrySynonym
-                (DictionaryEntryParsedId, SynonymText, Source, CreatedUtc)
+                (DictionaryEntryParsedId, SynonymText, SourceCode, CreatedUtc, HasNonEnglishText, NonEnglishTextId)
                 SELECT
                     s.DictionaryEntryParsedId,
                     s.SynonymText,
-                    ISNULL(s.Source, 'dictionary'),
-                    SYSUTCDATETIME()
+                    ISNULL(s.SourceCode, 'UNKNOWN'),
+                    SYSUTCDATETIME(),
+                    0,
+                    NULL
                 FROM @Synonyms s
                 WHERE NOT EXISTS (
                     SELECT 1
-                    FROM dbo.DictionaryEntrySynonym es
+                    FROM dbo.DictionaryEntrySynonym es WITH (UPDLOCK, HOLDLOCK)
                     WHERE es.DictionaryEntryParsedId = s.DictionaryEntryParsedId
                       AND es.SynonymText = s.SynonymText
+                      AND es.SourceCode = ISNULL(s.SourceCode, 'UNKNOWN')
+                      AND es.NonEnglishTextId IS NULL
                 )";
 
-            var synonymTable = CreateSynonymTable(synonyms);
-            var param = new { Synonyms = synonymTable.AsTableValuedParameter("dbo.DictionaryEntrySynonymType") };
-
-            if (_batcher == null)
+            var param = new
             {
-                _logger.LogError("Batcher is null, using direct execution for bulk write");
-                await using var conn = new SqlConnection(_connectionString);
-                await conn.ExecuteAsync(new CommandDefinition(sql, param, cancellationToken: ct));
-                return;
-            }
+                Synonyms = synonymTable.AsTableValuedParameter("dbo.DictionaryEntrySynonymType")
+            };
 
             await _batcher.ExecuteImmediateAsync(sql, param, CommandType.Text, 30, ct);
         }
@@ -152,60 +195,110 @@ namespace DictionaryImporter.Infrastructure.Persistence
             string sourceCode,
             CancellationToken ct)
         {
-            var synonymList = synonyms.ToList();
-            if (synonymList.Count == 0) return;
+            if (parsedDefinitionId <= 0)
+                return;
 
-            var uniqueSynonyms = synonymList
+            var synonymList = synonyms?.ToList() ?? new List<string>();
+            if (synonymList.Count == 0)
+                return;
+
+            sourceCode = string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode.Trim();
+
+            // IMPORTANT:
+            // Split English vs non-English so bulk path stays safe/fast
+            var englishSynonyms = new List<string>();
+            var nonEnglishSynonyms = new List<string>();
+
+            foreach (var s in synonymList)
+            {
+                var raw = (s ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(raw))
+                    continue;
+
+                if (LanguageDetector.ContainsNonEnglishText(raw))
+                    nonEnglishSynonyms.Add(raw);
+                else
+                    englishSynonyms.Add(raw);
+            }
+
+            // 1) English synonyms: bulk insert
+            var uniqueEnglish = englishSynonyms
+                .Select(NormalizeSynonymText)
+                .Where(s => !string.IsNullOrWhiteSpace(s))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            _logger.LogDebug("Writing {Count} unique synonyms for parsed definition {ParsedId}",
-                uniqueSynonyms.Count, parsedDefinitionId);
-
-            if (uniqueSynonyms.Count > 10)
+            if (uniqueEnglish.Count > 0)
             {
-                // Use bulk write for larger sets
-                var synonymEntities = uniqueSynonyms.Select(s => new DictionaryEntrySynonym
+                _logger.LogDebug(
+                    "Writing {Count} English synonyms for parsed definition {ParsedId} | SourceCode={SourceCode}",
+                    uniqueEnglish.Count,
+                    parsedDefinitionId,
+                    sourceCode);
+
+                var synonymObjects = uniqueEnglish.Select(s => new DictionaryEntrySynonym
                 {
                     DictionaryEntryParsedId = parsedDefinitionId,
                     SynonymText = s,
-                    Source = sourceCode,
+                    SourceCode = sourceCode,
                     CreatedUtc = DateTime.UtcNow
                 });
 
-                await BulkWriteAsync(synonymEntities, ct);
-            }
-            else
-            {
-                // Use individual writes for small sets
-                foreach (var synonym in uniqueSynonyms)
-                {
-                    await WriteAsync(new DictionaryEntrySynonym
-                    {
-                        DictionaryEntryParsedId = parsedDefinitionId,
-                        SynonymText = synonym,
-                        Source = sourceCode,
-                        CreatedUtc = DateTime.UtcNow
-                    }, ct);
-                }
+                await BulkWriteAsync(synonymObjects, ct);
             }
 
-            // Force flush if using batcher
-            if (_batcher != null)
+            // 2) Non-English synonyms: insert individually with NonEnglishTextId
+            var uniqueNonEnglish = nonEnglishSynonyms
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (uniqueNonEnglish.Count > 0)
             {
-                await _batcher.FlushAllAsync(ct);
+                _logger.LogDebug(
+                    "Writing {Count} non-English synonyms for parsed definition {ParsedId} | SourceCode={SourceCode}",
+                    uniqueNonEnglish.Count,
+                    parsedDefinitionId,
+                    sourceCode);
+
+                foreach (var nonEng in uniqueNonEnglish)
+                {
+                    var obj = new DictionaryEntrySynonym
+                    {
+                        DictionaryEntryParsedId = parsedDefinitionId,
+                        SynonymText = nonEng,
+                        SourceCode = sourceCode,
+                        CreatedUtc = DateTime.UtcNow
+                    };
+
+                    await WriteAsync(obj, ct);
+                }
             }
         }
 
-        private DataTable CreateSynonymTable(IEnumerable<DictionaryEntrySynonym> synonyms)
+        private static DataTable CreateSynonymTable(IEnumerable<DictionaryEntrySynonym> synonyms)
         {
             var table = new DataTable();
             table.Columns.Add("DictionaryEntryParsedId", typeof(long));
             table.Columns.Add("SynonymText", typeof(string));
-            table.Columns.Add("Source", typeof(string));
+            table.Columns.Add("SourceCode", typeof(string));
 
+            if (synonyms == null)
+                return table;
+
+            // IMPORTANT:
+            // Table-valued bulk path is ONLY for English synonyms
             var uniqueSynonyms = synonyms
-                .GroupBy(s => new { s.DictionaryEntryParsedId, s.SynonymText })
+                .Where(s => s != null)
+                .Select(s => new DictionaryEntrySynonym
+                {
+                    DictionaryEntryParsedId = s.DictionaryEntryParsedId,
+                    SynonymText = NormalizeSynonymText(s.SynonymText),
+                    SourceCode = string.IsNullOrWhiteSpace(s.SourceCode) ? "UNKNOWN" : s.SourceCode.Trim()
+                })
+                .Where(s => s.DictionaryEntryParsedId > 0)
+                .Where(s => !string.IsNullOrWhiteSpace(s.SynonymText))
+                .GroupBy(s => new { s.DictionaryEntryParsedId, s.SynonymText, s.SourceCode })
                 .Select(g => g.First())
                 .ToList();
 
@@ -214,10 +307,78 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 table.Rows.Add(
                     synonym.DictionaryEntryParsedId,
                     synonym.SynonymText,
-                    synonym.Source ?? "dictionary");
+                    synonym.SourceCode);
             }
 
             return table;
+        }
+
+        private async Task<long> StoreNonEnglishTextAsync(
+            string originalText,
+            string sourceCode,
+            string fieldType,
+            CancellationToken ct)
+        {
+            const string sql = """
+                INSERT INTO dbo.DictionaryNonEnglishText (
+                    OriginalText,
+                    DetectedLanguage,
+                    CharacterCount,
+                    SourceCode,
+                    FieldType,
+                    CreatedUtc
+                ) OUTPUT INSERTED.NonEnglishTextId
+                VALUES (
+                    @OriginalText,
+                    @DetectedLanguage,
+                    @CharacterCount,
+                    @SourceCode,
+                    @FieldType,
+                    SYSUTCDATETIME()
+                );
+                """;
+
+            var languageCode = LanguageDetector.DetectLanguageCode(originalText);
+
+            var parameters = new
+            {
+                OriginalText = originalText,
+                DetectedLanguage = languageCode,
+                CharacterCount = originalText.Length,
+                SourceCode = string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode,
+                FieldType = fieldType
+            };
+
+            await using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(ct);
+
+            return await connection.ExecuteScalarAsync<long>(
+                new CommandDefinition(sql, parameters, cancellationToken: ct));
+        }
+
+        private static string NormalizeSynonymText(string? synonymText)
+        {
+            if (string.IsNullOrWhiteSpace(synonymText))
+                return string.Empty;
+
+            var t = synonymText.Trim();
+
+            // Never store placeholders
+            if (t.Equals("[NON_ENGLISH]", StringComparison.OrdinalIgnoreCase))
+                return string.Empty;
+
+            t = Regex.Replace(t, @"\s+", " ").Trim();
+
+            t = t.Trim('\"', '\'', '“', '”', '‘', '’', '.', ',', ';', ':', '!', '?');
+
+            if (t.Length > 80)
+                t = t.Substring(0, 80).Trim();
+
+            // Keep original behavior: only accept English synonyms
+            if (!Regex.IsMatch(t, @"[A-Za-z]"))
+                return string.Empty;
+
+            return t;
         }
 
         public void Dispose()

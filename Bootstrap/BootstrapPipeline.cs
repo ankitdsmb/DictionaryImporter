@@ -1,7 +1,6 @@
 ﻿using DictionaryImporter.Core.Pipeline.Steps;
 using DictionaryImporter.Core.Text;
 using DictionaryImporter.Infrastructure.OneTimeTasks;
-using DictionaryImporter.Infrastructure.Persistence.Batched;
 using DictionaryImporter.Sources.Century21.Parsing;
 using DictionaryImporter.Sources.Collins.Parsing;
 using DictionaryImporter.Sources.Common.Parsing;
@@ -23,6 +22,12 @@ namespace DictionaryImporter.Bootstrap
                 configuration.GetConnectionString("DictionaryImporter")
                 ?? throw new InvalidOperationException(
                     "Connection string 'DictionaryImporter' not configured");
+
+            // ✅ REQUIRED: GenericSqlBatcher (used by multiple writers)
+            services.AddSingleton<GenericSqlBatcher>(sp =>
+                new GenericSqlBatcher(
+                    connectionString,
+                    sp.GetRequiredService<ILogger<GenericSqlBatcher>>()));
 
             // ✅ FACTORY DELEGATE REGISTRATIONS (keep these)
             services.AddSingleton<Func<ImportEngineFactory<KaikkiRawEntry>>>(sp => sp.GetRequiredService<ImportEngineFactory<KaikkiRawEntry>>);
@@ -51,10 +56,14 @@ namespace DictionaryImporter.Bootstrap
                 connectionString,
                 sp.GetRequiredService<ILogger<SqlDictionaryEntryMergeExecutor>>()));
 
-            services.AddSingleton<DictionaryEntryLinguisticEnricher>(sp => new DictionaryEntryLinguisticEnricher(
-                connectionString,
-                sp.GetRequiredService<IPartOfSpeechInfererV2>(),
-                sp.GetRequiredService<ILogger<DictionaryEntryLinguisticEnricher>>()));
+            // ✅ POS REPOSITORY (NEW, writer removed)
+            services.AddScoped<IDictionaryEntryPartOfSpeechRepository, SqlDictionaryEntryPartOfSpeechRepository>();
+
+            // POS Repository (required by DictionaryEntryLinguisticEnricher)
+            services.AddSingleton<IDictionaryEntryPartOfSpeechRepository>(sp =>
+                new SqlDictionaryEntryPartOfSpeechRepository(
+                    connectionString,
+                    sp.GetRequiredService<ILogger<SqlDictionaryEntryPartOfSpeechRepository>>()));
 
             services.AddSingleton<CanonicalWordIpaEnricher>(sp => new CanonicalWordIpaEnricher(
                 connectionString,
@@ -92,6 +101,7 @@ namespace DictionaryImporter.Bootstrap
             services.AddSingleton<IDictionaryDefinitionParserResolver, DictionaryDefinitionParserResolver>();
 
             services.AddSingleton<OneTimeTaskRunner>();
+
             services.AddScoped<IAiAnnotationRepository, SqlAiAnnotationRepository>();
             services.AddScoped<AiEnhancementStep>();
 
@@ -118,7 +128,7 @@ namespace DictionaryImporter.Bootstrap
             services.AddScoped<DictionaryParsedDefinitionProcessor>(sp =>
                 ActivatorUtilities.CreateInstance<DictionaryParsedDefinitionProcessor>(sp, connectionString));
 
-            // Existing interface registration (keep)
+            // ✅ Register processor via interface (ONLY ONCE)
             services.AddScoped<IParsedDefinitionProcessor>(sp =>
                 sp.GetRequiredService<DictionaryParsedDefinitionProcessor>());
 
@@ -131,7 +141,7 @@ namespace DictionaryImporter.Bootstrap
             services.AddSingleton<QaRunner>();
             services.AddScoped<ImportOrchestrator>();
 
-            // FIXED: Add proper registrations with all required parameters
+            // ✅ Writers using batcher
             services.AddTransient<IDictionaryEntryExampleWriter>(sp =>
             {
                 var logger = sp.GetRequiredService<ILogger<SqlDictionaryEntryExampleWriter>>();
@@ -146,28 +156,24 @@ namespace DictionaryImporter.Bootstrap
                 return new SqlParsedDefinitionWriter(connectionString, batcher, logger);
             });
 
-            // ✅ Register IEntryEtymologyWriter implementation
+            // ✅ Etymology writer
             services.AddSingleton<IEntryEtymologyWriter>(sp =>
                 new SqlDictionaryEntryEtymologyWriter(
                     connectionString,
                     sp.GetRequiredService<ILogger<SqlDictionaryEntryEtymologyWriter>>()));
 
-            // ✅ Register IDictionaryEntryVariantWriter implementation
+            // ✅ Variant writer
             services.AddSingleton<IDictionaryEntryVariantWriter>(sp =>
                 new SqlDictionaryEntryVariantWriter(
                     connectionString,
                     sp.GetRequiredService<ILogger<SqlDictionaryEntryVariantWriter>>()));
 
-            // ✅ Register concrete SqlDictionaryEntryVariantWriter for backward compatibility
             services.AddSingleton<SqlDictionaryEntryVariantWriter>(sp =>
                 new SqlDictionaryEntryVariantWriter(
                     connectionString,
                     sp.GetRequiredService<ILogger<SqlDictionaryEntryVariantWriter>>()));
-
-            // ✅ ALSO register as interface (keep)
-            services.AddScoped<IParsedDefinitionProcessor>(sp =>
-                sp.GetRequiredService<DictionaryParsedDefinitionProcessor>());
         }
+
         public static PipelineMode ResolvePipelineMode(IConfiguration configuration)
         {
             return configuration["Pipeline:Mode"] == "ImportOnly"

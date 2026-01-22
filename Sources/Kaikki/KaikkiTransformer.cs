@@ -38,7 +38,7 @@ namespace DictionaryImporter.Sources.Kaikki
             using var doc = JsonDocument.Parse(raw.RawJson ?? string.Empty);
             var root = doc.RootElement;
 
-            if (!JsonProcessor.IsEnglishEntry(root)) yield break;
+            if (!KaikkiParsingHelper.IsEnglishEntry(root)) yield break;
 
             var word = SourceDataHelper.ExtractJsonString(root, "word");
             if (string.IsNullOrWhiteSpace(word)) yield break;
@@ -50,7 +50,7 @@ namespace DictionaryImporter.Sources.Kaikki
                 yield break;
             }
 
-            var definitions = JsonProcessor.ExtractEnglishDefinitions(root);
+            var definitions = KaikkiParsingHelper.ExtractEnglishDefinitions(root);
 
             // FIX: If no definitions from ExtractEnglishDefinitions, try alternative extraction
             if (definitions.Count == 0)
@@ -63,7 +63,7 @@ namespace DictionaryImporter.Sources.Kaikki
                 }
             }
 
-            var posRaw = JsonProcessor.ExtractPartOfSpeechFromJson(root) ?? "unk";
+            var posRaw = KaikkiParsingHelper.ExtractPartOfSpeechFromJson(root) ?? "unk";
             var pos = SourceDataHelper.NormalizePartOfSpeech(posRaw);
             var senseNumber = 1;
 

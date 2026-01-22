@@ -1,8 +1,6 @@
 ﻿using DictionaryImporter.Core.Persistence;
 using DictionaryImporter.Core.Text;
 using DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
-using DictionaryImporter.Infrastructure.Persistence;
-using DictionaryImporter.Infrastructure.Persistence.Batched;
 using DictionaryImporter.Sources.Collins.Extractor;
 using DictionaryImporter.Sources.Common.Parsing;
 using DictionaryImporter.Sources.EnglishChinese.Extractor;

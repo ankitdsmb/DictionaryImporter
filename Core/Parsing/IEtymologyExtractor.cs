@@ -8,7 +8,5 @@
             string headword,
             string definition,
             string? rawDefinition = null);
-
-        (string? Etymology, string? LanguageCode) ExtractFromText(string text);
     }
 }

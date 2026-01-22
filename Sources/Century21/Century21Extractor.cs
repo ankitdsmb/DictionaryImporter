@@ -208,7 +208,7 @@ namespace DictionaryImporter.Sources.Century21
                 return string.Empty;
 
             // Use the helper from Century21HtmlTextHelper
-            return Century21HtmlTextHelper.CleanText(text);
+            return Century21ParsingHelper.CleanText(text);
         }
     }
 }

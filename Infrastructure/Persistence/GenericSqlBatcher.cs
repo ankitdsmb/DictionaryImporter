@@ -1,15 +1,7 @@
 ﻿using System.Collections;
-using System.Collections.Concurrent;
-using System.Data;
 using System.Reflection;
-using System.Text;
-using System.Text.Json;
-using System.Text.RegularExpressions;
-using Dapper;
-using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Logging;
 
-namespace DictionaryImporter.Infrastructure.Persistence.Batched
+namespace DictionaryImporter.Infrastructure.Persistence
 {
     /// <summary>
     /// Generic SQL operation batcher that automatically groups similar operations

@@ -1,4 +1,9 @@
-﻿namespace DictionaryImporter.Sources.Common.Helper
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+
+namespace DictionaryImporter.Sources.Common.Helper
 {
     internal static class CollinsParsingHelper
     {
@@ -27,7 +32,7 @@
             data.CrossReferences = ExtractCrossReferences(definition);
             data.PhrasalVerbInfo = ExtractPhrasalVerbInfo(definition);
 
-            // Clean and normalize
+            // Clean and normalize (English-only clean summary)
             data.CleanDefinition = CleanCollinsDefinition(definition, data);
 
             return data;
@@ -86,53 +91,40 @@
         }
 
         /// <summary>
-        /// Extract the main English definition text
+        /// Extract the main English definition text.
         /// </summary>
         public static string ExtractMainDefinition(string definition)
         {
             if (string.IsNullOrWhiteSpace(definition))
                 return string.Empty;
 
-            // Find the end of the sense header and start of actual definition
             var lines = definition.Split('\n');
-            var inDefinition = false;
-            var definitionLines = new List<string>();
+            CollinsSenseRaw? firstSense = null;
 
-            foreach (var line in lines)
+            // 1) Find first sense header line using extractor (full line, not trimmed fragments)
+            for (var i = 0; i < lines.Length; i++)
             {
-                var trimmed = line.Trim();
-
-                // Skip empty lines
-                if (string.IsNullOrEmpty(trimmed))
+                var trimmed = lines[i].Trim();
+                if (string.IsNullOrWhiteSpace(trimmed))
                     continue;
 
-                // Start collecting after sense header
-                if (!inDefinition && (trimmed.StartsWith("1.") || trimmed.StartsWith("2.") ||
-                    trimmed.StartsWith("3.") || trimmed.StartsWith("4.") || trimmed.StartsWith("5.")))
+                if (TryParseSenseHeader(trimmed, out var sense) && sense != null)
                 {
-                    inDefinition = true;
-                    // Remove the numbered prefix
-                    var afterNumber = Regex.Replace(trimmed, @"^\d+\.\s*", "");
-                    definitionLines.Add(afterNumber);
-                    continue;
-                }
-
-                if (inDefinition)
-                {
-                    // Stop when we hit a section marker or next sense
-                    if (trimmed.StartsWith("【") ||
-                        Regex.IsMatch(trimmed, @"^\d+\.\s*[A-Z]") ||
-                        trimmed.StartsWith("..."))
-                    {
-                        break;
-                    }
-
-                    definitionLines.Add(trimmed);
+                    firstSense = sense;
+                    break;
                 }
             }
 
-            var rawDefinition = string.Join(" ", definitionLines).Trim();
-            return CleanDefinitionText(rawDefinition);
+            if (firstSense == null)
+                return string.Empty;
+
+            // 2) Clean only the sense header definition (do not remove too aggressively)
+            var cleaned = CleanDefinitionText(firstSense.Definition);
+
+            // 3) Ensure sentence structure is stable
+            cleaned = EnsureSentenceStructure(cleaned);
+
+            return cleaned;
         }
 
         /// <summary>
@@ -145,40 +137,36 @@
             if (string.IsNullOrWhiteSpace(definition))
                 return labels;
 
-            // Pattern for 【语域标签】：LABEL1  LABEL2
             var labelMatches = Regex.Matches(definition,
                 @"【语域标签】：\s*(?<labels>[^【\n]+)");
 
             foreach (Match match in labelMatches)
             {
                 var labelText = match.Groups["labels"].Value.Trim();
-                // Split by space, comma, or Chinese space
                 var splitLabels = Regex.Split(labelText, @"[\s,，]+");
 
                 foreach (var label in splitLabels)
                 {
                     var cleanLabel = label.Trim();
                     if (!string.IsNullOrWhiteSpace(cleanLabel))
-                    {
                         labels.Add(cleanLabel);
-                    }
                 }
             }
 
-            // Also check for informal/formal markers in the definition
-            if (definition.Contains("INFORMAL") && !labels.Any(l => l.Contains("INFORMAL")))
+            // Add some common inferred domain markers
+            if (definition.Contains("INFORMAL") && !labels.Any(l => l.Contains("INFORMAL", StringComparison.OrdinalIgnoreCase)))
                 labels.Add("INFORMAL");
 
-            if (definition.Contains("FORMAL") && !labels.Any(l => l.Contains("FORMAL")))
+            if (definition.Contains("FORMAL") && !labels.Any(l => l.Contains("FORMAL", StringComparison.OrdinalIgnoreCase)))
                 labels.Add("FORMAL");
 
-            if (definition.Contains("主美") && !labels.Any(l => l.Contains("US")))
+            if (definition.Contains("主美") && !labels.Any(l => l.Equals("US", StringComparison.OrdinalIgnoreCase)))
                 labels.Add("US");
 
-            if (definition.Contains("主英") && !labels.Any(l => l.Contains("UK")))
+            if (definition.Contains("主英") && !labels.Any(l => l.Equals("UK", StringComparison.OrdinalIgnoreCase)))
                 labels.Add("UK");
 
-            return labels.Distinct().ToList();
+            return labels.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
 
         /// <summary>
@@ -191,7 +179,6 @@
             if (string.IsNullOrWhiteSpace(definition))
                 return patterns;
 
-            // Pattern for 【搭配模式】：PATTERN
             var patternMatches = Regex.Matches(definition,
                 @"【搭配模式】：\s*(?<pattern>[^【\n]+)");
 
@@ -199,9 +186,7 @@
             {
                 var pattern = match.Groups["pattern"].Value.Trim();
                 if (!string.IsNullOrWhiteSpace(pattern))
-                {
                     patterns.Add(pattern);
-                }
             }
 
             return patterns;
@@ -218,49 +203,19 @@
                 return examples;
 
             var lines = definition.Split('\n');
-            var inExamples = false;
 
             foreach (var line in lines)
             {
                 var trimmed = line.Trim();
-
-                // Start of examples section
-                if (trimmed.StartsWith("..."))
-                {
-                    inExamples = true;
-                    var example = trimmed.Substring(3).Trim();
-                    if (!string.IsNullOrWhiteSpace(example))
-                    {
-                        examples.Add(CleanExampleText(example));
-                    }
+                if (string.IsNullOrWhiteSpace(trimmed))
                     continue;
-                }
 
-                // Additional example lines
-                if (inExamples)
+                // Primary Collins example marker
+                if (TryParseExample(trimmed, out var ex))
                 {
-                    if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("【") ||
-                        Regex.IsMatch(trimmed, @"^\d+\."))
-                    {
-                        inExamples = false;
-                        continue;
-                    }
-
-                    // Handle Chinese example format: English text。Chinese translation。
-                    if (trimmed.Contains("。") && !trimmed.StartsWith("【"))
-                    {
-                        var example = trimmed.Split('。')[0].Trim();
-                        if (!string.IsNullOrWhiteSpace(example) && example.Length > 10)
-                        {
-                            examples.Add(CleanExampleText(example));
-                        }
-                    }
-                    else if (trimmed.Length > 20 && char.IsUpper(trimmed[0]) &&
-                            !trimmed.StartsWith("【") && !Regex.IsMatch(trimmed, @"^\d+\."))
-                    {
-                        // Likely an English example
-                        examples.Add(CleanExampleText(trimmed));
-                    }
+                    var cleaned = CleanExampleText(ex);
+                    if (!string.IsNullOrWhiteSpace(cleaned))
+                        examples.Add(cleaned);
                 }
             }
 
@@ -277,7 +232,6 @@
             if (string.IsNullOrWhiteSpace(definition))
                 return crossRefs;
 
-            // Pattern for →see: word
             var seeMatches = Regex.Matches(definition,
                 @"→see:\s*(?<word>\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b)",
                 RegexOptions.IgnoreCase);
@@ -295,7 +249,6 @@
                 }
             }
 
-            // Also check for "See also:" patterns
             if (definition.Contains("See also:", StringComparison.OrdinalIgnoreCase))
             {
                 var seeAlsoMatch = Regex.Match(definition,
@@ -310,7 +263,7 @@
                     foreach (var word in words)
                     {
                         var cleanWord = word.Trim();
-                        if (!string.IsNullOrWhiteSpace(cleanWord) && cleanWord.Length > 2)
+                        if (!string.IsNullOrWhiteSpace(cleanWord) && cleanWord.Length > 1)
                         {
                             crossRefs.Add(new CrossReference
                             {
@@ -332,31 +285,31 @@
         {
             var info = new PhrasalVerbInfo();
 
-            if (string.IsNullOrWhiteSpace(definition) || !definition.Contains("PHR-V"))
+            if (string.IsNullOrWhiteSpace(definition))
                 return info;
 
-            // Check if this is a phrasal verb
-            if (Regex.IsMatch(definition, @"\bPHR-V\b") ||
-                definition.Contains("短语动词") ||
-                definition.Contains("PHRASAL VERB"))
+            // NEW: Collins data includes PHR-V, PHR V, and PHRASAL VERB
+            if (!(definition.Contains("PHR-V", StringComparison.OrdinalIgnoreCase) ||
+                  definition.Contains("PHR V", StringComparison.OrdinalIgnoreCase) ||
+                  definition.Contains("PHRASAL VERB", StringComparison.OrdinalIgnoreCase) ||
+                  definition.Contains("短语动词", StringComparison.OrdinalIgnoreCase)))
             {
-                info.IsPhrasalVerb = true;
-
-                // Extract particle
-                var particleMatch = Regex.Match(definition,
-                    @"\b(PHR-V|PHRASAL VERB)\s+(?<verb>\w+)\s+(?<particle>\w+)\b",
-                    RegexOptions.IgnoreCase);
-
-                if (particleMatch.Success)
-                {
-                    info.Verb = particleMatch.Groups["verb"].Value;
-                    info.Particle = particleMatch.Groups["particle"].Value;
-                }
-
-                // Extract patterns
-                info.Patterns = ExtractUsagePatterns(definition);
+                return info;
             }
 
+            info.IsPhrasalVerb = true;
+
+            var particleMatch = Regex.Match(definition,
+                @"\b(PHR-V|PHR\s+V|PHRASAL VERB)\s+(?<verb>\w+)\s+(?<particle>\w+)\b",
+                RegexOptions.IgnoreCase);
+
+            if (particleMatch.Success)
+            {
+                info.Verb = particleMatch.Groups["verb"].Value;
+                info.Particle = particleMatch.Groups["particle"].Value;
+            }
+
+            info.Patterns = ExtractUsagePatterns(definition);
             return info;
         }
 
@@ -370,7 +323,6 @@
             if (string.IsNullOrWhiteSpace(definition))
                 return synonyms.ToList();
 
-            // Pattern 1: "also called X" or "also known as X"
             var alsoCalledMatches = Regex.Matches(definition,
                 @"(?:also called|also known as|synonymous with|same as)\s+(?<word>\b[A-Z][a-z]+\b)",
                 RegexOptions.IgnoreCase);
@@ -382,7 +334,6 @@
                     synonyms.Add(synonym);
             }
 
-            // Pattern 2: Parenthetical synonyms "(also X)"
             var parentheticalMatches = Regex.Matches(definition,
                 @"\(also\s+(?<word>\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b",
                 RegexOptions.IgnoreCase);
@@ -398,7 +349,6 @@
                 }
             }
 
-            // Pattern 3: From examples
             foreach (var example in examples ?? new List<string>())
             {
                 var exampleSynonyms = ExtractSynonymsFromExample(example);
@@ -411,9 +361,6 @@
             return synonyms.ToList();
         }
 
-        /// <summary>
-        /// Extract synonyms from a single example sentence
-        /// </summary>
         private static IReadOnlyList<string> ExtractSynonymsFromExample(string example)
         {
             var synonyms = new List<string>();
@@ -421,7 +368,6 @@
             if (string.IsNullOrWhiteSpace(example))
                 return synonyms;
 
-            // Look for synonym patterns in examples
             var synonymPatterns = new[]
             {
                 @"\b(?<word1>\w+)\s+means\s+(?<word2>\w+)\b",
@@ -450,7 +396,7 @@
         #region Cleaning and Normalization Methods
 
         /// <summary>
-        /// Clean Collins definition text
+        /// Clean Collins definition text (English-only output)
         /// </summary>
         public static string CleanCollinsDefinition(string definition, CollinsParsedData data = null)
         {
@@ -463,7 +409,9 @@
             cleaned = Regex.Replace(cleaned, @"^★+☆+\s*", "");
 
             // Remove sense number and POS header
-            cleaned = Regex.Replace(cleaned, @"^\d+\.[A-Z\-]+\t[^\t]+\s+", "");
+            // OLD: cleaned = Regex.Replace(cleaned, @"^\d+\.[A-Z\-]+\t[^\t]+\s+", "");
+            // FIX: POS header can contain spaces and semicolons (keep flexible)
+            cleaned = Regex.Replace(cleaned, @"^\d+\.[A-Z][A-Z\-\s;]+\t[^\t]+\s+", "", RegexOptions.Singleline);
 
             // Remove 【Sections】
             var sectionsToRemove = new[]
@@ -483,7 +431,7 @@
             // Clean up example markers
             cleaned = Regex.Replace(cleaned, @"^\.\.\.\s*", "", RegexOptions.Multiline);
 
-            // Remove Chinese translations (text after 。 that contains Chinese)
+            // Remove Chinese translations and keep English part only
             var lines = cleaned.Split('\n');
             var englishLines = new List<string>();
 
@@ -493,37 +441,30 @@
                 if (string.IsNullOrEmpty(trimmed))
                     continue;
 
-                // Check if line contains Chinese characters
+                // If line has Chinese, attempt to keep best English prefix portion
                 if (ContainsChineseCharacters(trimmed))
                 {
-                    // Keep only English part before Chinese punctuation
-                    var englishPart = trimmed.Split('。', '，', '；')[0].Trim();
+                    var englishPart = ExtractLeadingEnglishSegment(trimmed);
                     if (!string.IsNullOrWhiteSpace(englishPart))
                         englishLines.Add(englishPart);
                 }
                 else
                 {
-                    // Keep English line
                     englishLines.Add(trimmed);
                 }
             }
 
             cleaned = string.Join(" ", englishLines);
 
-            // Final cleanup
             cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
             cleaned = cleaned.TrimEnd('.', ',', ';', ':');
 
-            // Ensure proper sentence structure
-            if (!string.IsNullOrEmpty(cleaned) && !cleaned.EndsWith("."))
+            if (!string.IsNullOrEmpty(cleaned) && !cleaned.EndsWith(".", StringComparison.Ordinal))
                 cleaned += ".";
 
             return cleaned;
         }
 
-        /// <summary>
-        /// Clean example text
-        /// </summary>
         private static string CleanExampleText(string example)
         {
             if (string.IsNullOrWhiteSpace(example))
@@ -531,21 +472,19 @@
 
             var cleaned = example.Trim();
 
-            // Remove leading ellipsis
             if (cleaned.StartsWith("..."))
                 cleaned = cleaned.Substring(3).Trim();
 
-            // Remove Chinese translation
             if (cleaned.Contains("。"))
                 cleaned = cleaned.Split('。')[0].Trim();
 
-            // Ensure proper punctuation
+            cleaned = cleaned.Trim();
+
             if (!string.IsNullOrEmpty(cleaned))
             {
                 if (!cleaned.EndsWith(".") && !cleaned.EndsWith("!") && !cleaned.EndsWith("?"))
                     cleaned += ".";
 
-                // Ensure first letter is capitalized
                 if (cleaned.Length > 0 && char.IsLower(cleaned[0]))
                     cleaned = char.ToUpper(cleaned[0]) + cleaned.Substring(1);
             }
@@ -553,9 +492,6 @@
             return cleaned;
         }
 
-        /// <summary>
-        /// Clean definition text (remove formatting, normalize)
-        /// </summary>
         private static string CleanDefinitionText(string text)
         {
             if (string.IsNullOrWhiteSpace(text))
@@ -563,24 +499,19 @@
 
             var cleaned = text;
 
-            // Remove cross-reference markers
             cleaned = Regex.Replace(cleaned, @"→see:\s*\w+", "");
-
-            // Remove example markers
             cleaned = Regex.Replace(cleaned, @"^\.\.\.\s*", "", RegexOptions.Multiline);
 
-            // Remove Chinese text
             cleaned = RemoveChineseText(cleaned);
 
-            // Remove extra whitespace
             cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
+
+            // Final safety: remove trailing weird punctuation fragments
+            cleaned = cleaned.Trim(' ', '.', ',', ';', ':');
 
             return cleaned;
         }
 
-        /// <summary>
-        /// Normalize Collins POS codes
-        /// </summary>
         private static string NormalizeCollinsPos(string posCode)
         {
             return posCode.ToUpperInvariant() switch
@@ -614,18 +545,15 @@
             if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(sectionMarker))
                 return text;
 
-            var index = text.IndexOf(sectionMarker);
+            var index = text.IndexOf(sectionMarker, StringComparison.Ordinal);
             if (index < 0)
                 return text;
 
-            // Find the end of this section
             var afterMarker = text.Substring(index + sectionMarker.Length);
-            var endIndex = afterMarker.IndexOf("【");
+            var endIndex = afterMarker.IndexOf("【", StringComparison.Ordinal);
 
             if (endIndex >= 0)
-            {
                 return text.Substring(0, index) + afterMarker.Substring(endIndex);
-            }
 
             return text.Substring(0, index).Trim();
         }
@@ -645,14 +573,848 @@
             var chineseRegex = new Regex(@"[\u4E00-\u9FFF\u3000-\u303F\uFF00-\uFFEF]+");
             var cleaned = chineseRegex.Replace(text, " ");
 
-            // Remove Chinese punctuation markers
             cleaned = cleaned.Replace("【", "").Replace("】", "")
-                           .Replace("〈", "").Replace("〉", "");
+                .Replace("〈", "").Replace("〉", "");
 
             return Regex.Replace(cleaned, @"\s+", " ").Trim();
         }
 
         #endregion
+
+        #region Compiled Regex Patterns (Optimized for Performance)
+
+        public static readonly Regex CfRegex = new(@"\bCf\.?\s+(?<target>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        public static readonly Regex SeeAlsoRegex = new(@"\bSee also:\s*(?<targets>[^.]+)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        public static readonly Regex SeeRegex = new(@"\bSee:\s*(?<target>[^.]+)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        public static readonly Regex CrossReferenceRegex = new(@"^(?<word>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)→see:\s*(?<target>[a-z]+)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        public static readonly Regex SynonymPatternRegex = new(
+            @"\b(?:synonymous|synonym|same as|equivalent to|also called)\s+(?:[\w\s]*?\s)?(?<word>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        public static readonly Regex ParentheticalSynonymRegex = new(@"\b(?<word>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*\((?:also|syn|syn\.|synonym)\)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        public static readonly Regex OrSynonymRegex = new(@"\b(?<word1>[A-Z][a-z]+)\s+or\s+(?<word2>[A-Z][a-z]+)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        public static readonly Regex WordBoundaryRegex = new(@"\b[A-Z][a-z]+\b",
+            RegexOptions.Compiled);
+
+        public static readonly Regex EnglishTextRegex = new(@"^[A-Za-z0-9\-\s]+",
+            RegexOptions.Compiled);
+
+        public static readonly Regex EnglishSentenceRegex = new(@"[A-Z][^\.!?]*[\.!?]",
+            RegexOptions.Compiled);
+
+        private static readonly Regex ChineseCharRegex = new(@"[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]",
+            RegexOptions.Compiled);
+
+        private const string ExampleSeparator = "【Examples】";
+        private const string NoteSeparator = "【Note】";
+        private const string DomainSeparator = "【Domain】";
+        private const string GrammarSeparator = "【Grammar】";
+
+        public static readonly Regex ExampleBulletRegex = new(@"^•\s*(.+)$",
+            RegexOptions.Compiled | RegexOptions.Multiline);
+
+        public static readonly Regex DomainLabelRegex = new(@"【([^】]+)】：\s*(.+)",
+            RegexOptions.Compiled);
+
+        public static readonly Regex LabelRegex = new(@"【([^】]+)】[:：]?\s*(.+)",
+            RegexOptions.Compiled);
+
+        public static readonly Regex HeadwordRegex = new(
+            @"^★+☆+\s+([A-Za-z][A-Za-z\-\s]+?)\s+●+○+",
+            RegexOptions.Compiled);
+
+        public static readonly Regex SenseHeaderEnhancedRegex = new(
+            @"^(?:(?<number>\d+)\.\s*)?(?<pos>[A-Z][A-Z\-\s;]+)(?:[/\\]\s*[A-Z][A-Z\-\s;]*)?\t[^\x00-\x7F]*\s*(?<definition>.+)",
+            RegexOptions.Compiled);
+
+        public static readonly Regex SenseNumberOnlyRegex = new(@"^(\d+)\.\s*(.+)",
+            RegexOptions.Compiled);
+
+        public static readonly Regex GrammarCodeWithSlashRegex = new(@"^([A-Z][A-Z\-\s;]+)[\t\s]*[/\\]\s*(.+)",
+            RegexOptions.Compiled);
+
+        public static readonly Regex ExampleRegex = new(@"^(?:\.{2,}|…)\s*(?<example>[A-Z].*?[.!?])(?:\s*[^\x00-\x7F]*)?$",
+            RegexOptions.Compiled);
+
+        public static readonly Regex SimpleExampleRegex = new(@"^[A-Z][^.!?]*[.!?](?:\s*[^\x00-\x7F]*)?$",
+            RegexOptions.Compiled);
+
+        public static readonly Regex EllipsisOrDotsRegex = new(@"^(\.{2,}|…)",
+            RegexOptions.Compiled);
+
+        public static readonly Regex PhrasalVerbRegex = new(@"^(?:PHRASAL\s+VERB|PHR\s+V)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // NOTE: This regex only captures definition, so caller must not assume it captures POS.
+        public static readonly Regex PhrasalPatternRegex = new(@"^(?:PHR(?:-[A-Z]+)+|PHRASAL VERB)\s+(?<definition>[A-Z].+)",
+            RegexOptions.Compiled);
+
+        public static readonly Regex NumberedSectionRegex = new(@"^\d+\.\s+[A-Z][A-Z\s]+USES",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        public static readonly Regex GrammarCodeRegex = new(
+            @"\b(?:V-ERG|N-COUNT|N-UNCOUNT|ADJ-GRADED|PHR-CONJ-SUBORD|PHR-V|PHR-ADV|PHR-PREP|V-TRANS|V-INTRANS|V-REFL|V-PASS)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex LeadingJunkRegex = new(@"^[\s、。，；,\.\(\)（）:：…\/\\;]+",
+            RegexOptions.Compiled);
+
+        private static readonly Regex ExtraSpacesRegex = new(@"\s{2,}",
+            RegexOptions.Compiled);
+
+        private static readonly char[] TrimChars = ['.', '。', ' ', '…', '"', '\''];
+        private static readonly char[] SeparatorChars = [',', ';', '，', '；'];
+        private static readonly string[] SectionMarkers = ["【Examples】", "【Note】", "【Domain】", "【Grammar】"];
+
+        #endregion
+
+        #region Constants and Lookup Tables
+
+        private static readonly Dictionary<string, string> DomainCodeMap = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["AM"] = "US",
+            ["US"] = "US",
+            ["BRIT"] = "UK",
+            ["UK"] = "UK",
+            ["主美"] = "US",
+            ["美式"] = "US",
+            ["主英"] = "UK",
+            ["英式"] = "UK",
+            ["FORMAL"] = "FORMAL",
+            ["正式"] = "FORMAL",
+            ["INFORMAL"] = "INFORMAL",
+            ["非正式"] = "INFORMAL",
+            ["LITERARY"] = "LITERARY",
+            ["文学"] = "LITERARY",
+            ["OLD-FASHIONED"] = "OLD-FASHIONED",
+            ["过时"] = "OLD-FASHIONED",
+            ["TECHNICAL"] = "TECHNICAL",
+            ["技术"] = "TECHNICAL",
+            ["术语"] = "TECHNICAL",
+            ["RARE"] = "RARE",
+            ["罕见"] = "RARE",
+            ["OBSOLETE"] = "OBSOLETE",
+            ["废弃"] = "OBSOLETE",
+            ["ARCHAIC"] = "ARCHAIC",
+            ["古语"] = "ARCHAIC",
+            ["COLLOQUIAL"] = "COLLOQUIAL",
+            ["口语"] = "COLLOQUIAL",
+            ["SLANG"] = "SLANG",
+            ["俚语"] = "SLANG",
+            ["VULGAR"] = "VULGAR",
+            ["OFFENSIVE"] = "OFFENSIVE",
+            ["HUMOROUS"] = "HUMOROUS"
+        };
+
+        private static readonly Dictionary<string, string> ChineseDomainMap = new()
+        {
+            ["主美"] = "US",
+            ["美式"] = "US",
+            ["主英"] = "UK",
+            ["英式"] = "UK",
+            ["正式"] = "FORMAL",
+            ["非正式"] = "INFORMAL",
+            ["文学"] = "LITERARY",
+            ["过时"] = "OLD-FASHIONED",
+            ["技术"] = "TECHNICAL",
+            ["罕见"] = "RARE",
+            ["废弃"] = "OBSOLETE",
+            ["古语"] = "ARCHAIC",
+            ["口语"] = "COLLOQUIAL",
+            ["俚语"] = "SLANG"
+        };
+
+        private static readonly Dictionary<string, string> PosNormalizationMap = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["N"] = "noun",
+            ["N-COUNT"] = "noun",
+            ["N-UNCOUNT"] = "noun",
+            ["N-MASS"] = "noun",
+            ["N-VAR"] = "noun",
+            ["N-PLURAL"] = "noun",
+            ["N-SING"] = "noun",
+            ["N-PL"] = "noun",
+            ["N-PROPER"] = "noun",
+            ["N-TITLE"] = "noun",
+            ["N-VOC"] = "noun",
+            ["N-COUNT; N-IN-NAMES"] = "noun",
+            ["N-COUNT & N-UNCOUNT"] = "noun",
+            ["N-COUNT OR N-UNCOUNT"] = "noun",
+            ["VERB"] = "verb",
+            ["V"] = "verb",
+            ["V-LINK"] = "verb",
+            ["V-ERG"] = "verb",
+            ["V-RECIP"] = "verb",
+            ["V-T"] = "verb",
+            ["V-I"] = "verb",
+            ["V-PASS"] = "verb",
+            ["V-ERG / V-RECIP"] = "verb",
+            ["V-T / V-I"] = "verb",
+            ["V-RECIP-ERG"] = "verb",
+            ["V-ERG-RECIP"] = "verb",
+            ["ADJ"] = "adj",
+            ["ADJ-GRADED"] = "adj",
+            ["ADJ-COMPAR"] = "adj",
+            ["ADJ-SUPERL"] = "adj",
+            ["ADJ CLASSIF"] = "adj",
+            ["ADV"] = "adv",
+            ["PHR-ADV"] = "adv",
+            ["PHRASAL VERB"] = "phrasal_verb",
+            ["PHRASAL VB"] = "phrasal_verb",
+            ["PHR V"] = "phrasal_verb",
+            ["PHR"] = "phrase",
+            ["PHRASE"] = "phrase",
+            ["PREP"] = "preposition",
+            ["PHR-PREP"] = "preposition",
+            ["CONJ"] = "conjunction",
+            ["PHR-CONJ-SUBORD"] = "conjunction",
+            ["PRON"] = "pronoun",
+            ["DET"] = "determiner",
+            ["DETERMINER"] = "determiner",
+            ["ARTICLE"] = "determiner",
+            ["EXCLAM"] = "exclamation",
+            ["EXCL"] = "exclamation",
+            ["INTERJ"] = "exclamation",
+            ["INTERJECTION"] = "exclamation",
+            ["SUFFIX"] = "suffix",
+            ["PREFIX"] = "prefix",
+            ["COMB"] = "combining_form",
+            ["COMBINING FORM"] = "combining_form",
+            ["NUM"] = "numeral",
+            ["NUMERAL"] = "numeral",
+            ["AUX"] = "auxiliary",
+            ["AUXILIARY"] = "auxiliary",
+            ["MODAL"] = "modal",
+            ["ADJ COLOR"] = "adj",
+            ["ADJ COLOR PRED"] = "adj",
+            ["ADJ PRED"] = "adj",
+            ["ADV-GRADED"] = "adv",
+            ["CONJ COORD"] = "conjunction",
+            ["CONJ SUBORD"] = "conjunction",
+            ["N-COUNT-COLL"] = "noun",
+            ["N-FAMILY"] = "noun",
+            ["N-IN-NAMES"] = "noun",
+            ["N-PART"] = "noun",
+            ["N-PROPER-PL"] = "noun",
+            ["N-SING-COLL"] = "noun",
+            ["PHR-CONJ"] = "conjunction",
+            ["PHR-PART"] = "particle",
+            ["PHR-PRON"] = "pronoun",
+            ["PHR-QUANT"] = "quantifier",
+            ["QUANT"] = "quantifier",
+            ["QUANTIFIER"] = "quantifier",
+            ["V-ERG-ADJ"] = "verb",
+            ["V-ERG-N"] = "verb",
+            ["V-LINK-ADJ"] = "verb",
+            ["V-LINK-N"] = "verb",
+            ["V-LINK-PHR"] = "verb",
+            ["V-PASS-ADJ"] = "verb",
+            ["V-RECIP-ADJ"] = "verb"
+        };
+
+        private static readonly HashSet<string> PosPrefixes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "N-", "V-", "ADJ-", "ADV-", "PHR-", "PREP", "CONJ", "PRON",
+            "DET", "EXCLAM", "EXCL", "INTERJ", "SUFFIX", "PREFIX",
+            "COMB", "NUM", "AUX", "MODAL", "QUANT"
+        };
+
+        #endregion
+
+        #region CollinsExtractor Helper Methods
+
+        public static bool IsEntrySeparator(string line)
+        {
+            return !string.IsNullOrEmpty(line) &&
+                   (line.StartsWith("——————————————", StringComparison.Ordinal) ||
+                    line.StartsWith("---------------", StringComparison.Ordinal));
+        }
+
+        public static bool TryParseHeadword(string line, out string headword)
+        {
+            headword = string.Empty;
+            if (string.IsNullOrEmpty(line)) return false;
+
+            if (line.StartsWith("★"))
+            {
+                headword = Regex.Replace(line, @"^[★☆●○▶\.\s]+", "").Trim();
+                return !string.IsNullOrEmpty(headword);
+            }
+
+            return false;
+        }
+
+        public static bool TryParseSenseHeader(string line, out CollinsSenseRaw sense)
+        {
+            sense = null;
+            if (string.IsNullOrWhiteSpace(line)) return false;
+
+            if (line.StartsWith("or ", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("and ", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("(")) return false;
+
+            var parsingStrategies = new List<Func<string, CollinsSenseRaw?>>
+            {
+                TryParseEnhancedSenseHeader,
+                TryParseGrammarCodeWithSlash,
+                TryParsePhrasalPattern,
+                TryParseDoubleSemicolonFormat,
+                TryParseSimpleNumberedLine
+            };
+
+            foreach (var result in parsingStrategies.Select(strategy => strategy(line)).OfType<CollinsSenseRaw>())
+            {
+                sense = result;
+                return true;
+            }
+
+            return false;
+        }
+
+        public static bool TryParseExample(string line, out string example)
+        {
+            example = string.Empty;
+            if (string.IsNullOrWhiteSpace(line) || line.Length < 3) return false;
+
+            if (line.StartsWith("..."))
+            {
+                example = line.Substring(3).Trim();
+                return !string.IsNullOrWhiteSpace(example);
+            }
+
+            if (EllipsisOrDotsRegex.IsMatch(line))
+            {
+                example = line.TrimStart('.', '…', ' ').Trim();
+                return !string.IsNullOrWhiteSpace(example);
+            }
+
+            return false;
+        }
+
+        public static bool TryParseUsageNote(string line, out string usageNote)
+        {
+            if (line != null && (line.StartsWith("Note that", StringComparison.OrdinalIgnoreCase) ||
+                                 line.StartsWith("Usage Note", StringComparison.OrdinalIgnoreCase)))
+            {
+                usageNote = line;
+                return true;
+            }
+
+            usageNote = string.Empty;
+            return false;
+        }
+
+        public static bool TryParseDomainLabel(string line, out (string LabelType, string Value) labelInfo)
+        {
+            if (!string.IsNullOrEmpty(line) && line.StartsWith('【'))
+            {
+                var match = DomainLabelRegex.Match(line);
+                if (match.Success)
+                {
+                    labelInfo = (match.Groups[1].Value, match.Groups[2].Value);
+                    return true;
+                }
+
+                match = Regex.Match(line, @"【([^】]+)】\s*(.+)");
+                if (match.Success)
+                {
+                    labelInfo = (match.Groups[1].Value, match.Groups[2].Value);
+                    return true;
+                }
+            }
+
+            labelInfo = (string.Empty, string.Empty);
+            return false;
+        }
+
+        public static bool IsDefinitionContinuation(string line, string currentDefinition)
+        {
+            if (string.IsNullOrWhiteSpace(line) || string.IsNullOrWhiteSpace(currentDefinition))
+                return false;
+
+            var trimmed = line.TrimStart();
+            if (string.IsNullOrWhiteSpace(trimmed))
+                return false;
+
+            if (Regex.IsMatch(trimmed, @"^\d+\.\s+[A-Z]"))
+                return false;
+
+            if (trimmed.Contains("→see:", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("See:", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("See also:", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (Regex.IsMatch(trimmed, @"^【[^】]+】"))
+                return false;
+
+            if (trimmed.Length > 0 && char.IsLower(trimmed[0]))
+                return true;
+
+            if (trimmed.StartsWith("or ", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("and ", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("but ", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("especially ", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("particularly ", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (trimmed.StartsWith("(") || trimmed.StartsWith("-") || trimmed.StartsWith("—"))
+                return true;
+
+            if (currentDefinition.EndsWith(",") ||
+                currentDefinition.EndsWith(";") ||
+                currentDefinition.EndsWith(":"))
+            {
+                if (trimmed.Length > 0 && char.IsLetter(trimmed[0]))
+                    return true;
+            }
+
+            return false;
+        }
+
+        #endregion
+
+        #region Text Processing and Cleaning
+
+        public static string RemoveChineseCharacters(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return text;
+            return ChineseCharRegex.Replace(text, "");
+        }
+
+        public static string CleanText(string text, bool removeChinese = false, bool normalizePunctuation = true)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return text;
+
+            var result = text;
+
+            if (removeChinese)
+                result = ChineseCharRegex.Replace(result, "");
+
+            if (normalizePunctuation)
+            {
+                result = LeadingJunkRegex.Replace(result, "");
+
+                if (result.Contains("、")) result = result.Replace("、", ", ");
+                if (result.Contains("。")) result = result.Replace("。", ". ");
+                if (result.Contains("；")) result = result.Replace("；", "; ");
+                if (result.Contains("：")) result = result.Replace("：", ": ");
+                if (result.Contains("…")) result = result.Replace("…", "...");
+                if (result.Contains("．．．")) result = result.Replace("．．．", "...");
+
+                result = result.Replace(" ,", ",").Replace(" .", ".")
+                    .Replace(" ;", ";").Replace(" :", ":")
+                    .Replace("( ", "(").Replace(" )", ")")
+                    .Replace("?.", "?").Replace("!.", "!")
+                    .Replace("..", ".");
+            }
+
+            if (result.Contains(" "))
+                result = ExtraSpacesRegex.Replace(result, " ");
+
+            return result.Trim();
+        }
+
+        public static string? ExtractCleanDomain(string? domainText)
+        {
+            if (string.IsNullOrWhiteSpace(domainText)) return null;
+
+            var text = domainText.Trim();
+
+            foreach (var kvp in ChineseDomainMap)
+                if (text.Contains(kvp.Key, StringComparison.OrdinalIgnoreCase)) return kvp.Value;
+
+            foreach (var kvp in DomainCodeMap)
+                if (text.IndexOf(kvp.Key, StringComparison.OrdinalIgnoreCase) >= 0) return kvp.Value;
+
+            return null;
+        }
+
+        public static string? ExtractCleanGrammar(string? grammarText)
+        {
+            if (string.IsNullOrWhiteSpace(grammarText)) return null;
+
+            var cleaned = CleanText(grammarText.Trim(), true, true);
+            if (string.IsNullOrWhiteSpace(cleaned)) return null;
+
+            if (cleaned.StartsWith("PHRASAL VERB", StringComparison.OrdinalIgnoreCase) ||
+                cleaned.StartsWith("PHR V", StringComparison.OrdinalIgnoreCase))
+                return "phrasal_verb";
+
+            for (var i = 0; i < cleaned.Length; i++)
+            {
+                if (!char.IsLetterOrDigit(cleaned[i]) && cleaned[i] != '-' && cleaned[i] != ' ')
+                {
+                    var result = cleaned.Substring(0, i).Trim();
+                    return result.Length <= 100 ? result : null;
+                }
+            }
+
+            return cleaned.Length <= 100 ? cleaned : null;
+        }
+
+        #endregion
+
+        #region Private Helper Methods
+
+        private static CollinsSenseRaw? TryParseEnhancedSenseHeader(string line)
+        {
+            var match = SenseHeaderEnhancedRegex.Match(line);
+            return match.Success ? CreateSenseFromMatch(match) : null;
+        }
+
+        private static CollinsSenseRaw? TryParseGrammarCodeWithSlash(string line)
+        {
+            var match = GrammarCodeWithSlashRegex.Match(line);
+            if (match.Success)
+            {
+                return new CollinsSenseRaw
+                {
+                    SenseNumber = ExtractSenseNumberFromText(line),
+                    PartOfSpeech = FastNormalizePos(match.Groups[1].Value.Trim()),
+                    Definition = CleanDefinitionText(match.Groups[2].Value.Trim())
+                };
+            }
+            return null;
+        }
+
+        private static CollinsSenseRaw? TryParsePhrasalPattern(string line)
+        {
+            var match = PhrasalPatternRegex.Match(line);
+            if (match.Success)
+            {
+                // OLD LOGIC (WRONG):
+                // match.Groups[1] is NOT POS, regex only has named group definition
+                // return new CollinsSenseRaw
+                // {
+                //     SenseNumber = ExtractSenseNumberFromText(line),
+                //     PartOfSpeech = FastNormalizePos(match.Groups[1].Value.Trim()),
+                //     Definition = CleanDefinitionText(match.Groups["definition"].Value.Trim())
+                // };
+
+                // NEW LOGIC (fixed):
+                return new CollinsSenseRaw
+                {
+                    SenseNumber = ExtractSenseNumberFromText(line),
+                    PartOfSpeech = "phrasal_verb",
+                    Definition = CleanDefinitionText(match.Groups["definition"].Value.Trim())
+                };
+            }
+            return null;
+        }
+
+        private static CollinsSenseRaw? TryParseDoubleSemicolonFormat(string line)
+        {
+            if (line.Contains('\t') && line.Contains(";;"))
+            {
+                var parts = line.Split('\t', 2, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 2)
+                {
+                    var pos = parts[0].Trim();
+                    var definition = parts[1].TrimStart(';', ' ');
+                    return new CollinsSenseRaw
+                    {
+                        SenseNumber = ExtractSenseNumberFromText(pos),
+                        PartOfSpeech = FastNormalizePos(pos),
+                        Definition = CleanDefinitionText(definition)
+                    };
+                }
+            }
+            return null;
+        }
+
+        private static CollinsSenseRaw? TryParseSimpleNumberedLine(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return null;
+
+            if (line.Contains("【") || line.Contains("】")) return null;
+
+            var match = SenseNumberOnlyRegex.Match(line);
+            if (!match.Success) return null;
+
+            var rest = match.Groups[2].Value.Trim();
+            if (string.IsNullOrWhiteSpace(rest)) return null;
+
+            if (rest.Length > 0 && !char.IsUpper(rest[0])) return null;
+
+            if (rest.Contains("→see:", StringComparison.OrdinalIgnoreCase)) return null;
+
+            if (rest.StartsWith("and ", StringComparison.OrdinalIgnoreCase) ||
+                rest.StartsWith("or ", StringComparison.OrdinalIgnoreCase) ||
+                rest.StartsWith("but ", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            return new CollinsSenseRaw
+            {
+                SenseNumber = int.TryParse(match.Groups[1].Value, out var num) ? num : 1,
+                PartOfSpeech = "unk",
+                Definition = CleanDefinitionText(rest)
+            };
+        }
+
+        private static CollinsSenseRaw? CreateSenseFromMatch(Match match)
+        {
+            if (match == null || !match.Success) return null;
+
+            var posGroup = match.Groups["pos"];
+            var definitionGroup = match.Groups["definition"];
+            if (!posGroup.Success || !definitionGroup.Success) return null;
+
+            var numberGroup = match.Groups["number"];
+            var senseNumber = numberGroup.Success && int.TryParse(numberGroup.Value, out var parsed) ? parsed : 1;
+
+            var pos = posGroup.Value.Trim();
+            var definition = definitionGroup.Value.Trim();
+
+            if (string.IsNullOrWhiteSpace(pos) || string.IsNullOrWhiteSpace(definition)) return null;
+
+            // Remove Chinese then clean
+            definition = ChineseCharRegex.Replace(definition, "").Trim();
+            var cleanedDefinition = CleanDefinitionText(definition);
+
+            if (string.IsNullOrWhiteSpace(cleanedDefinition))
+                cleanedDefinition = LenientCleanDefinitionText(definition);
+
+            return new CollinsSenseRaw
+            {
+                SenseNumber = senseNumber,
+                PartOfSpeech = FastNormalizePos(pos),
+                Definition = cleanedDefinition
+            };
+        }
+
+        private static int ExtractSenseNumberFromText(string text)
+        {
+            var match = Regex.Match(text, @"^(\d+)\.\s*");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var number))
+                return number;
+            return 1;
+        }
+
+        private static string FastNormalizePos(string rawPos)
+        {
+            if (string.IsNullOrWhiteSpace(rawPos)) return "unk";
+
+            var trimmed = rawPos.Trim();
+            trimmed = Regex.Replace(trimmed, @"^\d+\.\s*", "");
+
+            if (PosNormalizationMap.TryGetValue(trimmed, out var exactMatch))
+                return exactMatch;
+
+            var noChinese = ChineseCharRegex.Replace(trimmed, "").Trim();
+            if (PosNormalizationMap.TryGetValue(noChinese, out var noChineseMatch))
+                return noChineseMatch;
+
+            foreach (var prefix in PosPrefixes)
+            {
+                if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    var slashIndex = trimmed.IndexOf('/');
+                    if (slashIndex > 0)
+                    {
+                        var firstPart = trimmed.Substring(0, slashIndex).Trim();
+                        if (PosNormalizationMap.TryGetValue(firstPart, out var slashMatch))
+                            return slashMatch;
+                    }
+
+                    if (prefix.StartsWith("N-", StringComparison.OrdinalIgnoreCase) || prefix == "N") return "noun";
+                    if (prefix.StartsWith("V-", StringComparison.OrdinalIgnoreCase) || prefix == "V") return "verb";
+                    if (prefix.StartsWith("ADJ-", StringComparison.OrdinalIgnoreCase) || prefix == "ADJ") return "adj";
+                    if (prefix.StartsWith("ADV-", StringComparison.OrdinalIgnoreCase) || prefix == "ADV") return "adv";
+                    if (prefix.StartsWith("PHR-", StringComparison.OrdinalIgnoreCase)) return "phrase";
+                }
+            }
+
+            if (trimmed.Contains("NOUN", StringComparison.OrdinalIgnoreCase)) return "noun";
+            if (trimmed.Contains("VERB", StringComparison.OrdinalIgnoreCase)) return "verb";
+            if (trimmed.Contains("ADJECTIVE", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("ADJ", StringComparison.OrdinalIgnoreCase))
+                return "adj";
+            if (trimmed.Contains("ADVERB", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("ADV", StringComparison.OrdinalIgnoreCase))
+                return "adv";
+
+            return "unk";
+        }
+
+        private static string LenientCleanDefinitionText(string definition)
+        {
+            if (string.IsNullOrWhiteSpace(definition)) return definition;
+
+            var result = definition;
+            result = ChineseCharRegex.Replace(result, "");
+            result = Regex.Replace(result, @"^[\s、。，；,\.\(\)（）:：…\/\\]+", "");
+            result = CleanText(result, false, true);
+            result = EnsureSentenceStructure(result);
+
+            if (string.IsNullOrWhiteSpace(result))
+                result = ChineseCharRegex.Replace(definition, "").Trim();
+
+            return result.Trim();
+        }
+
+        private static string EnsureSentenceStructure(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return text;
+
+            var result = text.Trim();
+            if (!string.IsNullOrEmpty(result))
+            {
+                var lastChar = result[^1];
+                if (!(lastChar == '.' || lastChar == '!' || lastChar == '?'))
+                {
+                    if (result.EndsWith(",") || result.EndsWith(";") || result.EndsWith(":"))
+                        result = result.TrimEnd(',', ';', ':') + ".";
+                    else
+                        result += ".";
+                }
+            }
+            return result;
+        }
+
+        #endregion
+
+        #region NEW METHODS (Added - Safe, No Signature Changes)
+
+        // NEW METHOD: safer English extraction when Chinese exists on same line
+        private static string ExtractLeadingEnglishSegment(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            // if mixed English + Chinese, keep English-only prefix segment before Chinese begins
+            var sb = new List<char>(text.Length);
+
+            foreach (var c in text)
+            {
+                if (c >= 0x4E00 && c <= 0x9FFF)
+                    break;
+
+                sb.Add(c);
+            }
+
+            var candidate = new string(sb.ToArray()).Trim();
+            candidate = CleanText(candidate, removeChinese: true, normalizePunctuation: true);
+
+            // Avoid returning junk
+            if (string.IsNullOrWhiteSpace(candidate))
+                return string.Empty;
+
+            return candidate.TrimEnd('.', ',', ';', ':').Trim();
+        }
+
+        #endregion
+
+        // NEW METHOD: Builds ParsedDefinition from entry (moves core parser logic here)
+        public static ParsedDefinition BuildParsedDefinition(DictionaryEntry entry)
+        {
+            if (entry == null)
+                throw new ArgumentNullException(nameof(entry));
+
+            if (string.IsNullOrWhiteSpace(entry.Definition))
+                return BuildFallbackParsedDefinition(entry);
+
+            var definition = entry.Definition;
+
+            var parsedData = ParseCollinsEntry(definition);
+
+            // Build full definition with metadata
+            var fullDefinition = BuildFullDefinition(parsedData);
+
+            // Extract synonyms
+            var synonyms = ExtractSynonyms(definition, parsedData.Examples);
+
+            return new ParsedDefinition
+            {
+                MeaningTitle = entry.Word ?? "unnamed sense",
+                Definition = fullDefinition,
+                RawFragment = entry.Definition,
+                SenseNumber = parsedData.SenseNumber,
+                Domain = parsedData.PrimaryDomain,
+                UsageLabel = BuildUsageLabel(parsedData),
+                CrossReferences = parsedData.CrossReferences.ToList(),
+                Synonyms = synonyms.Count > 0 ? synonyms : null,
+                Alias = parsedData.PhrasalVerbInfo.IsPhrasalVerb
+                       ? $"{parsedData.PhrasalVerbInfo.Verb} {parsedData.PhrasalVerbInfo.Particle}"
+                       : null,
+                Examples = parsedData.Examples.ToList()
+            };
+        }
+
+        // NEW METHOD: Exact old BuildFullDefinition moved here
+        public static string BuildFullDefinition(CollinsParsedData data)
+        {
+            var parts = new List<string>();
+
+            // Add main definition
+            if (!string.IsNullOrWhiteSpace(data.CleanDefinition))
+                parts.Add(data.CleanDefinition);
+            else if (!string.IsNullOrWhiteSpace(data.MainDefinition))
+                parts.Add(data.MainDefinition);
+
+            // Add POS if available
+            if (!string.IsNullOrWhiteSpace(data.PartOfSpeech) && data.PartOfSpeech != "unk")
+                parts.Insert(0, $"【POS】{data.PartOfSpeech}");
+
+            // Add domain labels
+            if (data.DomainLabels.Count > 0)
+                parts.Add($"【Domains】{string.Join(", ", data.DomainLabels)}");
+
+            // Add usage patterns
+            if (data.UsagePatterns.Count > 0)
+                parts.Add($"【Patterns】{string.Join("; ", data.UsagePatterns)}");
+
+            // Add phrasal verb info
+            if (data.PhrasalVerbInfo.IsPhrasalVerb)
+            {
+                parts.Add($"【PhrasalVerb】{data.PhrasalVerbInfo.Verb} {data.PhrasalVerbInfo.Particle}");
+                if (data.PhrasalVerbInfo.Patterns.Count > 0)
+                    parts.Add($"【PhrasalPatterns】{string.Join("; ", data.PhrasalVerbInfo.Patterns)}");
+            }
+
+            return string.Join("\n", parts).Trim();
+        }
+
+        // NEW METHOD: Exact old BuildUsageLabel moved here
+        public static string BuildUsageLabel(CollinsParsedData data)
+        {
+            var labels = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(data.PartOfSpeech) && data.PartOfSpeech != "unk")
+                labels.Add(data.PartOfSpeech);
+
+            if (data.DomainLabels.Count > 0)
+                labels.AddRange(data.DomainLabels.Take(2));
+
+            return labels.Count > 0 ? string.Join(", ", labels) : null;
+        }
+
+        // NEW METHOD: fallback builder moved here for reuse
+        public static ParsedDefinition BuildFallbackParsedDefinition(DictionaryEntry entry)
+        {
+            return new ParsedDefinition
+            {
+                MeaningTitle = entry.Word ?? "unnamed sense",
+                Definition = entry.Definition ?? string.Empty,
+                RawFragment = entry.Definition ?? string.Empty,
+                SenseNumber = entry.SenseNumber,
+                Domain = null,
+                UsageLabel = null,
+                CrossReferences = new List<CrossReference>(),
+                Synonyms = null,
+                Alias = null
+            };
+        }
+
     }
 
     /// <summary>
@@ -686,4 +1448,7 @@
         public string Particle { get; set; } = string.Empty;
         public IReadOnlyList<string> Patterns { get; set; } = new List<string>();
     }
+
+    // NOTE: CrossReference and CollinsSenseRaw classes are referenced by your existing project.
+    // Keep them as-is in your codebase.
 }

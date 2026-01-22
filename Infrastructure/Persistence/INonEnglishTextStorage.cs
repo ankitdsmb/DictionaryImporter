@@ -1,17 +1,24 @@
 ﻿// File: Infrastructure/Persistence/INonEnglishTextStorage.cs
+using System;
 using System.Collections.Concurrent;
-using DictionaryImporter.Infrastructure.Persistence.Batched;
+using System.Collections.Generic;
+using System.Data;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Dapper;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
 using LanguageDetector = DictionaryImporter.Core.Text.LanguageDetector;
 
 namespace DictionaryImporter.Infrastructure.Persistence
 {
-    // In INonEnglishTextStorage.cs - fix the interface method
     public interface INonEnglishTextStorage
     {
         Task<long?> StoreNonEnglishTextAsync(
             string originalText,
             string sourceCode,
-            string fieldType,  // Add this parameter
+            string fieldType,
             CancellationToken ct);
 
         Task<string?> GetNonEnglishTextAsync(long nonEnglishTextId, CancellationToken ct);
@@ -37,25 +44,38 @@ namespace DictionaryImporter.Infrastructure.Persistence
         public async Task<long?> StoreNonEnglishTextAsync(
             string originalText,
             string sourceCode,
+            string fieldType,
             CancellationToken ct)
         {
             if (string.IsNullOrWhiteSpace(originalText))
                 return null;
 
-            // Check if it's actually non-English
+            sourceCode = string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode.Trim();
+            fieldType = string.IsNullOrWhiteSpace(fieldType) ? "Unknown" : fieldType.Trim();
+
+            // Only store if it is actually non-English
             if (!LanguageDetector.ContainsNonEnglishText(originalText))
                 return null;
 
+            // ✅ DB requires FieldType NOT NULL (per your other writer logic)
             const string sql = """
-                INSERT INTO dbo.DictionaryNonEnglishText (
-                    OriginalText, DetectedLanguage, CharacterCount,
-                    SourceCode, CreatedUtc
-                ) OUTPUT INSERTED.NonEnglishTextId
-                VALUES (
-                    @OriginalText, @DetectedLanguage, @CharacterCount,
-                    @SourceCode, SYSUTCDATETIME()
-                );
-                """;
+                               INSERT INTO dbo.DictionaryNonEnglishText (
+                                   OriginalText,
+                                   DetectedLanguage,
+                                   CharacterCount,
+                                   SourceCode,
+                                   FieldType,
+                                   CreatedUtc
+                               ) OUTPUT INSERTED.NonEnglishTextId
+                               VALUES (
+                                   @OriginalText,
+                                   @DetectedLanguage,
+                                   @CharacterCount,
+                                   @SourceCode,
+                                   @FieldType,
+                                   SYSUTCDATETIME()
+                               );
+                               """;
 
             var languageCode = LanguageDetector.DetectLanguageCode(originalText);
 
@@ -64,60 +84,97 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 OriginalText = originalText,
                 DetectedLanguage = languageCode ?? (object)DBNull.Value,
                 CharacterCount = originalText.Length,
-                SourceCode = sourceCode
+                SourceCode = sourceCode,
+                FieldType = fieldType
             };
 
-            await using var connection = new SqlConnection(_connectionString);
-            await connection.OpenAsync(ct);
+            try
+            {
+                await using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync(ct);
 
-            var textId = await connection.ExecuteScalarAsync<long>(
-                new CommandDefinition(sql, parameters, cancellationToken: ct));
+                var textId = await connection.ExecuteScalarAsync<long>(
+                    new CommandDefinition(sql, parameters, cancellationToken: ct));
 
-            // Cache the result
-            _cache[textId] = originalText;
+                _cache[textId] = originalText;
 
-            _logger.LogDebug(
-                "Stored non-English text: ID={TextId}, Language={Language}, Length={Length}",
-                textId, languageCode, originalText.Length);
+                _logger.LogDebug(
+                    "Stored non-English text: ID={TextId}, Language={Language}, Field={FieldType}, Length={Length}",
+                    textId, languageCode, fieldType, originalText.Length);
 
-            return textId;
+                return textId;
+            }
+            catch (Exception ex)
+            {
+                // ✅ Never crash importer
+                _logger.LogDebug(
+                    ex,
+                    "Failed to store non-English text. Source={SourceCode}, Field={FieldType}, Length={Length}",
+                    sourceCode,
+                    fieldType,
+                    originalText.Length);
+
+                return null;
+            }
         }
 
         public async Task<string?> GetNonEnglishTextAsync(
             long nonEnglishTextId,
             CancellationToken ct)
         {
-            // Check cache first
+            if (nonEnglishTextId <= 0)
+                return null;
+
             if (_cache.TryGetValue(nonEnglishTextId, out var cachedText))
                 return cachedText;
 
             const string sql = """
-                SELECT OriginalText
-                FROM dbo.DictionaryNonEnglishText
-                WHERE NonEnglishTextId = @NonEnglishTextId;
-                """;
+                               SELECT OriginalText
+                               FROM dbo.DictionaryNonEnglishText
+                               WHERE NonEnglishTextId = @NonEnglishTextId;
+                               """;
 
-            await using var connection = new SqlConnection(_connectionString);
-            await connection.OpenAsync(ct);
+            try
+            {
+                await using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync(ct);
 
-            var text = await connection.QuerySingleOrDefaultAsync<string>(
-                new CommandDefinition(sql, new { NonEnglishTextId = nonEnglishTextId }, cancellationToken: ct));
+                var text = await connection.QuerySingleOrDefaultAsync<string>(
+                    new CommandDefinition(
+                        sql,
+                        new { NonEnglishTextId = nonEnglishTextId },
+                        cancellationToken: ct));
 
-            if (text != null)
-                _cache[nonEnglishTextId] = text;
+                if (!string.IsNullOrWhiteSpace(text))
+                    _cache[nonEnglishTextId] = text;
 
-            return text;
+                return text;
+            }
+            catch (Exception ex)
+            {
+                // ✅ Never crash importer
+                _logger.LogDebug(
+                    ex,
+                    "Failed to load non-English text for NonEnglishTextId={NonEnglishTextId}",
+                    nonEnglishTextId);
+
+                return null;
+            }
         }
 
+        // NEW METHOD (added)
         public async Task<IReadOnlyDictionary<long, string>> GetNonEnglishTextBatchAsync(
             IEnumerable<long> nonEnglishTextIds,
             CancellationToken ct)
         {
-            var ids = nonEnglishTextIds.ToList();
+            var ids = nonEnglishTextIds?
+                .Where(x => x > 0)
+                .Distinct()
+                .ToList() ?? new List<long>();
+
             if (ids.Count == 0)
                 return new Dictionary<long, string>();
 
-            // Check cache for what we have
             var result = new Dictionary<long, string>();
             var missingIds = new List<long>();
 
@@ -132,86 +189,41 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (missingIds.Count == 0)
                 return result;
 
-            // Fetch missing ones from database
             const string sql = """
-                SELECT NonEnglishTextId, OriginalText
-                FROM dbo.DictionaryNonEnglishText
-                WHERE NonEnglishTextId IN @Ids;
-                """;
-
-            await using var connection = new SqlConnection(_connectionString);
-            await connection.OpenAsync(ct);
-
-            var rows = await connection.QueryAsync<(long Id, string Text)>(
-                new CommandDefinition(sql, new { Ids = missingIds }, cancellationToken: ct));
-
-            foreach (var row in rows)
-            {
-                result[row.Id] = row.Text;
-                _cache[row.Id] = row.Text;
-            }
-
-            return result;
-        }
-
-        public async Task<long?> StoreNonEnglishTextAsync(
-            string originalText,
-            string sourceCode,
-            string fieldType,
-            CancellationToken ct)
-        {
-            if (string.IsNullOrWhiteSpace(originalText))
-                return null;
-
-            // Check if it's actually non-English
-            if (!LanguageDetector.ContainsNonEnglishText(originalText))
-                return null;
-
-            // FIXED SQL SYNTAX - Added missing FieldType column
-            const string sql = """
-                               INSERT INTO dbo.DictionaryNonEnglishText (
-                                   OriginalText, 
-                                   DetectedLanguage, 
-                                   CharacterCount,
-                                   SourceCode, 
-                                   FieldType, 
-                                   CreatedUtc
-                               ) OUTPUT INSERTED.NonEnglishTextId
-                               VALUES (
-                                   @OriginalText, 
-                                   @DetectedLanguage, 
-                                   @CharacterCount,
-                                   @SourceCode, 
-                                   @FieldType, 
-                                   SYSUTCDATETIME()
-                               );
+                               SELECT NonEnglishTextId, OriginalText
+                               FROM dbo.DictionaryNonEnglishText
+                               WHERE NonEnglishTextId IN @Ids;
                                """;
 
-            var languageCode = LanguageDetector.DetectLanguageCode(originalText);
-
-            var parameters = new
+            try
             {
-                OriginalText = originalText,
-                DetectedLanguage = languageCode ?? (object)DBNull.Value,
-                CharacterCount = originalText.Length,
-                SourceCode = sourceCode,
-                FieldType = fieldType  // ADD THIS
-            };
+                await using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync(ct);
 
-            await using var connection = new SqlConnection(_connectionString);
-            await connection.OpenAsync(ct);
+                var rows = await connection.QueryAsync<(long NonEnglishTextId, string OriginalText)>(
+                    new CommandDefinition(
+                        sql,
+                        new { Ids = missingIds },
+                        cancellationToken: ct));
 
-            var textId = await connection.ExecuteScalarAsync<long>(
-                new CommandDefinition(sql, parameters, cancellationToken: ct));
+                foreach (var row in rows)
+                {
+                    if (string.IsNullOrWhiteSpace(row.OriginalText))
+                        continue;
 
-            // Cache the result
-            _cache[textId] = originalText;
+                    result[row.NonEnglishTextId] = row.OriginalText;
+                    _cache[row.NonEnglishTextId] = row.OriginalText;
+                }
 
-            _logger.LogDebug(
-                "Stored non-English text: ID={TextId}, Language={Language}, Field={FieldType}, Length={Length}",
-                textId, languageCode, fieldType, originalText.Length);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                // ✅ Never crash importer
+                _logger.LogDebug(ex, "Failed to batch load non-English texts");
 
-            return textId;
+                return result;
+            }
         }
     }
 }

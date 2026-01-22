@@ -1,47 +1,121 @@
-﻿namespace DictionaryImporter.Infrastructure.Persistence
+﻿using System;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using Dapper;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
+
+namespace DictionaryImporter.Infrastructure.Persistence
 {
-    public sealed class SqlDictionaryAliasWriter(string connectionString, ILogger<SqlDictionaryAliasWriter> logger)
+    public sealed class SqlDictionaryAliasWriter(
+        string connectionString,
+        ILogger<SqlDictionaryAliasWriter> logger)
         : IDictionaryEntryAliasWriter
     {
-        private readonly string _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-        private readonly ILogger<SqlDictionaryAliasWriter> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        private readonly string _connectionString =
+            connectionString ?? throw new ArgumentNullException(nameof(connectionString));
 
-        // FIXED: Single proper constructor
+        private readonly ILogger<SqlDictionaryAliasWriter> _logger =
+            logger ?? throw new ArgumentNullException(nameof(logger));
 
         public async Task WriteAsync(
             long dictionaryEntryParsedId,
             string alias,
+            string sourceCode,
             CancellationToken ct)
         {
+            if (dictionaryEntryParsedId <= 0)
+                return;
+
+            sourceCode = string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode.Trim();
+
+            alias = NormalizeAlias(alias);
+            if (string.IsNullOrWhiteSpace(alias))
+                return;
+
             const string sql =
                 """
-                INSERT INTO dbo.DictionaryEntryAlias
+                IF NOT EXISTS
                 (
-                    DictionaryEntryParsedId,
-                    AliasText,
-                    CreatedUtc
+                    SELECT 1
+                    FROM dbo.DictionaryEntryAlias WITH (NOLOCK)
+                    WHERE DictionaryEntryParsedId = @DictionaryEntryParsedId
+                      AND AliasText = @AliasText
+                      AND SourceCode = @SourceCode
                 )
-                VALUES
-                (
-                    @DictionaryEntryParsedId,
-                    @AliasText,
-                    SYSUTCDATETIME()
-                )
+                BEGIN
+                    INSERT INTO dbo.DictionaryEntryAlias
+                    (
+                        DictionaryEntryParsedId,
+                        AliasText,
+                        SourceCode,
+                        CreatedUtc
+                    )
+                    VALUES
+                    (
+                        @DictionaryEntryParsedId,
+                        @AliasText,
+                        @SourceCode,
+                        SYSUTCDATETIME()
+                    );
+                END
                 """;
 
-            await using var conn = new SqlConnection(_connectionString);
-            await conn.ExecuteAsync(
-                new CommandDefinition(
-                    sql,
-                    new
-                    {
-                        DictionaryEntryParsedId = dictionaryEntryParsedId,
-                        AliasText = alias
-                    },
-                    cancellationToken: ct));
+            try
+            {
+                await using var conn = new SqlConnection(_connectionString);
+                await conn.OpenAsync(ct);
 
-            _logger.LogDebug("Alias inserted: {Alias} for ParsedId={ParsedId}",
-                alias, dictionaryEntryParsedId);
+                await conn.ExecuteAsync(
+                    new CommandDefinition(
+                        sql,
+                        new
+                        {
+                            DictionaryEntryParsedId = dictionaryEntryParsedId,
+                            AliasText = alias,
+                            SourceCode = sourceCode
+                        },
+                        cancellationToken: ct));
+
+                _logger.LogDebug(
+                    "Alias inserted (if missing): {Alias} for ParsedId={ParsedId} | SourceCode={SourceCode}",
+                    alias,
+                    dictionaryEntryParsedId,
+                    sourceCode);
+            }
+            catch (Exception ex)
+            {
+                // ✅ Never crash importer
+                _logger.LogDebug(
+                    ex,
+                    "Failed to insert alias: {Alias} for ParsedId={ParsedId} | SourceCode={SourceCode}",
+                    alias,
+                    dictionaryEntryParsedId,
+                    sourceCode);
+            }
+        }
+
+        // NEW METHOD (added)
+        private static string NormalizeAlias(string? alias)
+        {
+            if (string.IsNullOrWhiteSpace(alias))
+                return string.Empty;
+
+            var t = alias.Trim();
+
+            // collapse internal whitespace
+            t = Regex.Replace(t, @"\s+", " ").Trim();
+
+            // ignore placeholder junk
+            if (t.Equals("[NON_ENGLISH]", StringComparison.OrdinalIgnoreCase))
+                return string.Empty;
+
+            // hard length cap for safety
+            if (t.Length > 150)
+                t = t.Substring(0, 150).Trim();
+
+            return t;
         }
     }
 }

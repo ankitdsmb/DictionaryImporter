@@ -1,7 +1,5 @@
 ﻿using System.Text.Json;
-using System.Text.RegularExpressions;
 using DictionaryImporter.Sources.Common.Helper;
-using JsonException = System.Text.Json.JsonException;
 
 namespace DictionaryImporter.Sources.Kaikki.Parsing
 {
@@ -28,15 +26,12 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                 if (string.IsNullOrWhiteSpace(rawDefinition))
                     return results;
 
-                using var doc = JsonDocument.Parse(rawDefinition);
-                var root = doc.RootElement;
-
-                if (!JsonProcessor.IsEnglishEntry(root))
+                if (!KaikkiParsingHelper.TryParseEnglishRoot(rawDefinition, out _))
                     return results;
 
-                var synonyms = SourceDataHelper.ExtractSynonyms(rawDefinition);
+                var synonyms = KaikkiParsingHelper.ExtractSynonyms(rawDefinition);
 
-                foreach (var synonym in synonyms)
+                foreach (var synonym in synonyms.Distinct(StringComparer.OrdinalIgnoreCase))
                 {
                     if (!ValidateSynonymPair(headword, synonym))
                         continue;
@@ -54,7 +49,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                     });
                 }
             }
-            catch (JsonException ex)
+            catch (Newtonsoft.Json.JsonException ex)
             {
                 _logger.LogDebug(ex, "Failed to parse Kaikki JSON for synonym extraction | Headword={Headword}", headword);
             }
@@ -68,45 +63,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
         public bool ValidateSynonymPair(string headwordA, string headwordB)
         {
-            if (string.IsNullOrWhiteSpace(headwordA) || string.IsNullOrWhiteSpace(headwordB))
-                return false;
-
-            var a = headwordA.ToLowerInvariant().Trim();
-            var b = headwordB.ToLowerInvariant().Trim();
-
-            if (a == b)
-                return false;
-
-            if (!IsValidHeadword(a) || !IsValidHeadword(b))
-                return false;
-
-            if (a.Length < 2 || b.Length < 2)
-                return false;
-
-            // Check for obvious non-synonyms (antonyms)
-            var antonyms = new[]
-            {
-                ("big", "small"), ("hot", "cold"), ("up", "down"),
-                ("good", "bad"), ("yes", "no"), ("black", "white"),
-                ("day", "night"), ("fast", "slow"), ("high", "low"),
-                ("love", "hate"), ("rich", "poor"), ("strong", "weak")
-            };
-
-            return !antonyms.Any(p =>
-                p.Item1 == a && p.Item2 == b ||
-                p.Item1 == b && p.Item2 == a);
-        }
-
-        private bool IsValidHeadword(string word)
-        {
-            if (string.IsNullOrWhiteSpace(word) || word.Length < 2)
-                return false;
-
-            if (!word.Any(char.IsLetter))
-                return false;
-
-            // Allow letters, hyphens, apostrophes, and spaces (phrases)
-            return Regex.IsMatch(word, @"^[a-z\s\-']+$");
+            return KaikkiParsingHelper.ValidateSynonymPair(headwordA, headwordB);
         }
     }
 }
