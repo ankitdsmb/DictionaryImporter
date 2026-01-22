@@ -70,11 +70,11 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
 
     public async Task ExecuteAsync(string sourceCode, CancellationToken ct)
     {
-        if (!SourceDataHelper.ShouldContinueProcessing(sourceCode, _logger))
-        {
-            _logger.LogInformation("Source {SourceCode} processing limit reached, skipping", sourceCode);
-            return;
-        }
+        //if (!SourceDataHelper.ShouldContinueProcessing(sourceCode, _logger))
+        //{
+        //    _logger.LogInformation("Source {SourceCode} processing limit reached, skipping", sourceCode);
+        //    return;
+        //}
 
         _logger.LogInformation("Stage=Parsing started | Source={SourceCode}", sourceCode);
 
