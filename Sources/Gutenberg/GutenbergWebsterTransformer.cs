@@ -1,4 +1,8 @@
-﻿using DictionaryImporter.Sources.Common.Helper;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using DictionaryImporter.Sources.Common.Helper;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Gutenberg
 {

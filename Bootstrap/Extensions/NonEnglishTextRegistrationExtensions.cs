@@ -1,5 +1,6 @@
 ﻿// File: Bootstrap/Extensions/NonEnglishTextRegistrationExtensions.cs
 using DictionaryImporter.Core.Text;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DictionaryImporter.Bootstrap.Extensions
 {

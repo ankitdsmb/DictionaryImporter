@@ -1,4 +1,13 @@
-﻿namespace DictionaryImporter.Infrastructure.Persistence
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Dapper;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
+
+namespace DictionaryImporter.Infrastructure.Persistence
 {
     public sealed class SqlDictionaryEntryStagingLoader(
         string connectionString,

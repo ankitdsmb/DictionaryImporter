@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Core.Text
+﻿using System.Text.RegularExpressions;
+
+namespace DictionaryImporter.Core.Text
 {
     public sealed class DefinitionNormalizer : IDefinitionNormalizer
     {

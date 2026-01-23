@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Core.PostProcessing
+﻿namespace DictionaryImporter.Core.Abstractions
 {
     public interface IDictionaryPostProcessor
     {

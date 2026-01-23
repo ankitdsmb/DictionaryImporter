@@ -1,8 +1,8 @@
+using System.Net.Http.Headers;
 using DictionaryImporter.Gateway.Ai.Abstractions;
 using DictionaryImporter.Gateway.Ai.Configuration;
 using DictionaryImporter.Gateway.Ai.Template;
 using Newtonsoft.Json.Linq;
-using System.Net.Http.Headers;
 
 namespace DictionaryImporter.Gateway.Ai.Providers
 {

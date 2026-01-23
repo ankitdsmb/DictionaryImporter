@@ -1,4 +1,9 @@
-﻿using DictionaryImporter.Sources.Common.Helper;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+using DictionaryImporter.Sources.Common.Helper;
+using DictionaryImporter.Sources.Common.Parsing;
 
 namespace DictionaryImporter.Sources.Collins.Extractor
 {

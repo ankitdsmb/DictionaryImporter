@@ -1,4 +1,8 @@
-﻿using DictionaryImporter.Sources.Common.Helper;
+﻿using System;
+using System.Linq;
+using DictionaryImporter.Domain.Models;
+using DictionaryImporter.Sources.Common.Helper;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Core.Validation
 {

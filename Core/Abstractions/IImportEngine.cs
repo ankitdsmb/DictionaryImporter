@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Core.Pipeline
+﻿namespace DictionaryImporter.Core.Abstractions
 {
     public interface IImportEngine
     {

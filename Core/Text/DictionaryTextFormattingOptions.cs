@@ -4,7 +4,7 @@
     {
         public string Style { get; set; } = "Modern";
 
-        public int MaxDefinitionLineLength { get; set; } = 120;
+        public int MaxDefinitionLineLength { get; set; } = int.MaxValue;
 
         public bool UseBulletsForMultiLineDefinitions { get; set; } = true;
 

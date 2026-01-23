@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Core.Graph
+﻿namespace DictionaryImporter.Core.Abstractions
 {
     public interface IGraphValidator
     {

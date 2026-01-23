@@ -1,4 +1,13 @@
-﻿namespace DictionaryImporter.Infrastructure.Persistence
+﻿using System;
+using System.Data.SqlClient;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using Dapper;
+using DictionaryImporter.Domain.Models;
+using Microsoft.Extensions.Logging;
+
+namespace DictionaryImporter.Infrastructure.Persistence
 {
     public sealed class SqlDictionaryEntryCrossReferenceWriter(
         string connectionString,

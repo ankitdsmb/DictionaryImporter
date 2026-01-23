@@ -1,5 +1,8 @@
-﻿using DictionaryImporter.Gateway.Grammar.Core;
+﻿using System.Text.RegularExpressions;
+using DictionaryImporter.Gateway.Grammar.Core;
 using DictionaryImporter.Gateway.Grammar.Engines;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DictionaryImporter.Core.Text
 {

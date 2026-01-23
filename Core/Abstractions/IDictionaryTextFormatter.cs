@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Core.Text
+﻿namespace DictionaryImporter.Core.Abstractions
 {
     // FIXED: Complete IDictionaryTextFormatter implementation
     public interface IDictionaryTextFormatter

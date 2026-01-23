@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Core.Text;
+﻿namespace DictionaryImporter.Core.Abstractions;
 
 public interface IOcrArtifactNormalizer
 {

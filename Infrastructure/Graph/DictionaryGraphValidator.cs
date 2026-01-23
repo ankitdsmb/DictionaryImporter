@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Infrastructure.Graph
+﻿using DictionaryImporter.Domain;
+
+namespace DictionaryImporter.Infrastructure.Graph
 {
     public sealed class DictionaryGraphValidator(
         string connectionString,

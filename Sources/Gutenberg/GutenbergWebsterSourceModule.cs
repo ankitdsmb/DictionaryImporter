@@ -1,4 +1,10 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg
+﻿using DictionaryImporter.Sources.Kaikki;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.IO;
+
+namespace DictionaryImporter.Sources.Gutenberg
 {
     public sealed class GutenbergWebsterSourceModule : IDictionarySourceModule
     {

@@ -1,5 +1,5 @@
 ﻿// File: Core/Text/ILanguageDetectionService.cs
-namespace DictionaryImporter.Core.Text
+namespace DictionaryImporter.Core.Abstractions
 {
     public interface ILanguageDetectionService
     {

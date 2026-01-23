@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Core.Parsing
+﻿namespace DictionaryImporter.Domain.Models
 {
     public sealed class EtymologyExtractionResult
     {

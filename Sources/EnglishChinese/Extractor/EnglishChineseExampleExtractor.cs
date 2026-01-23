@@ -1,4 +1,8 @@
-﻿using DictionaryImporter.Sources.Common.Helper;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using DictionaryImporter.Domain.Models;
+using DictionaryImporter.Sources.Common.Helper;
 
 namespace DictionaryImporter.Sources.EnglishChinese.Extractor
 {

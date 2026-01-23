@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Core.Validation
+﻿namespace DictionaryImporter.Core.Abstractions
 {
     public interface IDictionaryEntryValidator
     {

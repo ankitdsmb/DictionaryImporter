@@ -1,4 +1,5 @@
-﻿using DictionaryImporter.Sources.Common.Helper;
+﻿using System.Text.Json;
+using DictionaryImporter.Sources.Common.Helper;
 
 namespace DictionaryImporter.Sources.Kaikki.Parsing
 {

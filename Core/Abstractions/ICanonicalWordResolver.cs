@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Core.Canonical
+﻿namespace DictionaryImporter.Core.Abstractions
 {
     public interface ICanonicalWordResolver
     {

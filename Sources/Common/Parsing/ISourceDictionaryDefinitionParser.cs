@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Sources.Common.Parsing
+﻿using DictionaryImporter.Sources.Common;
+
+namespace DictionaryImporter.Sources.Common.Parsing
 {
     public interface ISourceDictionaryDefinitionParser : IDictionaryDefinitionParser
     {

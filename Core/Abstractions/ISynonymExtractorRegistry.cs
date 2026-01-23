@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Core.Parsing
+﻿namespace DictionaryImporter.Core.Abstractions
 {
     public interface ISynonymExtractorRegistry
     {

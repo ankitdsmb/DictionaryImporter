@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Core.Graph
+﻿namespace DictionaryImporter.Domain
 {
     public static class GraphRelations
     {

@@ -1,11 +1,16 @@
-﻿using DictionaryImporter.Core.Text;
+﻿using DictionaryImporter.Core.Persistence;
+using DictionaryImporter.Core.Text;
+using DictionaryImporter.Infrastructure.Parsing; // Needed for DictionaryParsedDefinitionProcessor
 using DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
 using DictionaryImporter.Sources.Collins.Extractor;
 using DictionaryImporter.Sources.Common.Parsing;
 using DictionaryImporter.Sources.EnglishChinese.Extractor;
 using DictionaryImporter.Sources.Generic;
 using DictionaryImporter.Sources.Gutenberg.Extractor;
+using DictionaryImporter.Sources.Gutenberg.Parsing;
 using DictionaryImporter.Sources.Oxford.Parsing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Bootstrap.Extensions
 {
@@ -13,8 +18,18 @@ namespace DictionaryImporter.Bootstrap.Extensions
     {
         public static IServiceCollection AddParsing(this IServiceCollection services, string connectionString)
         {
+            // 1. Core Text Processing Services (New dependencies)
+            services.AddSingleton<IOcrArtifactNormalizer, OcrArtifactNormalizer>();
+            services.AddSingleton<IDefinitionNormalizer, DefinitionNormalizer>();
+
+            // 2. Text Formatter (Uses OCR & Definition normalizers)
+            // Note: We register DictionaryTextFormatter as the implementation for IDictionaryTextFormatter
+            services.AddSingleton<IDictionaryTextFormatter, DictionaryTextFormatter>();
+
+            // 3. Parsers
             services.AddSingleton<IDictionaryDefinitionParser, OxfordDefinitionParser>();
 
+            // 4. Writers (using connectionString)
             services.AddTransient<IDictionaryEntryExampleWriter>(sp =>
             {
                 var logger = sp.GetRequiredService<ILogger<SqlDictionaryEntryExampleWriter>>();
@@ -50,6 +65,7 @@ namespace DictionaryImporter.Bootstrap.Extensions
                     connectionString,
                     sp.GetRequiredService<ILogger<SqlDictionaryEntryVariantWriter>>()));
 
+            // Forwarding implementations
             services.AddSingleton<IDictionaryEntryVariantWriter>(sp =>
                 sp.GetRequiredService<SqlDictionaryEntryVariantWriter>());
 
@@ -64,21 +80,15 @@ namespace DictionaryImporter.Bootstrap.Extensions
                     connectionString,
                     sp.GetRequiredService<ILogger<SqlDictionaryEntryEtymologyWriter>>()));
 
-            services.AddSingleton<IDictionaryTextFormatter>(sp =>
-                new DefaultDictionaryTextFormatter(
-                    sp.GetRequiredService<ILogger<DefaultDictionaryTextFormatter>>()));
-
+            // 5. Text Services
             services.AddSingleton<IGrammarEnrichedTextService>(sp =>
                 new GrammarEnrichedTextService(
                     sp.GetRequiredService<ILogger<GrammarEnrichedTextService>>()));
 
-            // -------------------------------------------
-            // Example Extractors ✅ FIXED
-            // -------------------------------------------
+            // 6. Extractors
+            // Examples
             services.AddSingleton<IExampleExtractor, GutenbergExampleExtractor>();
-
-            // ✅ REQUIRED: ExampleExtractorRegistry needs this
-            services.AddSingleton<GenericExampleExtractor>();
+            services.AddSingleton<GenericExampleExtractor>(); // Required by Registry
 
             services.AddSingleton<IExampleExtractorRegistry>(sp =>
                 new ExampleExtractorRegistry(
@@ -86,13 +96,10 @@ namespace DictionaryImporter.Bootstrap.Extensions
                     sp.GetRequiredService<GenericExampleExtractor>(),
                     sp.GetRequiredService<ILogger<ExampleExtractorRegistry>>()));
 
-            // -------------------------------------------
-            // Synonym Extractors
-            // -------------------------------------------
+            // Synonyms
             services.AddSingleton<ISynonymExtractor, EnglishChineseSynonymExtractor>();
             services.AddSingleton<ISynonymExtractor, CollinsSynonymExtractor>();
             services.AddSingleton<ISynonymExtractor, GutenbergSynonymExtractor>();
-
             services.AddSingleton<GenericSynonymExtractor>();
 
             services.AddSingleton<ISynonymExtractorRegistry>(sp =>
@@ -101,12 +108,9 @@ namespace DictionaryImporter.Bootstrap.Extensions
                     sp.GetRequiredService<GenericSynonymExtractor>(),
                     sp.GetRequiredService<ILogger<SynonymExtractorRegistry>>()));
 
-            // -------------------------------------------
-            // Etymology Extractors
-            // -------------------------------------------
+            // Etymology
             services.AddSingleton<IEtymologyExtractor, EnglishChineseEtymologyExtractor>();
             services.AddSingleton<IEtymologyExtractor, GutenbergEtymologyExtractor>();
-
             services.AddSingleton<GenericEtymologyExtractor>();
 
             services.AddSingleton<IEtymologyExtractorRegistry>(sp =>
@@ -115,6 +119,7 @@ namespace DictionaryImporter.Bootstrap.Extensions
                     sp.GetRequiredService<GenericEtymologyExtractor>(),
                     sp.GetRequiredService<ILogger<EtymologyExtractorRegistry>>()));
 
+            // 7. Main Processor Registration (Updated with new dependencies)
             services.AddScoped<DictionaryParsedDefinitionProcessor>(sp =>
             {
                 return new DictionaryParsedDefinitionProcessor(
@@ -134,6 +139,8 @@ namespace DictionaryImporter.Bootstrap.Extensions
                     sp.GetRequiredService<IGrammarEnrichedTextService>(),
                     sp.GetRequiredService<ILanguageDetectionService>(),
                     sp.GetRequiredService<INonEnglishTextStorage>(),
+                    sp.GetRequiredService<IOcrArtifactNormalizer>(), // Added
+                    sp.GetRequiredService<IDefinitionNormalizer>(),  // Added
                     sp.GetRequiredService<ILogger<DictionaryParsedDefinitionProcessor>>()
                 );
             });
