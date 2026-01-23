@@ -21,7 +21,7 @@ namespace DictionaryImporter.Core.Validation
             // Validate NormalizedWord (generate if missing)
             if (string.IsNullOrWhiteSpace(entry.NormalizedWord))
             {
-                entry.NormalizedWord = TextNormalizer.NormalizeWord(entry.Word);
+                entry.NormalizedWord = TextProcessingHelper.NormalizeWord(entry.Word);
                 if (string.IsNullOrWhiteSpace(entry.NormalizedWord))
                     return ValidationResult.Invalid("NormalizedWord missing");
             }
@@ -33,7 +33,7 @@ namespace DictionaryImporter.Core.Validation
                 if (entry.SourceCode == "KAIKKI" && !string.IsNullOrWhiteSpace(entry.RawFragment))
                 {
                     // Try to extract definition from RawFragment
-                    var definitions = KaikkiParsingHelper.ExtractEnglishDefinitions(entry.RawFragment);
+                    var definitions = ParsingHelperKaikki.ExtractEnglishDefinitions(entry.RawFragment);
                     if (definitions.Count > 0)
                     {
                         entry.Definition = definitions.First();

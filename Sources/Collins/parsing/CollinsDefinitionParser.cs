@@ -20,7 +20,7 @@ namespace DictionaryImporter.Sources.Collins.Parsing
 
             try
             {
-                results.Add(CollinsParsingHelper.BuildParsedDefinition(entry));
+                results.Add(ParsingHelperCollins.BuildParsedDefinition(entry));
             }
             catch (Exception ex)
             {

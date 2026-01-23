@@ -22,10 +22,10 @@ namespace DictionaryImporter.Sources.Oxford.Parsing
             var definition = entry.Definition;
 
             // Parse all Oxford data at once
-            var oxfordData = OxfordParsingHelper.ParseOxfordEntry(definition);
-            var examples = OxfordParsingHelper.ExtractExamples(definition);
-            var crossRefs = OxfordParsingHelper.ExtractCrossReferences(definition) ?? new List<CrossReference>();
-            var synonyms = OxfordParsingHelper.ExtractSynonymsFromExamples(examples);
+            var oxfordData = ParsingHelperOxford.ParseOxfordEntry(definition);
+            var examples = ParsingHelperOxford.ExtractExamples(definition);
+            var crossRefs = ParsingHelperOxford.ExtractCrossReferences(definition) ?? new List<CrossReference>();
+            var synonyms = ParsingHelperOxford.ExtractSynonymsFromExamples(examples);
             // Build definition with IPA if available
             var fullDefinition = oxfordData.CleanDefinition;
             if (!string.IsNullOrWhiteSpace(oxfordData.IpaPronunciation))

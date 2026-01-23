@@ -26,7 +26,7 @@ namespace DictionaryImporter.Sources.EnglishChinese.Extractor
             try
             {
                 // Use helper class to parse the English-Chinese entry
-                var parsedData = EnglishChineseParsingHelper.ParseEngChnEntry(definition);
+                var parsedData = ParsingHelperEnglishChinese.ParseEngChnEntry(definition);
 
                 // Extract etymology from parsed data
                 var etymologyText = parsedData.Etymology;
@@ -111,7 +111,7 @@ namespace DictionaryImporter.Sources.EnglishChinese.Extractor
             // If main definition is empty, extract Chinese definition from English side
             if (string.IsNullOrWhiteSpace(cleaned) && !string.IsNullOrWhiteSpace(parsedData.EnglishDefinition))
             {
-                cleaned = EnglishChineseParsingHelper.ExtractChineseDefinition(parsedData.EnglishDefinition);
+                cleaned = ParsingHelperEnglishChinese.ExtractChineseDefinition(parsedData.EnglishDefinition);
             }
 
             return cleaned ?? string.Empty;

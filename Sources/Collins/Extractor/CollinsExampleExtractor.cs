@@ -26,7 +26,7 @@ namespace DictionaryImporter.Sources.Collins.Extractor
                 return new List<string>();
 
             // ✅ Main extraction using shared helper
-            var examples = CollinsParsingHelper.ExtractExamples(raw)
+            var examples = ParsingHelperCollins.ExtractExamples(raw)
                 .Select(NormalizeForDedupe)
                 .Where(e => !string.IsNullOrWhiteSpace(e))
                 .Where(e => !IsPlaceholder(e))

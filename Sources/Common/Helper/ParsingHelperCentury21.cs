@@ -7,7 +7,7 @@ using DictionaryImporter.Sources.Common.Parsing;
 
 namespace DictionaryImporter.Sources.Common.Helper
 {
-    public static class Century21ParsingHelper
+    public static class ParsingHelperCentury21
     {
         // Pre-compiled regex for performance
         private static readonly Regex HtmlTagRegex = new("<.*?>", RegexOptions.Compiled);

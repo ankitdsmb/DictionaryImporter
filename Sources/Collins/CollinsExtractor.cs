@@ -34,7 +34,7 @@ namespace DictionaryImporter.Sources.Collins
                     continue;
                 }
 
-                if (CollinsParsingHelper.IsEntrySeparator(line))
+                if (ParsingHelperCollins.IsEntrySeparator(line))
                 {
                     if (currentEntry != null)
                     {
@@ -57,7 +57,7 @@ namespace DictionaryImporter.Sources.Collins
                     continue;
                 }
 
-                if (CollinsParsingHelper.TryParseHeadword(line, out var headword))
+                if (ParsingHelperCollins.TryParseHeadword(line, out var headword))
                 {
                     if (currentEntry != null)
                     {
@@ -84,7 +84,7 @@ namespace DictionaryImporter.Sources.Collins
                 if (currentEntry == null)
                     continue;
 
-                if (CollinsParsingHelper.TryParseSenseHeader(line, out var sense))
+                if (ParsingHelperCollins.TryParseSenseHeader(line, out var sense))
                 {
                     if (currentSense != null)
                     {
@@ -101,13 +101,13 @@ namespace DictionaryImporter.Sources.Collins
                     continue;
                 }
 
-                if (CollinsParsingHelper.TryParseExample(line, out var example))
+                if (ParsingHelperCollins.TryParseExample(line, out var example))
                 {
                     examplesBuffer.Add(example);
                     continue;
                 }
 
-                if (CollinsParsingHelper.TryParseUsageNote(line, out var usageNote))
+                if (ParsingHelperCollins.TryParseUsageNote(line, out var usageNote))
                 {
                     noteBuffer.Add(usageNote);
 
@@ -117,16 +117,16 @@ namespace DictionaryImporter.Sources.Collins
                     continue;
                 }
 
-                if (CollinsParsingHelper.TryParseDomainLabel(line, out var labelInfo))
+                if (ParsingHelperCollins.TryParseDomainLabel(line, out var labelInfo))
                 {
                     if (currentSense != null)
                     {
-                        var cleanValue = CollinsParsingHelper.RemoveChineseCharacters(labelInfo.Value);
+                        var cleanValue = ParsingHelperCollins.RemoveChineseCharacters(labelInfo.Value);
 
                         if (labelInfo.LabelType.Contains("语域"))
-                            currentSense.DomainLabel = CollinsParsingHelper.ExtractCleanDomain(cleanValue);
+                            currentSense.DomainLabel = ParsingHelperCollins.ExtractCleanDomain(cleanValue);
                         else if (labelInfo.LabelType.Contains("语法"))
-                            currentSense.GrammarInfo = CollinsParsingHelper.ExtractCleanGrammar(cleanValue);
+                            currentSense.GrammarInfo = ParsingHelperCollins.ExtractCleanGrammar(cleanValue);
                     }
 
                     continue;
@@ -134,9 +134,9 @@ namespace DictionaryImporter.Sources.Collins
 
                 if (currentSense != null &&
                     !string.IsNullOrEmpty(currentSense.Definition) &&
-                    CollinsParsingHelper.IsDefinitionContinuation(line, currentSense.Definition))
+                    ParsingHelperCollins.IsDefinitionContinuation(line, currentSense.Definition))
                 {
-                    var cleanedLine = CollinsParsingHelper.RemoveChineseCharacters(line.Trim());
+                    var cleanedLine = ParsingHelperCollins.RemoveChineseCharacters(line.Trim());
                     currentSense.Definition += " " + cleanedLine;
                 }
             }

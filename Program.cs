@@ -1,5 +1,4 @@
 ﻿using DictionaryImporter.Bootstrap;
-using DictionaryImporter.Validation;
 using Serilog;
 
 var configuration = BootstrapConfiguration.Build();
@@ -23,9 +22,6 @@ var sources = SourceRegistry.CreateSources()
     .Select(m => m.BuildSource(configuration))
     .ToList();
 
-EncodingAwareValidation.Run();
-
-// ✅ FIX: prevent “startup stuck forever” when DB query / pipeline step blocks
 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
 await orchestrator.RunAsync(sources, pipelineMode, cts.Token);
 

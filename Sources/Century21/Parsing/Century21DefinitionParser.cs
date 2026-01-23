@@ -29,7 +29,7 @@ namespace DictionaryImporter.Sources.Century21.Parsing
             try
             {
                 // Use helper to parse HTML
-                var parsedData = Century21ParsingHelper.ParseCentury21Html(
+                var parsedData = ParsingHelperCentury21.ParseCentury21Html(
                     entry.RawFragment, entry.Word);
 
                 // Get domain and usage label
@@ -38,11 +38,11 @@ namespace DictionaryImporter.Sources.Century21.Parsing
                 var wordBlock = htmlDoc.DocumentNode.SelectSingleNode("//div[@class='word_block']");
 
                 var domain = wordBlock != null
-                    ? Century21ParsingHelper.ExtractDomain(wordBlock)
+                    ? ParsingHelperCentury21.ExtractDomain(wordBlock)
                     : null;
 
                 var usageLabel = wordBlock != null
-                    ? Century21ParsingHelper.ExtractUsageLabel(wordBlock)
+                    ? ParsingHelperCentury21.ExtractUsageLabel(wordBlock)
                     : null;
 
                 // Create main definition

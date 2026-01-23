@@ -40,7 +40,7 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
             }
 
             // Parse the complete entry using helper
-            var parsedData = EnglishChineseParsingHelper.ParseEngChnEntry(rawLine);
+            var parsedData = ParsingHelperEnglishChinese.ParseEngChnEntry(rawLine);
 
             // Return main sense
             yield return CreateParsedDefinition(parsedData, entry, rawLine);
@@ -66,10 +66,10 @@ namespace DictionaryImporter.Sources.EnglishChinese.Parsing
             var fullDefinition = BuildFullDefinition(data);
 
             // Extract domain from labels
-            var domain = EnglishChineseParsingHelper.ExtractDomain(rawFragment);
+            var domain = ParsingHelperEnglishChinese.ExtractDomain(rawFragment);
 
             // Extract usage label
-            var usageLabel = EnglishChineseParsingHelper.ExtractUsageLabel(rawFragment);
+            var usageLabel = ParsingHelperEnglishChinese.ExtractUsageLabel(rawFragment);
 
             var parsed = new ParsedDefinition
             {

@@ -1,18 +1,21 @@
-﻿using System.Text.Json;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using DictionaryImporter.Sources.Common.Helper;
+using Microsoft.Extensions.Logging;
 
-namespace DictionaryImporter.Sources.Kaikki.Parsing
+namespace DictionaryImporter.Sources.Gutenberg.Extractor
 {
-    internal class KaikkiSynonymExtractor : ISynonymExtractor
+    internal sealed class GutenbergSynonymExtractor : ISynonymExtractor
     {
-        private readonly ILogger<KaikkiSynonymExtractor> _logger;
+        private readonly ILogger<GutenbergSynonymExtractor> _logger;
 
-        public KaikkiSynonymExtractor(ILogger<KaikkiSynonymExtractor> logger)
+        public GutenbergSynonymExtractor(ILogger<GutenbergSynonymExtractor> logger)
         {
             _logger = logger;
         }
 
-        public string SourceCode => "KAIKKI";
+        public string SourceCode => "GUT_WEBSTER";
 
         public IReadOnlyList<SynonymDetectionResult> Extract(
             string headword,
@@ -26,10 +29,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                 if (string.IsNullOrWhiteSpace(rawDefinition))
                     return results;
 
-                if (!ParsingHelperKaikki.TryParseEnglishRoot(rawDefinition, out _))
-                    return results;
-
-                var synonyms = ParsingHelperKaikki.ExtractSynonyms(rawDefinition);
+                var synonyms = ParsingHelperGutenberg.ExtractSynonyms(rawDefinition);
 
                 foreach (var synonym in synonyms.Distinct(StringComparer.OrdinalIgnoreCase))
                 {
@@ -37,6 +37,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                         continue;
 
                     var normalizedTarget = SourceDataHelper.NormalizeWord(synonym);
+
                     if (string.IsNullOrWhiteSpace(normalizedTarget))
                         continue;
 
@@ -44,18 +45,14 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                     {
                         TargetHeadword = normalizedTarget,
                         ConfidenceLevel = "high",
-                        DetectionMethod = "KaikkiStructuredSynonym",
-                        SourceText = $"Kaikki synonym: {synonym}"
+                        DetectionMethod = "GutenbergSynonymSection",
+                        SourceText = $"Gutenberg synonym: {synonym}"
                     });
                 }
             }
-            catch (Newtonsoft.Json.JsonException ex)
-            {
-                _logger.LogDebug(ex, "Failed to parse Kaikki JSON for synonym extraction | Headword={Headword}", headword);
-            }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Failed to extract synonyms for {Headword}", headword);
+                _logger.LogDebug(ex, "Failed to extract Gutenberg synonyms | Headword={Headword}", headword);
             }
 
             return results;
@@ -63,7 +60,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
         public bool ValidateSynonymPair(string headwordA, string headwordB)
         {
-            return ParsingHelperKaikki.ValidateSynonymPair(headwordA, headwordB);
+            return ParsingHelperGutenberg.ValidateSynonymPair(headwordA, headwordB);
         }
     }
 }

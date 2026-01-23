@@ -1,6 +1,6 @@
 ﻿namespace DictionaryImporter.Sources.Common.Helper
 {
-    internal static class OxfordParsingHelper
+    internal static class ParsingHelperOxford
     {
         public static IReadOnlyList<string> ExtractExamples(string definition)
         {

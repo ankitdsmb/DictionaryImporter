@@ -23,7 +23,7 @@ namespace DictionaryImporter.Sources.EnglishChinese.Extractor
             var definition = parsed.Definition;
 
             // Use the helper class to parse the English-Chinese entry
-            var parsedData = EnglishChineseParsingHelper.ParseEngChnEntry(definition);
+            var parsedData = ParsingHelperEnglishChinese.ParseEngChnEntry(definition);
 
             // Get examples from the parsed data
             examples.AddRange(parsedData.Examples);
