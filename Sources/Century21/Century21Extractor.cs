@@ -1,11 +1,5 @@
-﻿using System.Collections.Generic;
-using System.IO;
-using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
-using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Sources.Common.Helper;
 using HtmlAgilityPack;
-using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Century21
 {
@@ -45,7 +39,7 @@ namespace DictionaryImporter.Sources.Century21
                 var entry = ParseWordBlock(block);
                 if (entry != null)
                 {
-                    if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, _logger))
+                    if (!Helper.ShouldContinueProcessing(SourceCode, _logger))
                         yield break;
 
                     _logger.LogDebug("Extracted entry: {Headword}", entry.Headword);

@@ -1,8 +1,4 @@
-﻿using System;
-using System.IO;
-using DictionaryImporter.Sources.Century21.Parsing;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+﻿using DictionaryImporter.Sources.Century21.Parsing;
 
 namespace DictionaryImporter.Sources.Century21
 {

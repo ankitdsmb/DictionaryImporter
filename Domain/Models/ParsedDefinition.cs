@@ -1,6 +1,4 @@
 ﻿// File: Domain/Models/ParsedDefinition.cs
-using System.Collections.Generic;
-
 namespace DictionaryImporter.Domain.Models
 {
     public class ParsedDefinition

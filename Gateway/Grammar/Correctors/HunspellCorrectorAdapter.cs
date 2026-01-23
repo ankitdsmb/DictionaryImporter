@@ -1,8 +1,8 @@
-﻿using System.Reflection;
-using DictionaryImporter.Gateway.Grammar.Core;
+﻿using DictionaryImporter.Gateway.Grammar.Core;
 using DictionaryImporter.Gateway.Grammar.Core.Models;
 using DictionaryImporter.Gateway.Grammar.Core.Results;
 using DictionaryImporter.Gateway.Grammar.Engines;
+using System.Reflection;
 
 namespace DictionaryImporter.Gateway.Grammar.Correctors
 {

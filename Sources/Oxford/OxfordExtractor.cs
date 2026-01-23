@@ -1,8 +1,4 @@
-﻿using System.Collections.Generic;
-using System.IO;
-using System.Runtime.CompilerServices;
-using System.Threading;
-using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Sources.Common.Helper;
 using DictionaryImporter.Sources.Oxford.Parsing;
 
 namespace DictionaryImporter.Sources.Oxford
@@ -42,7 +38,7 @@ namespace DictionaryImporter.Sources.Oxford
                         }
 
                         // ✅ STRICT: stop reading file once limit reached
-                        if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, null))
+                        if (!Helper.ShouldContinueProcessing(SourceCode, null))
                             yield break;
 
                         yield return currentEntry;
@@ -69,7 +65,7 @@ namespace DictionaryImporter.Sources.Oxford
                         }
 
                         // ✅ STRICT: stop reading file once limit reached
-                        if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, null))
+                        if (!Helper.ShouldContinueProcessing(SourceCode, null))
                             yield break;
 
                         yield return currentEntry;
@@ -149,7 +145,7 @@ namespace DictionaryImporter.Sources.Oxford
                     currentEntry.Senses.Add(currentSense);
 
                 // ✅ STRICT: stop reading file once limit reached
-                if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, null))
+                if (!Helper.ShouldContinueProcessing(SourceCode, null))
                     yield break;
 
                 yield return currentEntry;

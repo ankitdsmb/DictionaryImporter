@@ -1,16 +1,13 @@
 ﻿using DictionaryImporter.Core.Pipeline.Steps;
-using DictionaryImporter.Core.Text;
 using DictionaryImporter.Infrastructure.OneTimeTasks;
 using DictionaryImporter.Sources.Century21.Parsing;
-using DictionaryImporter.Sources.Collins.Parsing;
+using DictionaryImporter.Sources.Collins.parsing;
 using DictionaryImporter.Sources.Common.Parsing;
-using DictionaryImporter.Sources.EnglishChinese;
 using DictionaryImporter.Sources.EnglishChinese.Parsing;
 using DictionaryImporter.Sources.Kaikki.Parsing;
 using DictionaryImporter.Sources.Oxford.Extractor;
 using DictionaryImporter.Sources.Oxford.Parsing;
 using DictionaryImporter.Sources.StructuredJson.Parsing;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace DictionaryImporter.Bootstrap
 {

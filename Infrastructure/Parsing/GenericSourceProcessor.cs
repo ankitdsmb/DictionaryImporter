@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
-using DictionaryImporter.Core.Text;
+﻿using DictionaryImporter.Core.Text;
 
 namespace DictionaryImporter.Infrastructure.Parsing
 {

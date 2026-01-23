@@ -1,12 +1,4 @@
-﻿using System;
-using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
-using Dapper;
-using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Logging;
-
-namespace DictionaryImporter.Infrastructure.Persistence
+﻿namespace DictionaryImporter.Infrastructure.Persistence
 {
     public sealed class SqlDictionaryAliasWriter(
         string connectionString,

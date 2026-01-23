@@ -1,14 +1,6 @@
 ﻿// File: Core/Text/GrammarEnrichedTextService.cs
-using Microsoft.Extensions.Logging;
-
 namespace DictionaryImporter.Core.Text
 {
-    public interface IGrammarEnrichedTextService
-    {
-        Task<string> NormalizeDefinitionAsync(string definition, CancellationToken ct);
-        Task<string> NormalizeExampleAsync(string example, CancellationToken ct);
-    }
-
     public class GrammarEnrichedTextService(ILogger<GrammarEnrichedTextService> logger) : IGrammarEnrichedTextService
     {
         public Task<string> NormalizeDefinitionAsync(string definition, CancellationToken ct)

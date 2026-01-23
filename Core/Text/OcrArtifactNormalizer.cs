@@ -1,16 +1,8 @@
-﻿using System.Text.RegularExpressions;
-using DictionaryImporter.Gateway.Grammar.Core;
+﻿using DictionaryImporter.Gateway.Grammar.Core;
 using DictionaryImporter.Gateway.Grammar.Engines;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace DictionaryImporter.Core.Text
 {
-    public interface IOcrArtifactNormalizer
-    {
-        string Normalize(string text, string languageCode = "en");
-    }
-
     public sealed class OcrArtifactNormalizer : IOcrArtifactNormalizer
     {
         private static readonly Regex TokenRegex =

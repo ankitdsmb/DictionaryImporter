@@ -1,8 +1,4 @@
-﻿using System;
-using Dapper;
-using Microsoft.Data.SqlClient;
-
-namespace DictionaryImporter.Sources.Kaikki
+﻿namespace DictionaryImporter.Sources.Kaikki
 {
     public static class KaikkiDataValidator
     {

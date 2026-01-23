@@ -1,10 +1,4 @@
-﻿using DictionaryImporter.Sources.Century21;
-using DictionaryImporter.Sources.Collins;
-using DictionaryImporter.Sources.EnglishChinese;
-using DictionaryImporter.Sources.Gutenberg;
-using DictionaryImporter.Sources.Kaikki;
-using DictionaryImporter.Sources.Oxford;
-using DictionaryImporter.Sources.StructuredJson;
+﻿using DictionaryImporter.Sources.Gutenberg;
 
 namespace DictionaryImporter.Orchestration
 {

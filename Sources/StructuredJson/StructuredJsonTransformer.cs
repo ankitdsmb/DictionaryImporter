@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using DictionaryImporter.Sources.Common.Helper;
-using Microsoft.Extensions.Logging;
+﻿using DictionaryImporter.Sources.Common.Helper;
 
 namespace DictionaryImporter.Sources.StructuredJson
 {
@@ -33,7 +30,7 @@ namespace DictionaryImporter.Sources.StructuredJson
 
                 var normalizedWord = raw.NormalizedWord;
                 if (string.IsNullOrWhiteSpace(normalizedWord))
-                    normalizedWord = SourceDataHelper.NormalizeWord(word);
+                    normalizedWord = Helper.NormalizeWord(word);
 
                 entries.Add(new DictionaryEntry
                 {
@@ -42,16 +39,16 @@ namespace DictionaryImporter.Sources.StructuredJson
                     NormalizedWord = normalizedWord,
                     Definition = raw.Definition,
                     RawFragment = raw.Definition, // safe fallback
-                    PartOfSpeech = SourceDataHelper.NormalizePartOfSpeech(raw.PartOfSpeech),
+                    PartOfSpeech = Helper.NormalizePartOfSpeech(raw.PartOfSpeech),
                     SenseNumber = raw.SenseNumber > 0 ? raw.SenseNumber : 1,
                     CreatedUtc = DateTime.UtcNow
                 });
 
-                SourceDataHelper.LogProgress(logger, SourceCode, SourceDataHelper.GetCurrentCount(SourceCode));
+                Helper.LogProgress(logger, SourceCode, Helper.GetCurrentCount(SourceCode));
             }
             catch (Exception ex)
             {
-                SourceDataHelper.HandleError(logger, ex, SourceCode, "transforming");
+                Helper.HandleError(logger, ex, SourceCode, "transforming");
             }
 
             foreach (var entry in entries)

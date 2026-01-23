@@ -39,7 +39,7 @@
         {
             var crossRefs = new List<CrossReference>();
 
-            var seeAlsoSection = SourceDataHelper.ExtractSection(definition, "【SeeAlso】");
+            var seeAlsoSection = Helper.ExtractSection(definition, "【SeeAlso】");
             if (string.IsNullOrEmpty(seeAlsoSection))
                 return crossRefs;
 
@@ -128,7 +128,7 @@
             }
 
             // Pattern 3: Check for 【Label】section (backward compatibility)
-            var labelSection = SourceDataHelper.ExtractSection(definition, "【Label】");
+            var labelSection = Helper.ExtractSection(definition, "【Label】");
             if (!string.IsNullOrWhiteSpace(labelSection))
             {
                 var cleanLabel = CleanDomainText(labelSection);
@@ -220,7 +220,7 @@
             // 1. Also作 markers: "24–7▶ (也作 24/7), adverb"
             // 2. Variants section: 【Variants】24/7, twenty-four seven
 
-            var variantsSection = SourceDataHelper.ExtractSection(definition, "【Variants】");
+            var variantsSection = Helper.ExtractSection(definition, "【Variants】");
             if (!string.IsNullOrWhiteSpace(variantsSection))
             {
                 var variantList = variantsSection.Split(',', ';', StringSplitOptions.RemoveEmptyEntries);
@@ -261,13 +261,13 @@
             // Oxford usage labels beyond domain:
             // 【Usage】, 【Grammar】, special markers
 
-            var usageSection = SourceDataHelper.ExtractSection(definition, "【Usage】");
+            var usageSection = Helper.ExtractSection(definition, "【Usage】");
             if (!string.IsNullOrWhiteSpace(usageSection))
             {
                 return usageSection.Trim().Length <= 50 ? usageSection.Trim() : usageSection.Trim().Substring(0, 50);
             }
 
-            var grammarSection = SourceDataHelper.ExtractSection(definition, "【Grammar】");
+            var grammarSection = Helper.ExtractSection(definition, "【Grammar】");
             if (!string.IsNullOrWhiteSpace(grammarSection))
             {
                 return grammarSection.Trim().Length <= 50 ? grammarSection.Trim() : grammarSection.Trim().Substring(0, 50);
@@ -499,14 +499,5 @@
 
             return synonyms.Count > 0 ? synonyms.ToList() : null;
         }
-    }
-    public class OxfordParsedData
-    {
-        public string? Domain { get; set; }
-        public string? IpaPronunciation { get; set; }
-        public string? PartOfSpeech { get; set; }
-        public IReadOnlyList<string> Variants { get; set; } = new List<string>();
-        public string? UsageLabel { get; set; }
-        public string CleanDefinition { get; set; } = string.Empty;
     }
 }

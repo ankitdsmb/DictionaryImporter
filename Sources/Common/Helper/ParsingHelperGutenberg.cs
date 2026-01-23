@@ -1,11 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Text.RegularExpressions;
-using DictionaryImporter.Sources.Common.Parsing;
-
-namespace DictionaryImporter.Sources.Common.Helper
+﻿namespace DictionaryImporter.Sources.Common.Helper
 {
     public static class ParsingHelperGutenberg
     {
@@ -1594,5 +1587,22 @@ namespace DictionaryImporter.Sources.Common.Helper
 
             return null;
         }
+        public static bool IsGutenbergHeadwordLine(string? line, int maxLength = 80)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                return false;
+
+            var t = line.Trim();
+
+            if (t.Length < 2 || t.Length > maxLength)
+                return false;
+
+            // Must match Gutenberg/Webster headword format
+            if (!RxAllCapsHeadwordLine.IsMatch(t))
+                return false;
+
+            return LooksLikeRealHeadwordLine(t);
+        }
+
     }
 }

@@ -1,11 +1,4 @@
-﻿using System;
-using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
-using Dapper;
-using Microsoft.Data.SqlClient;
-
-namespace DictionaryImporter.Infrastructure.Persistence
+﻿namespace DictionaryImporter.Infrastructure.Persistence
 {
     public sealed class SqlCanonicalWordPronunciationWriter(string connectionString)
     {

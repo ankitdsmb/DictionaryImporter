@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-
-namespace DictionaryImporter.Sources.Kaikki.Models
+﻿namespace DictionaryImporter.Sources.Kaikki.Models
 {
     public sealed class KaikkiSense
     {

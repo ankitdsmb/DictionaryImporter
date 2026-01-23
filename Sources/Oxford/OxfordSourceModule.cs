@@ -1,8 +1,4 @@
-﻿using System;
-using System.IO;
-using DictionaryImporter.Sources.Oxford.Parsing;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+﻿using DictionaryImporter.Sources.Oxford.Parsing;
 
 namespace DictionaryImporter.Sources.Oxford
 {

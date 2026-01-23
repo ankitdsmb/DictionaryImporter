@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.RegularExpressions;
-
-namespace DictionaryImporter.Sources.Oxford.Parsing
+﻿namespace DictionaryImporter.Sources.Oxford.Parsing
 {
     public static class OxfordSourceDataHelper
     {

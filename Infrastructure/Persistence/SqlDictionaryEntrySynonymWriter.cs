@@ -1,15 +1,4 @@
 ﻿// File: Infrastructure/Persistence/SqlDictionaryEntrySynonymWriter.cs
-using Dapper;
-using DictionaryImporter.Core.Text;
-using DictionaryImporter.Domain.Models;
-using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Generic;
-using System.Data;
-using System.Linq;
-using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
 using LanguageDetector = DictionaryImporter.Core.Text.LanguageDetector;
 
 namespace DictionaryImporter.Infrastructure.Persistence

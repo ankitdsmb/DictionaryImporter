@@ -1,11 +1,5 @@
 ﻿// KaikkiParsingHelper.cs
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
-using System.Text;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 
 namespace DictionaryImporter.Sources.Common.Helper
 {
@@ -21,11 +15,11 @@ namespace DictionaryImporter.Sources.Common.Helper
         /// </summary>
         public static bool IsEnglishEntry(JsonElement root)
         {
-            var langCode = SourceDataHelper.ExtractJsonString(root, "lang_code");
+            var langCode = Helper.ExtractJsonString(root, "lang_code");
             if (string.Equals(langCode, "en", StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            var lang = SourceDataHelper.ExtractJsonString(root, "lang");
+            var lang = Helper.ExtractJsonString(root, "lang");
             if (!string.IsNullOrWhiteSpace(lang))
             {
                 return lang.Equals("English", StringComparison.OrdinalIgnoreCase) ||
@@ -56,7 +50,7 @@ namespace DictionaryImporter.Sources.Common.Helper
         /// </summary>
         public static bool IsEnglishSense(JsonElement sense)
         {
-            var langCode = SourceDataHelper.ExtractJsonString(sense, "lang_code");
+            var langCode = Helper.ExtractJsonString(sense, "lang_code");
             return string.IsNullOrWhiteSpace(langCode) ||
                    string.Equals(langCode, "en", StringComparison.OrdinalIgnoreCase);
         }
@@ -67,7 +61,7 @@ namespace DictionaryImporter.Sources.Common.Helper
         public static List<string> ExtractEnglishDefinitions(JsonElement root)
         {
             var definitions = new List<string>();
-            var senses = SourceDataHelper.ExtractJsonArray(root, "senses");
+            var senses = Helper.ExtractJsonArray(root, "senses");
 
             if (!senses.HasValue)
                 return definitions;
@@ -117,7 +111,7 @@ namespace DictionaryImporter.Sources.Common.Helper
         /// </summary>
         public static string? ExtractEtymology(JsonElement root)
         {
-            var etymologyText = SourceDataHelper.ExtractJsonString(root, "etymology_text");
+            var etymologyText = Helper.ExtractJsonString(root, "etymology_text");
             if (!string.IsNullOrWhiteSpace(etymologyText) && etymologyText.Length > 3)
             {
                 etymologyText = NormalizeBrokenHtmlEntities(etymologyText);
@@ -159,7 +153,7 @@ namespace DictionaryImporter.Sources.Common.Helper
         public static List<string> ExtractExamples(JsonElement root)
         {
             var examples = new List<string>();
-            var senses = SourceDataHelper.ExtractJsonArray(root, "senses");
+            var senses = Helper.ExtractJsonArray(root, "senses");
 
             if (!senses.HasValue)
                 return examples;
@@ -169,13 +163,13 @@ namespace DictionaryImporter.Sources.Common.Helper
                 if (!IsEnglishSense(sense))
                     continue;
 
-                var examplesArray = SourceDataHelper.ExtractJsonArray(sense, "examples");
+                var examplesArray = Helper.ExtractJsonArray(sense, "examples");
                 if (!examplesArray.HasValue)
                     continue;
 
                 foreach (var example in examplesArray.Value)
                 {
-                    var exampleText = SourceDataHelper.ExtractJsonString(example, "text");
+                    var exampleText = Helper.ExtractJsonString(example, "text");
                     if (string.IsNullOrWhiteSpace(exampleText))
                         continue;
 
@@ -226,7 +220,7 @@ namespace DictionaryImporter.Sources.Common.Helper
         public static List<string> ExtractSynonyms(JsonElement root)
         {
             var synonyms = new List<string>();
-            var senses = SourceDataHelper.ExtractJsonArray(root, "senses");
+            var senses = Helper.ExtractJsonArray(root, "senses");
 
             if (!senses.HasValue)
                 return synonyms;
@@ -236,13 +230,13 @@ namespace DictionaryImporter.Sources.Common.Helper
                 if (!IsEnglishSense(sense))
                     continue;
 
-                var synonymsArray = SourceDataHelper.ExtractJsonArray(sense, "synonyms");
+                var synonymsArray = Helper.ExtractJsonArray(sense, "synonyms");
                 if (!synonymsArray.HasValue)
                     continue;
 
                 foreach (var synonym in synonymsArray.Value)
                 {
-                    var synonymWord = SourceDataHelper.ExtractJsonString(synonym, "word");
+                    var synonymWord = Helper.ExtractJsonString(synonym, "word");
                     if (string.IsNullOrWhiteSpace(synonymWord))
                         continue;
 
@@ -292,7 +286,7 @@ namespace DictionaryImporter.Sources.Common.Helper
                 text.Contains("\"lang_code\":", StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            if (SourceDataHelper.ContainsLanguageMarker(text, "Zulu", "Arabic", "Chinese"))
+            if (Helper.ContainsLanguageMarker(text, "Zulu", "Arabic", "Chinese"))
                 return true;
 
             // NEW: common Kaikki/Wiktionary translation table patterns
@@ -314,8 +308,8 @@ namespace DictionaryImporter.Sources.Common.Helper
         /// </summary>
         public static string? ExtractPartOfSpeechFromJson(JsonElement root)
         {
-            var pos = SourceDataHelper.ExtractJsonString(root, "pos");
-            return !string.IsNullOrWhiteSpace(pos) ? TextProcessingHelper.NormalizePartOfSpeech(pos) : null;
+            var pos = Helper.ExtractJsonString(root, "pos");
+            return !string.IsNullOrWhiteSpace(pos) ? Helper.NormalizePartOfSpeech(pos) : null;
         }
 
         /// <summary>
@@ -323,13 +317,13 @@ namespace DictionaryImporter.Sources.Common.Helper
         /// </summary>
         public static string? ExtractDomain(JsonElement sense)
         {
-            var categories = SourceDataHelper.ExtractJsonArray(sense, "categories");
+            var categories = Helper.ExtractJsonArray(sense, "categories");
             if (!categories.HasValue)
                 return null;
 
             foreach (var category in categories.Value)
             {
-                var categoryName = SourceDataHelper.ExtractJsonString(category, "name");
+                var categoryName = Helper.ExtractJsonString(category, "name");
                 if (string.IsNullOrWhiteSpace(categoryName))
                     continue;
 
@@ -354,7 +348,7 @@ namespace DictionaryImporter.Sources.Common.Helper
                 using var doc = JsonDocument.Parse(rawFragment);
                 var root = doc.RootElement;
 
-                var senses = SourceDataHelper.ExtractJsonArray(root, "senses");
+                var senses = Helper.ExtractJsonArray(root, "senses");
                 if (!senses.HasValue)
                     return null;
 
@@ -377,7 +371,7 @@ namespace DictionaryImporter.Sources.Common.Helper
         /// </summary>
         public static string? ExtractUsageLabel(JsonElement sense)
         {
-            var tags = SourceDataHelper.ExtractJsonArray(sense, "tags");
+            var tags = Helper.ExtractJsonArray(sense, "tags");
             if (!tags.HasValue)
                 return null;
 
@@ -414,7 +408,7 @@ namespace DictionaryImporter.Sources.Common.Helper
                 using var doc = JsonDocument.Parse(rawFragment);
                 var root = doc.RootElement;
 
-                var senses = SourceDataHelper.ExtractJsonArray(root, "senses");
+                var senses = Helper.ExtractJsonArray(root, "senses");
                 if (!senses.HasValue)
                     return null;
 
@@ -438,14 +432,14 @@ namespace DictionaryImporter.Sources.Common.Helper
         public static List<CrossReference> ExtractCrossReferences(JsonElement sense)
         {
             var crossRefs = new List<CrossReference>();
-            var related = SourceDataHelper.ExtractJsonArray(sense, "related");
+            var related = Helper.ExtractJsonArray(sense, "related");
 
             if (!related.HasValue)
                 return crossRefs;
 
             foreach (var rel in related.Value)
             {
-                var targetWord = SourceDataHelper.ExtractJsonString(rel, "word");
+                var targetWord = Helper.ExtractJsonString(rel, "word");
                 if (string.IsNullOrWhiteSpace(targetWord))
                     continue;
 
@@ -455,7 +449,7 @@ namespace DictionaryImporter.Sources.Common.Helper
                 if (!IsAcceptableSynonym(targetWord))
                     continue;
 
-                var relationType = SourceDataHelper.ExtractJsonString(rel, "sense") ?? "related";
+                var relationType = Helper.ExtractJsonString(rel, "sense") ?? "related";
                 relationType = NormalizeBrokenHtmlEntities(relationType);
                 relationType = CleanKaikkiText(relationType);
                 relationType = SafeTruncate(relationType, 60);
@@ -485,7 +479,7 @@ namespace DictionaryImporter.Sources.Common.Helper
                 using var doc = JsonDocument.Parse(rawFragment);
                 var root = doc.RootElement;
 
-                var senses = SourceDataHelper.ExtractJsonArray(root, "senses");
+                var senses = Helper.ExtractJsonArray(root, "senses");
                 if (!senses.HasValue)
                     return crossRefs;
 
@@ -635,7 +629,7 @@ namespace DictionaryImporter.Sources.Common.Helper
         private static List<string> ExtractGlosses(JsonElement sense, string propertyName)
         {
             var glosses = new List<string>();
-            var glossArray = SourceDataHelper.ExtractJsonArray(sense, propertyName);
+            var glossArray = Helper.ExtractJsonArray(sense, propertyName);
 
             if (!glossArray.HasValue)
                 return glosses;
@@ -662,7 +656,7 @@ namespace DictionaryImporter.Sources.Common.Helper
 
         private static string? ExtractEtymologyFromTemplates(JsonElement root)
         {
-            var templates = SourceDataHelper.ExtractJsonArray(root, "etymology_templates");
+            var templates = Helper.ExtractJsonArray(root, "etymology_templates");
             if (!templates.HasValue)
                 return null;
 
@@ -720,7 +714,7 @@ namespace DictionaryImporter.Sources.Common.Helper
         public static List<string> ExtractStringArray(JsonElement element, string propertyName)
         {
             var result = new List<string>();
-            var array = SourceDataHelper.ExtractJsonArray(element, propertyName);
+            var array = Helper.ExtractJsonArray(element, propertyName);
 
             if (!array.HasValue)
                 return result;

@@ -1,10 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Sources.Common.Helper;
 using DictionaryImporter.Sources.Common.Parsing;
 using HtmlAgilityPack;
-using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Century21.Parsing
 {
@@ -101,7 +97,7 @@ namespace DictionaryImporter.Sources.Century21.Parsing
                         results.Add(new ParsedDefinition
                         {
                             MeaningTitle = idiom.Headword,
-                            Definition = SourceDataHelper.NormalizeDefinition(idiom.Definition),
+                            Definition = Helper.NormalizeDefinition(idiom.Definition),
                             RawFragment = $"Idiom: {idiom.Headword} - {idiom.Definition}",
                             SenseNumber = 1,
                             Domain = domain,
@@ -155,7 +151,7 @@ namespace DictionaryImporter.Sources.Century21.Parsing
             var parsed = new ParsedDefinition
             {
                 MeaningTitle = headword,
-                Definition = SourceDataHelper.NormalizeDefinition(definition ?? string.Empty),
+                Definition = Helper.NormalizeDefinition(definition ?? string.Empty),
                 RawFragment = rawFragment,
                 SenseNumber = senseNumber,
                 Domain = domain,

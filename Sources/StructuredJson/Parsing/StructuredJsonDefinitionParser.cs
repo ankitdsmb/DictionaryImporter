@@ -1,6 +1,5 @@
 ﻿using DictionaryImporter.Sources.Common.Helper;
 using DictionaryImporter.Sources.Common.Parsing;
-using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.StructuredJson.Parsing
 {
@@ -18,7 +17,7 @@ namespace DictionaryImporter.Sources.StructuredJson.Parsing
             {
                 return new List<ParsedDefinition>
                 {
-                    SourceDataHelper.CreateFallbackParsedDefinition(entry)
+                    Helper.CreateFallbackParsedDefinition(entry)
                 };
             }
 
@@ -32,7 +31,7 @@ namespace DictionaryImporter.Sources.StructuredJson.Parsing
                 {
                     return new List<ParsedDefinition>
                     {
-                        SourceDataHelper.CreateFallbackParsedDefinition(entry)
+                        Helper.CreateFallbackParsedDefinition(entry)
                     };
                 }
 
@@ -63,7 +62,7 @@ namespace DictionaryImporter.Sources.StructuredJson.Parsing
 
                 return new List<ParsedDefinition>
                 {
-                    SourceDataHelper.CreateFallbackParsedDefinition(entry)
+                    Helper.CreateFallbackParsedDefinition(entry)
                 };
             }
         }

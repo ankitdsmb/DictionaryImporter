@@ -15,7 +15,7 @@ namespace DictionaryImporter.Sources.Oxford.Parsing
             // must always return exactly 1 parsed definition
             if (string.IsNullOrWhiteSpace(entry.Definition))
             {
-                yield return SourceDataHelper.CreateFallbackParsedDefinition(entry);
+                yield return Helper.CreateFallbackParsedDefinition(entry);
                 yield break;
             }
 

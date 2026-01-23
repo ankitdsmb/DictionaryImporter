@@ -1,7 +1,7 @@
 ﻿using DictionaryImporter.Sources.Common.Helper;
 using DictionaryImporter.Sources.Common.Parsing;
 
-namespace DictionaryImporter.Sources.Collins.Parsing
+namespace DictionaryImporter.Sources.Collins.parsing
 {
     public sealed class CollinsDefinitionParser(ILogger<CollinsDefinitionParser> logger = null)
         : ISourceDictionaryDefinitionParser
