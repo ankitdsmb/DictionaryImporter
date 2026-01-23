@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Infrastructure.PostProcessing.Enrichment
+﻿using DictionaryImporter.Common;
+
+namespace DictionaryImporter.Infrastructure.PostProcessing.Enrichment
 {
     public sealed class CanonicalWordSyllableEnricher(
         string connectionString,
@@ -21,8 +23,8 @@
             {
                 ct.ThrowIfCancellationRequested();
 
-                var syllables = IpaSyllabifier.Split(row.Ipa);
-                var cleaned = IpaSyllablePostProcessor.Normalize(syllables);
+                var syllables = Helper.IpaSyllabifier.Split(row.Ipa);
+                var cleaned = Helper.IpaSyllablePostProcessor.Normalize(syllables);
 
                 foreach (var s in cleaned)
                     await conn.ExecuteAsync(

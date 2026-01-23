@@ -1,7 +1,6 @@
-﻿using LanguageDetector = DictionaryImporter.Core.Text.LanguageDetector;
+﻿using DictionaryImporter.Common;
 
 namespace DictionaryImporter.Infrastructure.Persistence;
-
 public class SqlNonEnglishTextStorage : INonEnglishTextStorage
 {
     private readonly string _connectionString;
@@ -32,7 +31,7 @@ public class SqlNonEnglishTextStorage : INonEnglishTextStorage
         fieldType = string.IsNullOrWhiteSpace(fieldType) ? "Unknown" : fieldType.Trim();
 
         // Only store if it is actually non-English
-        if (!LanguageDetector.ContainsNonEnglishText(originalText))
+        if (!Helper.LanguageDetector.ContainsNonEnglishText(originalText))
             return null;
 
         // ✅ DB requires FieldType NOT NULL (per your other writer logic)
@@ -55,7 +54,7 @@ public class SqlNonEnglishTextStorage : INonEnglishTextStorage
                            );
                            """;
 
-        var languageCode = LanguageDetector.DetectLanguageCode(originalText);
+        var languageCode = Helper.LanguageDetector.DetectLanguageCode(originalText);
 
         var parameters = new
         {

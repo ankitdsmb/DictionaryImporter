@@ -1,6 +1,6 @@
-﻿using DictionaryImporter.Core.Text;
-using DictionaryImporter.Sources.Common.Helper;
-using DictionaryImporter.Sources.Common.Parsing;
+﻿using DictionaryImporter.Common;
+using DictionaryImporter.Core.Text;
+using DictionaryImporter.Sources.Parsing;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Parsing;

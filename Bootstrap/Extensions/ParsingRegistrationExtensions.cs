@@ -3,12 +3,12 @@ using DictionaryImporter.Core.Text;
 using DictionaryImporter.Infrastructure.Parsing; // Needed for DictionaryParsedDefinitionProcessor
 using DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
 using DictionaryImporter.Sources.Collins.Extractor;
-using DictionaryImporter.Sources.Common.Parsing;
 using DictionaryImporter.Sources.EnglishChinese.Extractor;
 using DictionaryImporter.Sources.Generic;
 using DictionaryImporter.Sources.Gutenberg.Extractor;
 using DictionaryImporter.Sources.Gutenberg.Parsing;
 using DictionaryImporter.Sources.Oxford.Parsing;
+using DictionaryImporter.Sources.Parsing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 

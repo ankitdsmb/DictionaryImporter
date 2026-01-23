@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using DictionaryImporter.Sources.Oxford.Parsing;
+using DictionaryImporter.Sources.Parsing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 

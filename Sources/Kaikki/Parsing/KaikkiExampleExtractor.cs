@@ -1,6 +1,6 @@
 ﻿// File: Sources/Kaikki/Parsing/KaikkiExampleExtractor.cs
 
-using DictionaryImporter.Sources.Common.Helper;
+using DictionaryImporter.Common.SourceHelper;
 
 namespace DictionaryImporter.Sources.Kaikki.Parsing
 {

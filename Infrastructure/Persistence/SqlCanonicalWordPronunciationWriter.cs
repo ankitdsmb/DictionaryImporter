@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Dapper;
+using DictionaryImporter.Common;
 using Microsoft.Data.SqlClient;
 
 namespace DictionaryImporter.Infrastructure.Persistence
@@ -21,11 +22,11 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (string.IsNullOrWhiteSpace(localeCode))
                 return;
 
-            localeCode = NormalizeLocaleCode(localeCode);
+            localeCode = Helper.NormalizeLocaleCode(localeCode);
             if (string.IsNullOrWhiteSpace(localeCode))
                 return;
 
-            ipa = NormalizeIpa(ipa);
+            ipa = Helper.NormalizeIpa(ipa);
 
             // If IPA becomes empty after normalization, skip (avoid junk rows)
             if (string.IsNullOrWhiteSpace(ipa))
@@ -75,49 +76,6 @@ namespace DictionaryImporter.Infrastructure.Persistence
             {
                 // ✅ Never crash importer
             }
-        }
-
-        // NEW METHOD (added)
-        private static string NormalizeLocaleCode(string localeCode)
-        {
-            if (string.IsNullOrWhiteSpace(localeCode))
-                return string.Empty;
-
-            var t = localeCode.Trim();
-
-            // keep it simple and stable
-            t = t.Replace('_', '-');
-
-            if (t.Length > 15)
-                t = t.Substring(0, 15);
-
-            return t;
-        }
-
-        // NEW METHOD (added)
-        private static string NormalizeIpa(string? ipa)
-        {
-            if (string.IsNullOrWhiteSpace(ipa))
-                return string.Empty;
-
-            var t = ipa.Trim();
-
-            // remove wiki/template remnants if any
-            t = t.Replace("[[", "").Replace("]]", "");
-            t = t.Replace("{{", "").Replace("}}", "");
-
-            // collapse whitespace
-            t = Regex.Replace(t, @"\s+", " ").Trim();
-
-            // hard safety cap
-            if (t.Length > 300)
-                t = t.Substring(0, 300).Trim();
-
-            // must contain at least something meaningful (IPA symbols are not only A-Z)
-            if (t.Length < 2)
-                return string.Empty;
-
-            return t;
         }
     }
 }

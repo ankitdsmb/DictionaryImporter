@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Bootstrap
+﻿using DictionaryImporter.Sources.Parsing;
+
+namespace DictionaryImporter.Bootstrap
 {
     public static class BootstrapSources
     {

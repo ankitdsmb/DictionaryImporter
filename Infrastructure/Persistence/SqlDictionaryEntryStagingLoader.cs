@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Dapper;
+using DictionaryImporter.Common;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 
@@ -16,53 +18,34 @@ namespace DictionaryImporter.Infrastructure.Persistence
     {
         private static readonly DateTime SqlMinDate = new(1753, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        public async Task LoadAsync(
-            IEnumerable<DictionaryEntryStaging> entries,
-            CancellationToken ct)
+        public async Task LoadAsync(IEnumerable<DictionaryEntryStaging> entries, CancellationToken ct)
         {
-            if (entries == null)
-                return;
+            if (entries == null) return;
 
-            var list = entries.ToList();
-            if (list.Count == 0)
-                return;
+            var list = entries.Where(e => e != null).ToList();
+            if (list.Count == 0) return;
 
             var now = DateTime.UtcNow;
 
-            // ✅ FIX: dedupe must align with SQL unique key (UX_Staging_Dedup)
-            var deduped = DedupeStagingEntries(list);
-
-            var sanitized = deduped.Select(e =>
-                    new DictionaryEntryStaging
-                    {
-                        Word = SafeTruncate(e.Word, 200),
-                        NormalizedWord = SafeTruncate(e.NormalizedWord, 200),
-                        PartOfSpeech = SafeTruncate(e.PartOfSpeech, 50),
-                        Definition = SafeTruncate(e.Definition, 2000),
-                        Etymology = SafeTruncate(e.Etymology, 4000),
-                        RawFragment = SafeTruncate(e.RawFragment, 8000),
-                        SenseNumber = e.SenseNumber,
-                        SourceCode = SafeTruncate(string.IsNullOrWhiteSpace(e.SourceCode) ? "UNKNOWN" : e.SourceCode, 30),
-                        CreatedUtc = e.CreatedUtc < SqlMinDate
-                            ? now
-                            : e.CreatedUtc
-                    })
+            var sanitized = list
+                .Select(e => new DictionaryEntryStaging
+                {
+                    Word = SafeTruncate(e.Word, 200),
+                    NormalizedWord = SafeTruncate(string.IsNullOrWhiteSpace(e.NormalizedWord) ? e.Word : e.NormalizedWord, 200),
+                    PartOfSpeech = SafeTruncate(e.PartOfSpeech, 50),
+                    Definition = SafeTruncate(e.Definition, 2000),
+                    Etymology = SafeTruncate(e.Etymology, 4000),
+                    RawFragment = SafeTruncate(e.RawFragment, 8000),
+                    SenseNumber = e.SenseNumber,
+                    SourceCode = SafeTruncate(string.IsNullOrWhiteSpace(e.SourceCode) ? "UNKNOWN" : e.SourceCode, 30),
+                    CreatedUtc = e.CreatedUtc < SqlMinDate ? now : e.CreatedUtc
+                })
+                .Where(e =>
+                    !string.IsNullOrWhiteSpace(e.Word) &&
+                    !string.IsNullOrWhiteSpace(e.Definition))
                 .ToList();
 
-            if (sanitized.Count == 0)
-                return;
-
-            const string sql = """
-                               INSERT INTO dbo.DictionaryEntry_Staging (
-                                   Word, NormalizedWord, PartOfSpeech, Definition,
-                                   Etymology, SenseNumber, SourceCode, CreatedUtc,
-                                   RawFragment
-                               ) VALUES (
-                                   @Word, @NormalizedWord, @PartOfSpeech, @Definition,
-                                   @Etymology, @SenseNumber, @SourceCode, @CreatedUtc,
-                                   @RawFragment
-                               );
-                               """;
+            if (sanitized.Count == 0) return;
 
             await using var conn = new SqlConnection(connectionString);
             await conn.OpenAsync(ct);
@@ -71,105 +54,162 @@ namespace DictionaryImporter.Infrastructure.Persistence
 
             try
             {
-                await conn.ExecuteAsync(
-                    sql,
-                    sanitized,
-                    tx);
+                ct.ThrowIfCancellationRequested();
+
+                // 1) temp table
+                const string createTempSql = """
+CREATE TABLE #DictionaryEntryStagingBatch (
+    Word            nvarchar(200)   NOT NULL,
+    NormalizedWord  nvarchar(200)   NULL,
+    PartOfSpeech    nvarchar(50)    NULL,
+    Definition      nvarchar(max)  NOT NULL,
+    Etymology       nvarchar(max)  NULL,
+    SenseNumber     int             NULL,
+    SourceCode      nvarchar(30)    NOT NULL,
+    CreatedUtc      datetime2       NOT NULL,
+    RawFragment     nvarchar(max)  NULL
+);
+""";
+
+                await conn.ExecuteAsync(new CommandDefinition(
+                    createTempSql,
+                    transaction: tx,
+                    cancellationToken: ct));
+
+                // 2) bulk copy into temp table
+                var dt = BuildDataTable(sanitized);
+
+                using (var bulk = new SqlBulkCopy(conn, SqlBulkCopyOptions.TableLock, (SqlTransaction)tx))
+                {
+                    bulk.DestinationTableName = "#DictionaryEntryStagingBatch";
+                    bulk.BatchSize = Helper.MAX_RECORDS_PER_SOURCE;
+                    bulk.BulkCopyTimeout = 0;
+
+                    bulk.ColumnMappings.Add("Word", "Word");
+                    bulk.ColumnMappings.Add("NormalizedWord", "NormalizedWord");
+                    bulk.ColumnMappings.Add("PartOfSpeech", "PartOfSpeech");
+                    bulk.ColumnMappings.Add("Definition", "Definition");
+                    bulk.ColumnMappings.Add("Etymology", "Etymology");
+                    bulk.ColumnMappings.Add("SenseNumber", "SenseNumber");
+                    bulk.ColumnMappings.Add("SourceCode", "SourceCode");
+                    bulk.ColumnMappings.Add("CreatedUtc", "CreatedUtc");
+                    bulk.ColumnMappings.Add("RawFragment", "RawFragment");
+
+                    await bulk.WriteToServerAsync(dt, ct);
+                }
+
+                // 3) MERGE (dedupe + insert)
+                const string mergeSql = """
+MERGE dbo.DictionaryEntry_Staging AS target
+USING (
+    SELECT
+        b.Word,
+        b.NormalizedWord,
+        b.PartOfSpeech,
+        b.Definition,
+        b.Etymology,
+        b.SenseNumber,
+        b.SourceCode,
+        b.CreatedUtc,
+        b.RawFragment
+    FROM #DictionaryEntryStagingBatch b
+) AS src
+ON (
+       target.SourceCode = src.SourceCode
+   AND ISNULL(target.SenseNumber, -1) = ISNULL(src.SenseNumber, -1)
+   AND target.Word = src.Word
+   AND target.Definition = src.Definition
+)
+WHEN NOT MATCHED BY TARGET THEN
+    INSERT (
+        Word,
+        WordHash,
+        NormalizedWord,
+        PartOfSpeech,
+        Definition,
+        DefinitionHash,
+        Etymology,
+        SenseNumber,
+        SourceCode,
+        CreatedUtc,
+        RawFragment
+    )
+    VALUES (
+        src.Word,
+        CONVERT(varchar(64), HASHBYTES('SHA2_256', ISNULL(src.Word,'')), 2),
+        src.NormalizedWord,
+        src.PartOfSpeech,
+        src.Definition,
+        CONVERT(varchar(64), HASHBYTES('SHA2_256', ISNULL(src.Definition,'')), 2),
+        src.Etymology,
+        src.SenseNumber,
+        src.SourceCode,
+        src.CreatedUtc,
+        src.RawFragment
+    )
+OUTPUT $action;
+""";
+
+                // OUTPUT $action returns rows like: INSERT / UPDATE / DELETE (we only do INSERT)
+                var actions = await conn.QueryAsync<string>(new CommandDefinition(
+                    mergeSql,
+                    transaction: tx,
+                    cancellationToken: ct));
+
+                var inserted = actions.Count(a => string.Equals(a, "INSERT", StringComparison.OrdinalIgnoreCase));
 
                 await tx.CommitAsync(ct);
 
-                var withRawFragment = sanitized.Count(e => !string.IsNullOrWhiteSpace(e.RawFragment));
                 logger.LogInformation(
-                    "Committed batch of {Count} staging rows | WithRawFragment={WithRaw} | DedupedFrom={OriginalCount}",
-                    sanitized.Count,
-                    withRawFragment,
-                    list.Count);
+                    "Inserted staging rows (BATCH) | Inserted={Inserted} | Attempted={Attempted}",
+                    inserted, sanitized.Count);
+            }
+            catch (OperationCanceledException)
+            {
+                try { await tx.RollbackAsync(CancellationToken.None); } catch { }
+                throw;
             }
             catch (Exception ex)
             {
-                await tx.RollbackAsync(ct);
+                try { await tx.RollbackAsync(CancellationToken.None); } catch { }
 
-                var withRawFragment = sanitized.Count(e => !string.IsNullOrWhiteSpace(e.RawFragment));
-                logger.LogError(
-                    ex,
-                    "Rolled back staging batch | AttemptedRows={Count} | WithRawFragment={WithRaw} | DedupedFrom={OriginalCount}",
-                    sanitized.Count,
-                    withRawFragment,
-                    list.Count);
-
-                // ✅ Rule: importer should NEVER crash
+                logger.LogError(ex,
+                    "Failed batch insert staging rows | Attempted={Attempted}",
+                    sanitized.Count);
             }
         }
 
-        private static List<DictionaryEntryStaging> DedupeStagingEntries(List<DictionaryEntryStaging> entries)
+        private static DataTable BuildDataTable(List<DictionaryEntryStaging> rows)
         {
-            if (entries == null || entries.Count == 0)
-                return new List<DictionaryEntryStaging>();
+            var dt = new DataTable();
 
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var result = new List<DictionaryEntryStaging>(entries.Count);
+            dt.Columns.Add("Word", typeof(string));
+            dt.Columns.Add("NormalizedWord", typeof(string));
+            dt.Columns.Add("PartOfSpeech", typeof(string));
+            dt.Columns.Add("Definition", typeof(string));
+            dt.Columns.Add("Etymology", typeof(string));
+            dt.Columns.Add("SenseNumber", typeof(int));
+            dt.Columns.Add("SourceCode", typeof(string));
+            dt.Columns.Add("CreatedUtc", typeof(DateTime));
+            dt.Columns.Add("RawFragment", typeof(string));
 
-            foreach (var e in entries)
+            foreach (var r in rows)
             {
-                if (e == null)
-                    continue;
+                var dr = dt.NewRow();
+                dr["Word"] = r.Word ?? string.Empty;
+                dr["NormalizedWord"] = (object?)r.NormalizedWord ?? DBNull.Value;
+                dr["PartOfSpeech"] = (object?)r.PartOfSpeech ?? DBNull.Value;
+                dr["Definition"] = r.Definition ?? string.Empty;
+                dr["Etymology"] = (object?)r.Etymology ?? DBNull.Value;
+                dr["SenseNumber"] = (object?)r.SenseNumber ?? DBNull.Value;
+                dr["SourceCode"] = r.SourceCode ?? "UNKNOWN";
+                dr["CreatedUtc"] = r.CreatedUtc.Kind == DateTimeKind.Utc ? r.CreatedUtc : DateTime.SpecifyKind(r.CreatedUtc, DateTimeKind.Utc);
+                dr["RawFragment"] = (object?)r.RawFragment ?? DBNull.Value;
 
-                var key = BuildStagingKey(e);
-                if (string.IsNullOrWhiteSpace(key))
-                    continue;
-
-                if (seen.Add(key))
-                    result.Add(e);
+                dt.Rows.Add(dr);
             }
 
-            return result;
-        }
-
-        // ✅ FIXED: key must match UX_Staging_Dedup behavior (Source + Sense + WordHash + DefHash)
-        private static string BuildStagingKey(DictionaryEntryStaging e)
-        {
-            var source = (e.SourceCode ?? string.Empty).Trim().ToLowerInvariant();
-
-            // SenseNumber is part of unique index (based on duplicate key dump: (KAIKKI, 1, ...))
-            var sense = e.SenseNumber;
-
-            // Use NormalizedWord if present, else Word
-            var word = NormalizeForKey(string.IsNullOrWhiteSpace(e.NormalizedWord) ? e.Word : e.NormalizedWord);
-
-            // Definition is part of unique index
-            var def = NormalizeForKey(e.Definition);
-
-            if (string.IsNullOrWhiteSpace(source))
-                source = "unknown";
-
-            if (string.IsNullOrWhiteSpace(word))
-                return string.Empty;
-
-            if (string.IsNullOrWhiteSpace(def))
-                return string.Empty;
-
-            // IMPORTANT:
-            // Do NOT include PartOfSpeech / Etymology / RawFragment in key,
-            // because SQL unique index is rejecting duplicates based on hashes that don't include those fields.
-            return $"{source}|{sense}|{word}|{def}";
-        }
-
-        private static string NormalizeForKey(string? text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return string.Empty;
-
-            var t = text.Trim().ToLowerInvariant();
-
-            // collapse whitespace
-            t = string.Join(" ",
-                t.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries));
-
-            // keep key stable but small
-            if (t.Length > 512)
-                t = t.Substring(0, 512);
-
-            return t;
+            return dt;
         }
 
         private static string? SafeTruncate(string? text, int maxLen)
@@ -177,14 +217,8 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (string.IsNullOrWhiteSpace(text))
                 return text;
 
-            if (maxLen < 10)
-                return text.Trim();
-
             var t = text.Trim();
-            if (t.Length <= maxLen)
-                return t;
-
-            return t.Substring(0, maxLen).Trim();
+            return t.Length <= maxLen ? t : t.Substring(0, maxLen).Trim();
         }
     }
 }

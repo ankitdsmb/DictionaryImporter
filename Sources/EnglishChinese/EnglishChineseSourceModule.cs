@@ -1,4 +1,5 @@
 ﻿using DictionaryImporter.Sources.EnglishChinese.Parsing;
+using DictionaryImporter.Sources.Parsing;
 
 namespace DictionaryImporter.Sources.EnglishChinese
 {

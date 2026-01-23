@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Sources.Kaikki
+﻿using DictionaryImporter.Infrastructure.Validation;
+
+namespace DictionaryImporter.Sources.Kaikki
 {
     public sealed class KaikkiEntryValidator : IDictionaryEntryValidator
     {

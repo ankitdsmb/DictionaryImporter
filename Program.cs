@@ -22,7 +22,8 @@ var sources = SourceRegistry.CreateSources()
     .Select(m => m.BuildSource(configuration))
     .ToList();
 
-using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+using var cts = new CancellationTokenSource();
 await orchestrator.RunAsync(sources, pipelineMode, cts.Token);
+
 
 Log.CloseAndFlush();

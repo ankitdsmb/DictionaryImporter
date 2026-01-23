@@ -1,5 +1,5 @@
 ﻿using DictionaryImporter.Sources.Common.Helper;
-using DictionaryImporter.Sources.Common.Parsing;
+using DictionaryImporter.Sources.Parsing;
 
 namespace DictionaryImporter.Sources.Collins.parsing
 {

@@ -1,7 +1,4 @@
-﻿// File: Core/Text/GrammarEnrichedTextService.cs
-using Microsoft.Extensions.Logging;
-
-namespace DictionaryImporter.Core.Text
+﻿namespace DictionaryImporter.Core.Text
 {
     public class GrammarEnrichedTextService(ILogger<GrammarEnrichedTextService> logger) : IGrammarEnrichedTextService
     {

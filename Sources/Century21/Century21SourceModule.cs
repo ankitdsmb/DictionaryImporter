@@ -1,4 +1,5 @@
 ﻿using DictionaryImporter.Sources.Century21.Parsing;
+using DictionaryImporter.Sources.Parsing;
 
 namespace DictionaryImporter.Sources.Century21
 {

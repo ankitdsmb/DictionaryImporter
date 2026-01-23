@@ -23,11 +23,11 @@ namespace DictionaryImporter.Infrastructure.Persistence
         private volatile bool _disposed;
 
         // NOTE: SQL Server hard limit = 2100 parameters. Keep buffer.
-        private const int MaxParametersPerQuery = 2000;
+        private const int MaxParametersPerQuery = 1000;
 
-        private const int DefaultMaxBatchSize = 100; // safe global cap
+        private const int DefaultMaxBatchSize = 50; // safe global cap
         private const int MaxBatchWaitMs = 2000;      // flush window
-        private const int MaxRetries = 3;
+        private const int MaxRetries = 2;
 
         private int _totalOperationsQueued;
         private int _totalBatchesExecuted;

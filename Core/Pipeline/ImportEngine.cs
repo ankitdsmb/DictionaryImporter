@@ -1,5 +1,5 @@
-﻿using Microsoft.ML;
-using LanguageDetector = DictionaryImporter.Core.PreProcessing.LanguageDetector;
+﻿using DictionaryImporter.Common;
+using DictionaryImporter.Infrastructure.Validation;
 
 namespace DictionaryImporter.Core.Pipeline
 {
@@ -11,7 +11,7 @@ namespace DictionaryImporter.Core.Pipeline
         ILogger<ImportEngine<TRaw>> logger)
         : IImportEngine
     {
-        private const int BatchSize = 10000;
+        private const int BatchSize = Helper.MAX_RECORDS_PER_SOURCE;
         private int _totalProcessed = 0;
         private int _totalValid = 0;
         private int _totalInvalid = 0;
@@ -151,7 +151,7 @@ namespace DictionaryImporter.Core.Pipeline
             if (entry == null)
                 return null;
 
-            var cleanedWord = DomainMarkerStripper.Strip(entry.Word ?? string.Empty);
+            var cleanedWord = Helper.DomainMarkerStripper.Strip(entry.Word ?? string.Empty);
 
             // ✅ FIX: Handle empty/null word
             if (string.IsNullOrWhiteSpace(cleanedWord))
@@ -170,11 +170,11 @@ namespace DictionaryImporter.Core.Pipeline
                 };
             }
 
-            var language = LanguageDetector.Detect(cleanedWord);
-            var normalized = NormalizedWordSanitizer.Sanitize(cleanedWord, language);
+            var language = Helper.LanguageDetect(cleanedWord);
+            var normalized = Helper.NormalizedWordSanitize(cleanedWord, language);
 
             // ✅ FIX: Check eligibility and handle appropriately
-            if (!CanonicalEligibility.IsEligible(normalized))
+            if (!Helper.IsCanonicalEligible(normalized))
             {
                 normalized = string.Empty;
             }

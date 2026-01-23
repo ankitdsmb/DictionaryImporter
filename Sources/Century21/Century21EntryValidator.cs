@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Sources.Century21
+﻿using DictionaryImporter.Infrastructure.Validation;
+
+namespace DictionaryImporter.Sources.Century21
 {
     public sealed class Century21EntryValidator : IDictionaryEntryValidator
     {

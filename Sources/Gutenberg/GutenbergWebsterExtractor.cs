@@ -2,6 +2,7 @@
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using DictionaryImporter.Common;
 using DictionaryImporter.Sources.Common.Helper;
 using Microsoft.Extensions.Logging;
 

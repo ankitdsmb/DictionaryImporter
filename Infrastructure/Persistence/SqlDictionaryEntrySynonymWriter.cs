@@ -1,16 +1,4 @@
-﻿// File: Infrastructure/Persistence/SqlDictionaryEntrySynonymWriter.cs
-using Dapper;
-using DictionaryImporter.Core.Text;
-using DictionaryImporter.Domain.Models;
-using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Generic;
-using System.Data;
-using System.Linq;
-using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
-using LanguageDetector = DictionaryImporter.Core.Text.LanguageDetector;
+﻿using DictionaryImporter.Common;
 
 namespace DictionaryImporter.Infrastructure.Persistence
 {
@@ -78,7 +66,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 return;
 
             // Detect non-English synonym
-            bool hasNonEnglishText = LanguageDetector.ContainsNonEnglishText(rawSynonymText);
+            bool hasNonEnglishText = Helper.LanguageDetector.ContainsNonEnglishText(rawSynonymText);
             long? nonEnglishTextId = null;
 
             string? synonymToStore = rawSynonymText;
@@ -96,7 +84,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             }
             else
             {
-                synonymToStore = NormalizeSynonymText(synonymToStore);
+                synonymToStore = Helper.NormalizeSynonymText(synonymToStore);
 
                 if (string.IsNullOrWhiteSpace(synonymToStore))
                     return;
@@ -215,7 +203,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 if (string.IsNullOrWhiteSpace(raw))
                     continue;
 
-                if (LanguageDetector.ContainsNonEnglishText(raw))
+                if (Helper.LanguageDetector.ContainsNonEnglishText(raw))
                     nonEnglishSynonyms.Add(raw);
                 else
                     englishSynonyms.Add(raw);
@@ -223,7 +211,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
 
             // 1) English synonyms: bulk insert
             var uniqueEnglish = englishSynonyms
-                .Select(NormalizeSynonymText)
+                .Select(Helper.NormalizeSynonymText)
                 .Where(s => !string.IsNullOrWhiteSpace(s))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -293,7 +281,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 .Select(s => new DictionaryEntrySynonym
                 {
                     DictionaryEntryParsedId = s.DictionaryEntryParsedId,
-                    SynonymText = NormalizeSynonymText(s.SynonymText),
+                    SynonymText = Helper.NormalizeSynonymText(s.SynonymText),
                     SourceCode = string.IsNullOrWhiteSpace(s.SourceCode) ? "UNKNOWN" : s.SourceCode.Trim()
                 })
                 .Where(s => s.DictionaryEntryParsedId > 0)
@@ -338,7 +326,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 );
                 """;
 
-            var languageCode = LanguageDetector.DetectLanguageCode(originalText);
+            var languageCode = Helper.LanguageDetector.DetectLanguageCode(originalText);
 
             var parameters = new
             {
@@ -355,32 +343,6 @@ namespace DictionaryImporter.Infrastructure.Persistence
             return await connection.ExecuteScalarAsync<long>(
                 new CommandDefinition(sql, parameters, cancellationToken: ct));
         }
-
-        private static string NormalizeSynonymText(string? synonymText)
-        {
-            if (string.IsNullOrWhiteSpace(synonymText))
-                return string.Empty;
-
-            var t = synonymText.Trim();
-
-            // Never store placeholders
-            if (t.Equals("[NON_ENGLISH]", StringComparison.OrdinalIgnoreCase))
-                return string.Empty;
-
-            t = Regex.Replace(t, @"\s+", " ").Trim();
-
-            t = t.Trim('\"', '\'', '“', '”', '‘', '’', '.', ',', ';', ':', '!', '?');
-
-            if (t.Length > 80)
-                t = t.Substring(0, 80).Trim();
-
-            // Keep original behavior: only accept English synonyms
-            if (!Regex.IsMatch(t, @"[A-Za-z]"))
-                return string.Empty;
-
-            return t;
-        }
-
         public void Dispose()
         {
             if (_ownsBatcher)

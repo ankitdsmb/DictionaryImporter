@@ -10,7 +10,6 @@ global using DictionaryImporter.Core.Abstractions;
 global using DictionaryImporter.Core.Linguistics;
 global using DictionaryImporter.Core.Persistence;
 global using DictionaryImporter.Core.PreProcessing;
-global using DictionaryImporter.Core.Validation;
 global using DictionaryImporter.Domain.Models;
 global using DictionaryImporter.Infrastructure.Graph;
 global using DictionaryImporter.Infrastructure.Persistence;

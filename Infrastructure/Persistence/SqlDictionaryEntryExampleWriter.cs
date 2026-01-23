@@ -1,23 +1,14 @@
-﻿using LanguageDetector = DictionaryImporter.Core.Text.LanguageDetector;
+﻿using DictionaryImporter.Common;
+using static DictionaryImporter.Common.Helper;
 
 namespace DictionaryImporter.Infrastructure.Persistence
 {
-    public sealed class SqlDictionaryEntryExampleWriter : IDictionaryEntryExampleWriter
+    public sealed class SqlDictionaryEntryExampleWriter(
+        string connectionString,
+        GenericSqlBatcher batcher,
+        ILogger<SqlDictionaryEntryExampleWriter> logger)
+        : IDictionaryEntryExampleWriter
     {
-        private readonly string _connectionString;
-        private readonly GenericSqlBatcher _batcher;
-        private readonly ILogger<SqlDictionaryEntryExampleWriter> _logger;
-
-        public SqlDictionaryEntryExampleWriter(
-            string connectionString,
-            GenericSqlBatcher batcher,
-            ILogger<SqlDictionaryEntryExampleWriter> logger)
-        {
-            _connectionString = connectionString;
-            _batcher = batcher;
-            _logger = logger;
-        }
-
         public async Task WriteAsync(
             long dictionaryEntryParsedId,
             string exampleText,
@@ -39,7 +30,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (IsPlaceholderExample(exampleText))
                 return;
 
-            bool hasNonEnglishText = LanguageDetector.ContainsNonEnglishText(exampleText);
+            bool hasNonEnglishText = Helper.LanguageDetector.ContainsNonEnglishText(exampleText);
             long? nonEnglishTextId = null;
             string? exampleToStore = exampleText;
 
@@ -54,7 +45,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 // Non-English example stored via NonEnglishTextId, do not store ExampleText
                 exampleToStore = null;
 
-                _logger.LogDebug(
+                logger.LogDebug(
                     "Stored non-English example text for ParsedId={ParsedId}, NonEnglishTextId={TextId}",
                     dictionaryEntryParsedId, nonEnglishTextId);
             }
@@ -129,7 +120,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 NonEnglishTextId = nonEnglishTextId
             };
 
-            await _batcher.QueueOperationAsync(
+            await batcher.QueueOperationAsync(
                 "INSERT_Example",
                 sql,
                 parameters,
@@ -187,7 +178,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 FieldType = fieldType
             };
 
-            await using var connection = new SqlConnection(_connectionString);
+            await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync(ct);
 
             return await connection.ExecuteScalarAsync<long>(
