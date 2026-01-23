@@ -20,13 +20,14 @@ namespace DictionaryImporter.Sources.Gutenberg
 
             await foreach (var line in lines.WithCancellation(cancellationToken))
             {
-                if (TextProcessingHelper.IsHeadword(line, maxLength: 40, requireUppercase: true))
+                // ✅ FIX: use Gutenberg helper logic (NOT SourceDataHelper)
+                if (ParsingHelperGutenberg.IsGutenbergHeadwordLine(line, maxLength: 80))
                 {
                     // Yield previous entry if exists
                     if (current != null && ValidateGutenbergEntry(current))
                     {
                         // ✅ STRICT: stop before yielding
-                        if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
+                        if (!Helper.ShouldContinueProcessing(SourceCode, logger))
                             yield break;
 
                         ParsingHelperGutenberg.UpdateProgress(ref context);
@@ -38,8 +39,8 @@ namespace DictionaryImporter.Sources.Gutenberg
                     {
                         Headword = line.Trim()
                     };
-                    current.Lines.Clear();
 
+                    current.Lines.Clear();
                     continue;
                 }
 
@@ -51,7 +52,7 @@ namespace DictionaryImporter.Sources.Gutenberg
             if (current != null && ValidateGutenbergEntry(current))
             {
                 // ✅ STRICT: stop before yielding
-                if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
+                if (!Helper.ShouldContinueProcessing(SourceCode, logger))
                     yield break;
 
                 ParsingHelperGutenberg.UpdateProgress(ref context);
@@ -61,7 +62,7 @@ namespace DictionaryImporter.Sources.Gutenberg
             ParsingHelperGutenberg.LogExtractionComplete(logger, SourceCode, context.EntryCount);
         }
 
-        private bool ValidateGutenbergEntry(GutenbergRawEntry entry)
+        private static bool ValidateGutenbergEntry(GutenbergRawEntry entry)
         {
             return !string.IsNullOrWhiteSpace(entry.Headword) &&
                    entry.Lines.Count > 0;

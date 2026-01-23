@@ -1,4 +1,4 @@
-﻿using DictionaryImporter.Sources.Common.Helper;
+﻿namespace DictionaryImporter.Sources.EnglishChinese;
 
 public sealed class EnglishChineseExtractor : IDataExtractor<EnglishChineseRawEntry>
 {

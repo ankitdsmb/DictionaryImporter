@@ -1,9 +1,4 @@
-﻿using Dapper;
-using DictionaryImporter.Core.PreProcessing;
-using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Logging;
-
-using IpaNormalizer = DictionaryImporter.Core.PreProcessing.IpaNormalizer;
+﻿using IpaNormalizer = DictionaryImporter.Core.PreProcessing.IpaNormalizer;
 
 namespace DictionaryImporter.Infrastructure.PostProcessing
 {

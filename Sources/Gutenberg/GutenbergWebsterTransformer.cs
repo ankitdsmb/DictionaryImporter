@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using DictionaryImporter.Sources.Common.Helper;
-using Microsoft.Extensions.Logging;
+﻿using DictionaryImporter.Sources.Common.Helper;
 
 namespace DictionaryImporter.Sources.Gutenberg
 {
@@ -13,7 +9,7 @@ namespace DictionaryImporter.Sources.Gutenberg
 
         public IEnumerable<DictionaryEntry> Transform(GutenbergRawEntry raw)
         {
-            if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
+            if (!Helper.ShouldContinueProcessing(SourceCode, logger))
                 yield break;
 
             if (raw == null || string.IsNullOrWhiteSpace(raw.Headword) || raw.Lines == null || raw.Lines.Count == 0)
@@ -36,7 +32,7 @@ namespace DictionaryImporter.Sources.Gutenberg
                     logger.LogDebug("Header POS resolved | Word={Word} | POS={POS}", raw.Headword, headerPos);
 
                 var seen = new HashSet<string>(StringComparer.Ordinal);
-                var normalizedWord = SourceDataHelper.NormalizeWord(raw.Headword);
+                var normalizedWord = Helper.NormalizeWord(raw.Headword);
                 var rawFragment = string.Join("\n", raw.Lines);
 
                 var sense = 1;
@@ -48,7 +44,7 @@ namespace DictionaryImporter.Sources.Gutenberg
                     if (string.IsNullOrWhiteSpace(cleanedDef))
                         continue;
 
-                    var normalizedDef = SourceDataHelper.NormalizeDefinition(cleanedDef);
+                    var normalizedDef = Helper.NormalizeDefinition(cleanedDef);
 
                     // FIX: Do not include sense in dedup key (sense changes when duplicates are skipped)
                     var dedupKey = $"{normalizedWord}|{normalizedDef}";
@@ -73,11 +69,11 @@ namespace DictionaryImporter.Sources.Gutenberg
                     sense++;
                 }
 
-                SourceDataHelper.LogProgress(logger, SourceCode, SourceDataHelper.GetCurrentCount(SourceCode));
+                Helper.LogProgress(logger, SourceCode, Helper.GetCurrentCount(SourceCode));
             }
             catch (Exception ex)
             {
-                SourceDataHelper.HandleError(logger, ex, SourceCode, "transforming");
+                Helper.HandleError(logger, ex, SourceCode, "transforming");
             }
 
             foreach (var entry in entries)

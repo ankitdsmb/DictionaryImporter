@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Sources.Common;
-
-namespace DictionaryImporter.Sources.Oxford
+﻿namespace DictionaryImporter.Sources.Oxford
 {
     public sealed class OxfordEntryValidator : IDictionaryEntryValidator
     {

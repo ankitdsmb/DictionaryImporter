@@ -1,8 +1,4 @@
-﻿using System.Collections.Generic;
-using System.IO;
-using System.Runtime.CompilerServices;
-using System.Threading;
-using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Sources.Common.Helper;
 
 namespace DictionaryImporter.Sources.Collins
 {
@@ -45,7 +41,7 @@ namespace DictionaryImporter.Sources.Collins
                         }
 
                         // ✅ STRICT STOP
-                        if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, null))
+                        if (!Helper.ShouldContinueProcessing(SourceCode, null))
                             yield break;
 
                         yield return currentEntry;
@@ -68,7 +64,7 @@ namespace DictionaryImporter.Sources.Collins
                         }
 
                         // ✅ STRICT STOP
-                        if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, null))
+                        if (!Helper.ShouldContinueProcessing(SourceCode, null))
                             yield break;
 
                         yield return currentEntry;
@@ -151,7 +147,7 @@ namespace DictionaryImporter.Sources.Collins
                 }
 
                 // ✅ STRICT STOP
-                if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, null))
+                if (!Helper.ShouldContinueProcessing(SourceCode, null))
                     yield break;
 
                 yield return currentEntry;

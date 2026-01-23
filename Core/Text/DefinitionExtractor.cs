@@ -1,6 +1,4 @@
-﻿using System.Text.RegularExpressions;
-
-namespace DictionaryImporter.Core.Text
+﻿namespace DictionaryImporter.Core.Text
 {
     public static class DefinitionExtractor
     {

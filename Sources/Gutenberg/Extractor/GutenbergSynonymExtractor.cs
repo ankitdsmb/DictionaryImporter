@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using DictionaryImporter.Sources.Common.Helper;
-using Microsoft.Extensions.Logging;
+﻿using DictionaryImporter.Sources.Common.Helper;
 
 namespace DictionaryImporter.Sources.Gutenberg.Extractor
 {
@@ -36,7 +32,7 @@ namespace DictionaryImporter.Sources.Gutenberg.Extractor
                     if (!ValidateSynonymPair(headword, synonym))
                         continue;
 
-                    var normalizedTarget = SourceDataHelper.NormalizeWord(synonym);
+                    var normalizedTarget = Helper.NormalizeWord(synonym);
 
                     if (string.IsNullOrWhiteSpace(normalizedTarget))
                         continue;

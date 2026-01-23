@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.RegularExpressions;
-using HtmlAgilityPack;
-using DictionaryImporter.Sources.Common.Parsing;
+﻿using HtmlAgilityPack;
 
 namespace DictionaryImporter.Sources.Common.Helper
 {
@@ -287,7 +282,7 @@ namespace DictionaryImporter.Sources.Common.Helper
                     if (posNode != null)
                     {
                         var pos = posNode.InnerText.Trim();
-                        return SourceDataHelper.NormalizePartOfSpeech(pos);
+                        return Helper.NormalizePartOfSpeech(pos);
                     }
                 }
                 return null;
@@ -422,7 +417,7 @@ namespace DictionaryImporter.Sources.Common.Helper
                                 // Extract POS
                                 var posNode = variantNode.SelectSingleNode(".//span[@class='pos']");
                                 if (posNode != null)
-                                    variant.PartOfSpeech = SourceDataHelper.NormalizePartOfSpeech(posNode.InnerText.Trim());
+                                    variant.PartOfSpeech = Helper.NormalizePartOfSpeech(posNode.InnerText.Trim());
 
                                 // Extract definitions
                                 variant.Definitions = ExtractDefinitionsFromNode(variantNode);
@@ -656,7 +651,7 @@ namespace DictionaryImporter.Sources.Common.Helper
                 return null;
             }
         }
-        
+
         // MAIN DEFINITION EXTRACTION FOR CENTURY21
         public static string ExtractMainDefinition(string htmlContent)
         {
@@ -705,31 +700,4 @@ namespace DictionaryImporter.Sources.Common.Helper
     }
 
     // DATA CLASSES FOR CENTURY21
-
-    public class Century21ParsedData
-    {
-        public string Headword { get; set; } = string.Empty;
-        public string? IpaPronunciation { get; set; }
-        public string? PartOfSpeech { get; set; }
-        public string? GrammarInfo { get; set; }
-        public IReadOnlyList<string> Definitions { get; set; } = new List<string>();
-        public IReadOnlyList<string> Examples { get; set; } = new List<string>();
-        public IReadOnlyList<Century21VariantData> Variants { get; set; } = new List<Century21VariantData>();
-        public IReadOnlyList<Century21IdiomData> Idioms { get; set; } = new List<Century21IdiomData>();
-    }
-
-    public class Century21VariantData
-    {
-        public string? PartOfSpeech { get; set; }
-        public IReadOnlyList<string> Definitions { get; set; } = new List<string>();
-        public IReadOnlyList<string> Examples { get; set; } = new List<string>();
-        public string? GrammarInfo { get; set; }
-    }
-
-    public class Century21IdiomData
-    {
-        public string Headword { get; set; } = string.Empty;
-        public string Definition { get; set; } = string.Empty;
-        public IReadOnlyList<string> Examples { get; set; } = new List<string>();
-    }
 }

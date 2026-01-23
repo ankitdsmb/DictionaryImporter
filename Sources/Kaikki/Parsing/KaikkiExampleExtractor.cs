@@ -1,12 +1,6 @@
 ﻿// File: Sources/Kaikki/Parsing/KaikkiExampleExtractor.cs
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.Json;
-using DictionaryImporter.Domain.Models;
 using DictionaryImporter.Sources.Common.Helper;
-using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Kaikki.Parsing
 {

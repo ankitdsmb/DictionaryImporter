@@ -1,5 +1,4 @@
-﻿using Microsoft.ML;
-using LanguageDetector = DictionaryImporter.Core.PreProcessing.LanguageDetector;
+﻿using LanguageDetector = DictionaryImporter.Core.PreProcessing.LanguageDetector;
 
 namespace DictionaryImporter.Core.Pipeline
 {

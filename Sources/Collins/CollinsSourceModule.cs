@@ -1,8 +1,4 @@
-﻿using System;
-using System.IO;
-using DictionaryImporter.Sources.Collins.Parsing;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+﻿using DictionaryImporter.Sources.Collins.parsing;
 
 namespace DictionaryImporter.Sources.Collins
 {

@@ -1,8 +1,4 @@
-﻿using System;
-using System.IO;
-using DictionaryImporter.Sources.Kaikki.Parsing;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+﻿using DictionaryImporter.Sources.Kaikki.Parsing;
 
 namespace DictionaryImporter.Sources.Kaikki
 {

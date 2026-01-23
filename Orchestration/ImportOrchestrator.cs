@@ -48,7 +48,7 @@ namespace DictionaryImporter.Orchestration
 
                 try
                 {
-                    SourceDataHelper.ResetProcessingState(source.SourceCode);
+                    Helper.ResetProcessingState(source.SourceCode);
 
                     // Always run import/merge (and stop early for ImportOnly)
                     await RunImportMergeAsync(source, mode, ct);

@@ -1,6 +1,4 @@
-﻿using System.Text.RegularExpressions;
-
-namespace DictionaryImporter.Sources.Gutenberg.Parsing
+﻿namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {
     public static class WebsterHeaderPosExtractor
     {

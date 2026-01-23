@@ -1,10 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.RegularExpressions;
-using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Sources.Common.Helper;
 using DictionaryImporter.Sources.Oxford.Parsing;
-using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Oxford
 {
@@ -19,7 +14,7 @@ namespace DictionaryImporter.Sources.Oxford
             foreach (var entry in ProcessOxfordEntry(raw))
             {
                 // FIX: apply limit per produced DictionaryEntry (not per raw entry)
-                if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
+                if (!Helper.ShouldContinueProcessing(SourceCode, logger))
                     yield break;
 
                 yield return entry;
@@ -32,7 +27,7 @@ namespace DictionaryImporter.Sources.Oxford
 
             try
             {
-                var normalizedWord = SourceDataHelper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
+                var normalizedWord = Helper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
                 var normalizedPos = OxfordSourceDataHelper.NormalizePartOfSpeech(raw.PartOfSpeech);
 
                 entries.AddRange(from sense in raw.Senses
@@ -51,11 +46,11 @@ namespace DictionaryImporter.Sources.Oxford
                                      CreatedUtc = DateTime.UtcNow
                                  });
 
-                SourceDataHelper.LogProgress(logger, SourceCode, SourceDataHelper.GetCurrentCount(SourceCode));
+                Helper.LogProgress(logger, SourceCode, Helper.GetCurrentCount(SourceCode));
             }
             catch (Exception ex)
             {
-                SourceDataHelper.HandleError(logger, ex, SourceCode, "transforming");
+                Helper.HandleError(logger, ex, SourceCode, "transforming");
             }
 
             foreach (var entry in entries)

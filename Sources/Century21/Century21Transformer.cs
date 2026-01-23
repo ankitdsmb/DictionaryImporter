@@ -1,6 +1,6 @@
-﻿using System.Net;
-using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Sources.Common.Helper;
 using HtmlAgilityPack;
+using System.Net;
 
 namespace DictionaryImporter.Sources.Century21
 {
@@ -11,7 +11,7 @@ namespace DictionaryImporter.Sources.Century21
 
         public IEnumerable<DictionaryEntry> Transform(Century21RawEntry? raw)
         {
-            if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
+            if (!Helper.ShouldContinueProcessing(SourceCode, logger))
                 yield break;
 
             if (raw == null)
@@ -29,7 +29,7 @@ namespace DictionaryImporter.Sources.Century21
             {
                 var senseNumber = 1;
 
-                var normalizedHeadword = SourceDataHelper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
+                var normalizedHeadword = Helper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
 
                 // ✅ Build proper RawFragment (HTML structure for parser)
                 var rawFragment = BuildHtmlRawFragment(raw);
@@ -38,7 +38,7 @@ namespace DictionaryImporter.Sources.Century21
                 {
                     Word = raw.Headword,
                     NormalizedWord = normalizedHeadword,
-                    PartOfSpeech = SourceDataHelper.NormalizePartOfSpeech(raw.PartOfSpeech),
+                    PartOfSpeech = Helper.NormalizePartOfSpeech(raw.PartOfSpeech),
                     Definition = BuildDefinition(raw),
                     RawFragment = rawFragment,
                     SenseNumber = senseNumber++,
@@ -55,7 +55,7 @@ namespace DictionaryImporter.Sources.Century21
                     {
                         Word = raw.Headword,
                         NormalizedWord = normalizedHeadword,
-                        PartOfSpeech = SourceDataHelper.NormalizePartOfSpeech(variant.PartOfSpeech),
+                        PartOfSpeech = Helper.NormalizePartOfSpeech(variant.PartOfSpeech),
                         Definition = BuildVariantDefinition(variant),
                         RawFragment = variantRawFragment,
                         SenseNumber = senseNumber++,
@@ -67,7 +67,7 @@ namespace DictionaryImporter.Sources.Century21
                 // Add idioms with proper RawFragment
                 foreach (var idiom in raw.Idioms)
                 {
-                    var normalizedIdiomWord = SourceDataHelper.NormalizeWord(idiom.Headword);
+                    var normalizedIdiomWord = Helper.NormalizeWord(idiom.Headword);
                     var idiomRawFragment = BuildIdiomHtmlFragment(idiom);
 
                     entries.Add(new DictionaryEntry
@@ -83,7 +83,7 @@ namespace DictionaryImporter.Sources.Century21
                     });
                 }
 
-                SourceDataHelper.LogProgress(logger, SourceCode, SourceDataHelper.GetCurrentCount(SourceCode));
+                Helper.LogProgress(logger, SourceCode, Helper.GetCurrentCount(SourceCode));
 
                 logger.LogDebug(
                     "Century21Transformer processed entry | Word={Word} | EntriesCreated={Count} | RawFragmentLength={Length} | HasHtml={HasHtml}",
@@ -94,7 +94,7 @@ namespace DictionaryImporter.Sources.Century21
             }
             catch (Exception ex)
             {
-                SourceDataHelper.HandleError(logger, ex, SourceCode, "transforming");
+                Helper.HandleError(logger, ex, SourceCode, "transforming");
             }
 
             foreach (var entry in entries)
@@ -290,7 +290,7 @@ namespace DictionaryImporter.Sources.Century21
             if (!string.IsNullOrWhiteSpace(raw.GrammarInfo))
                 parts.Add($"【Grammar】{raw.GrammarInfo}");
 
-            var definition = SourceDataHelper.NormalizeDefinitionForSource(raw.Definition, SourceCode);
+            var definition = Helper.NormalizeDefinitionForSource(raw.Definition, SourceCode);
             parts.Add(definition);
 
             AddExamples(parts, raw.Examples);

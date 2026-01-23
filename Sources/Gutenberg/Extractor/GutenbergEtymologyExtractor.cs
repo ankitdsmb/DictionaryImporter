@@ -1,6 +1,4 @@
-﻿using System;
-using DictionaryImporter.Sources.Common.Helper;
-using Microsoft.Extensions.Logging;
+﻿using DictionaryImporter.Sources.Common.Helper;
 
 namespace DictionaryImporter.Sources.Gutenberg.Extractor
 {

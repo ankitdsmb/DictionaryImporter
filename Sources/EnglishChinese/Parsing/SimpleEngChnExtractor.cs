@@ -1,6 +1,4 @@
-﻿using System.Text.RegularExpressions;
-
-namespace DictionaryImporter.Sources.EnglishChinese.Parsing
+﻿namespace DictionaryImporter.Sources.EnglishChinese.Parsing
 {
     public static class SimpleEngChnExtractor
     {

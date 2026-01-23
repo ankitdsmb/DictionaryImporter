@@ -1,11 +1,6 @@
-﻿using Dapper;
-using DictionaryImporter.Core.Text;
-using DictionaryImporter.Domain.Models;
+﻿using DictionaryImporter.Core.Text;
 using DictionaryImporter.Sources.Common.Helper;
 using DictionaryImporter.Sources.Common.Parsing;
-using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Logging;
-using System.Text.RegularExpressions;
 
 namespace DictionaryImporter.Infrastructure.Parsing;
 
@@ -147,7 +142,7 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
                     SenseNumber = parsed.SenseNumber,
                     Definition = processedDefinition,
                     RawFragment = parsed.RawFragment,
-                    Domain = SourceDataHelper.ExtractProperDomain(sourceCode, parsed.Domain, parsed.Definition),
+                    Domain = Helper.ExtractProperDomain(sourceCode, parsed.Domain, parsed.Definition),
                     UsageLabel = parsed.UsageLabel,
                     Alias = parsed.Alias,
                     Synonyms = parsed.Synonyms,

@@ -14,13 +14,13 @@ namespace DictionaryImporter.Sources.EnglishChinese
 
         public IEnumerable<DictionaryEntry> Transform(EnglishChineseRawEntry? raw)
         {
-            if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, _logger))
+            if (!Helper.ShouldContinueProcessing(SourceCode, _logger))
                 yield break;
 
             if (raw == null)
                 yield break;
 
-            var normalizedWord = SourceDataHelper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
+            var normalizedWord = Helper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
 
             yield return new DictionaryEntry
             {

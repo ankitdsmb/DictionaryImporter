@@ -1,10 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.Json;
-using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Sources.Common.Helper;
 using DictionaryImporter.Sources.Common.Parsing;
-using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Kaikki.Parsing
 {
@@ -28,7 +23,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
             if (string.IsNullOrWhiteSpace(raw))
             {
-                yield return SourceDataHelper.CreateFallbackParsedDefinition(entry);
+                yield return Helper.CreateFallbackParsedDefinition(entry);
                 yield break;
             }
 
@@ -40,7 +35,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                     "KaikkiDefinitionParser skipping non-JSON RawFragment. Word={Word}",
                     entry.Word);
 
-                yield return SourceDataHelper.CreateFallbackParsedDefinition(entry);
+                yield return Helper.CreateFallbackParsedDefinition(entry);
                 yield break;
             }
 
@@ -54,7 +49,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                     entry.Word,
                     raw.Length);
 
-                yield return SourceDataHelper.CreateFallbackParsedDefinition(entry);
+                yield return Helper.CreateFallbackParsedDefinition(entry);
                 yield break;
             }
 
@@ -83,7 +78,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                 }
 
                 if (parsedDefinitions.Count == 0)
-                    parsedDefinitions.Add(SourceDataHelper.CreateFallbackParsedDefinition(entry));
+                    parsedDefinitions.Add(Helper.CreateFallbackParsedDefinition(entry));
 
                 parsedDefinitions = parsedDefinitions
                     .GroupBy(d => $"{d.MeaningTitle}|{d.SenseNumber}|{(d.Definition ?? "").Trim()}",
@@ -100,7 +95,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                     entry.Word);
 
                 parsedDefinitions.Clear();
-                parsedDefinitions.Add(SourceDataHelper.CreateFallbackParsedDefinition(entry));
+                parsedDefinitions.Add(Helper.CreateFallbackParsedDefinition(entry));
             }
 
             foreach (var parsed in parsedDefinitions)

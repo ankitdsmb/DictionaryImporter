@@ -1,7 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-
-namespace DictionaryImporter.Bootstrap.Extensions
+﻿namespace DictionaryImporter.Bootstrap.Extensions
 {
     internal static class SimpleBatchRegistrationExtensionsy
     {

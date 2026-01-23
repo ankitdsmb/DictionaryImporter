@@ -1,5 +1,4 @@
-﻿using System.Text.Json;
-using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Sources.Common.Helper;
 using JsonException = Newtonsoft.Json.JsonException;
 
 namespace DictionaryImporter.Sources.Kaikki
@@ -11,7 +10,7 @@ namespace DictionaryImporter.Sources.Kaikki
         public IEnumerable<DictionaryEntry> Transform(KaikkiRawEntry? raw)
         {
             if (raw == null || string.IsNullOrWhiteSpace(raw.RawJson)) yield break;
-            if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger)) yield break;
+            if (!Helper.ShouldContinueProcessing(SourceCode, logger)) yield break;
 
             List<DictionaryEntry> entries;
             try
@@ -40,10 +39,10 @@ namespace DictionaryImporter.Sources.Kaikki
 
             if (!ParsingHelperKaikki.IsEnglishEntry(root)) yield break;
 
-            var word = SourceDataHelper.ExtractJsonString(root, "word");
+            var word = Helper.ExtractJsonString(root, "word");
             if (string.IsNullOrWhiteSpace(word)) yield break;
 
-            var normalizedWord = SourceDataHelper.NormalizeWord(word);
+            var normalizedWord = Helper.NormalizeWord(word);
             if (string.IsNullOrWhiteSpace(normalizedWord))
             {
                 logger.LogWarning("Failed to normalize word: {Word}", word);
@@ -64,14 +63,14 @@ namespace DictionaryImporter.Sources.Kaikki
             }
 
             var posRaw = ParsingHelperKaikki.ExtractPartOfSpeechFromJson(root) ?? "unk";
-            var pos = SourceDataHelper.NormalizePartOfSpeech(posRaw);
+            var pos = Helper.NormalizePartOfSpeech(posRaw);
             var senseNumber = 1;
 
             foreach (var definition in definitions)
             {
                 if (string.IsNullOrWhiteSpace(definition)) continue;
 
-                var normalizedDefinition = SourceDataHelper.NormalizeDefinition(definition);
+                var normalizedDefinition = Helper.NormalizeDefinition(definition);
 
                 yield return new DictionaryEntry
                 {
@@ -86,7 +85,7 @@ namespace DictionaryImporter.Sources.Kaikki
                 };
             }
 
-            SourceDataHelper.LogProgress(logger, SourceCode, SourceDataHelper.GetCurrentCount(SourceCode));
+            Helper.LogProgress(logger, SourceCode, Helper.GetCurrentCount(SourceCode));
         }
 
         private List<string> TryExtractShortDefinitions(JsonElement root)
@@ -98,14 +97,14 @@ namespace DictionaryImporter.Sources.Kaikki
 
             foreach (var field in alternativeFields)
             {
-                var fieldValue = SourceDataHelper.ExtractJsonString(root, field);
+                var fieldValue = Helper.ExtractJsonString(root, field);
                 if (!string.IsNullOrWhiteSpace(fieldValue))
                 {
                     definitions.Add(fieldValue);
                     continue;
                 }
 
-                var array = SourceDataHelper.ExtractJsonArray(root, field);
+                var array = Helper.ExtractJsonArray(root, field);
                 if (array.HasValue)
                 {
                     foreach (var item in array.Value)

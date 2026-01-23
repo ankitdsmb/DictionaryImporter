@@ -18,10 +18,16 @@ namespace DictionaryImporter.Core.Validation
             if (word.Length < 1)
                 return ValidationResult.Invalid("Word too short");
 
+            // Validate SourceCode (optional, but helps for normalization rules)
+            var sourceCode = entry.SourceCode ?? string.Empty;
+
             // Validate NormalizedWord (generate if missing)
             if (string.IsNullOrWhiteSpace(entry.NormalizedWord))
             {
-                entry.NormalizedWord = TextProcessingHelper.NormalizeWord(entry.Word);
+                // ✅ FIX: use helper (previous code called NormalizeWord() which didn't exist)
+                entry.NormalizedWord =
+                    Helper.NormalizeWordPreservingLanguage(entry.Word, sourceCode);
+
                 if (string.IsNullOrWhiteSpace(entry.NormalizedWord))
                     return ValidationResult.Invalid("NormalizedWord missing");
             }
@@ -30,36 +36,30 @@ namespace DictionaryImporter.Core.Validation
             if (string.IsNullOrWhiteSpace(entry.Definition))
             {
                 // For Kaikki, RawFragment might contain the definition
-                if (entry.SourceCode == "KAIKKI" && !string.IsNullOrWhiteSpace(entry.RawFragment))
+                if (string.Equals(entry.SourceCode, "KAIKKI", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(entry.RawFragment))
                 {
                     // Try to extract definition from RawFragment
                     var definitions = ParsingHelperKaikki.ExtractEnglishDefinitions(entry.RawFragment);
                     if (definitions.Count > 0)
-                    {
                         entry.Definition = definitions.First();
-                    }
                 }
 
                 if (string.IsNullOrWhiteSpace(entry.Definition))
                     return ValidationResult.Invalid("Definition missing");
             }
 
-            // Check definition length (more lenient for certain words)
-            var definition = entry.Definition.Trim();
+            // ✅ use source-aware normalization for definition checks
+            var definition = Helper.NormalizeDefinitionForSource(entry.Definition, sourceCode).Trim();
 
             // Single-letter words (like "A", "I") can have short definitions
             if (word.Length == 1 && definition.Length >= 3)
-            {
-                // Accept short definitions for single letters
                 return ValidationResult.Valid();
-            }
 
             // Common short words might have brief definitions
             var commonShortWords = new[] { "a", "i", "an", "be", "is", "am", "to", "do", "go", "no", "so" };
             if (commonShortWords.Contains(word.ToLowerInvariant()) && definition.Length >= 3)
-            {
                 return ValidationResult.Valid();
-            }
 
             // Default minimum length
             if (definition.Length < 5)
@@ -67,6 +67,7 @@ namespace DictionaryImporter.Core.Validation
                 logger.LogDebug(
                     "Entry rejected | Word={Word} | Source={Source} | Definition={Definition}",
                     word, entry.SourceCode, definition);
+
                 return ValidationResult.Invalid("Definition too short");
             }
 

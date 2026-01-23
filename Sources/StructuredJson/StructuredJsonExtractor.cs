@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Runtime.CompilerServices;
-using System.Text.Json;
-using System.Threading;
-using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Sources.Common.Helper;
 
 namespace DictionaryImporter.Sources.StructuredJson
 {
@@ -30,7 +24,7 @@ namespace DictionaryImporter.Sources.StructuredJson
                 ct.ThrowIfCancellationRequested();
 
                 // ✅ early stop (before processing more keys)
-                if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, null))
+                if (!Helper.ShouldContinueProcessing(SourceCode, null))
                     yield break;
 
                 var entry = kvp.Value;
@@ -44,7 +38,7 @@ namespace DictionaryImporter.Sources.StructuredJson
                     continue;
 
                 if (string.IsNullOrWhiteSpace(normalizedWord))
-                    normalizedWord = SourceDataHelper.NormalizeWord(word);
+                    normalizedWord = Helper.NormalizeWord(word);
 
                 if (entry.Definitions == null || entry.Definitions.Count == 0)
                     continue;
@@ -54,7 +48,7 @@ namespace DictionaryImporter.Sources.StructuredJson
                     ct.ThrowIfCancellationRequested();
 
                     // ✅ keep existing strict stop here too (counts yielded senses accurately)
-                    if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, null))
+                    if (!Helper.ShouldContinueProcessing(SourceCode, null))
                         yield break;
 
                     if (def == null)

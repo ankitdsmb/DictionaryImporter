@@ -1,7 +1,4 @@
 ﻿using DictionaryImporter.Gateway.Ai.Abstractions;
-using DictionaryImporter.Core.Persistence;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Core.Pipeline;
 

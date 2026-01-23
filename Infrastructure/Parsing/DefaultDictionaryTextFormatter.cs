@@ -1,7 +1,6 @@
 ﻿// File: Infrastructure/Parsing/DefaultDictionaryTextFormatter.cs
 
 using DictionaryImporter.Core.Text;
-using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Parsing
 {

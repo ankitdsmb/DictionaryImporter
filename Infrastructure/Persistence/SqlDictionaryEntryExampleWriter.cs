@@ -1,13 +1,4 @@
-﻿using System;
-using System.Data;
-using System.Data.SqlClient;
-using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
-using Dapper;
-using DictionaryImporter.Core.Text;
-using Microsoft.Extensions.Logging;
-using LanguageDetector = DictionaryImporter.Core.Text.LanguageDetector;
+﻿using LanguageDetector = DictionaryImporter.Core.Text.LanguageDetector;
 
 namespace DictionaryImporter.Infrastructure.Persistence
 {

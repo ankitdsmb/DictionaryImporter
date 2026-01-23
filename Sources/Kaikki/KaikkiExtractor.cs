@@ -23,7 +23,7 @@ namespace DictionaryImporter.Sources.Kaikki
                 if (string.IsNullOrWhiteSpace(trimmed))
                     continue;
 
-                if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, _logger))
+                if (!Helper.ShouldContinueProcessing(SourceCode, _logger))
                     yield break;
 
                 yield return new KaikkiRawEntry { RawJson = trimmed };

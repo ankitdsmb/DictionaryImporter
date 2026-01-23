@@ -9,7 +9,7 @@ namespace DictionaryImporter.Sources.Collins
 
         public IEnumerable<DictionaryEntry> Transform(CollinsRawEntry? raw)
         {
-            if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
+            if (!Helper.ShouldContinueProcessing(SourceCode, logger))
                 yield break;
 
             if (raw == null || !raw.Senses.Any())
@@ -25,7 +25,7 @@ namespace DictionaryImporter.Sources.Collins
 
             try
             {
-                var normalizedWord = SourceDataHelper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
+                var normalizedWord = Helper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
 
                 foreach (var sense in raw.Senses)
                 {
@@ -35,7 +35,7 @@ namespace DictionaryImporter.Sources.Collins
                     {
                         Word = raw.Headword,
                         NormalizedWord = normalizedWord,
-                        PartOfSpeech = SourceDataHelper.NormalizePartOfSpeech(sense.PartOfSpeech),
+                        PartOfSpeech = Helper.NormalizePartOfSpeech(sense.PartOfSpeech),
                         Definition = fullDefinition,
                         RawFragment = fullDefinition, // FIX: avoid missing RawFragment warnings
                         SenseNumber = sense.SenseNumber,
@@ -44,11 +44,11 @@ namespace DictionaryImporter.Sources.Collins
                     });
                 }
 
-                SourceDataHelper.LogProgress(logger, SourceCode, SourceDataHelper.GetCurrentCount(SourceCode));
+                Helper.LogProgress(logger, SourceCode, Helper.GetCurrentCount(SourceCode));
             }
             catch (Exception ex)
             {
-                SourceDataHelper.HandleError(logger, ex, SourceCode, "transforming");
+                Helper.HandleError(logger, ex, SourceCode, "transforming");
             }
 
             foreach (var entry in entries)

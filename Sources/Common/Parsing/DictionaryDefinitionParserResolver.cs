@@ -1,6 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
-
-namespace DictionaryImporter.Sources.Common.Parsing
+﻿namespace DictionaryImporter.Sources.Common.Parsing
 {
     public sealed class DictionaryDefinitionParserResolver : IDictionaryDefinitionParserResolver
     {

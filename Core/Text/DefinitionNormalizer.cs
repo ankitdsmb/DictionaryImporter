@@ -1,12 +1,5 @@
-﻿using System.Text.RegularExpressions;
-
-namespace DictionaryImporter.Core.Text
+﻿namespace DictionaryImporter.Core.Text
 {
-    public interface IDefinitionNormalizer
-    {
-        string Normalize(string raw);
-    }
-
     public sealed class DefinitionNormalizer : IDefinitionNormalizer
     {
         public string Normalize(string raw)

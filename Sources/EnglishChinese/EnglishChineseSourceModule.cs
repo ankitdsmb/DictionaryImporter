@@ -1,8 +1,4 @@
-﻿using System;
-using System.IO;
-using DictionaryImporter.Sources.EnglishChinese.Parsing;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+﻿using DictionaryImporter.Sources.EnglishChinese.Parsing;
 
 namespace DictionaryImporter.Sources.EnglishChinese
 {
