@@ -11,10 +11,10 @@ namespace DictionaryImporter.Sources.Gutenberg
             Stream stream,
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
-            ExtractionHelper.LogExtractionStart(logger, SourceCode);
+            ParsingHelperGutenberg.LogExtractionStart(logger, SourceCode);
 
-            var context = ExtractionHelper.CreateExtractorContext(logger, SourceCode);
-            var lines = ExtractionHelper.ProcessGutenbergStreamAsync(stream, logger, cancellationToken);
+            var context = ParsingHelperGutenberg.CreateExtractorContext(logger, SourceCode);
+            var lines = ParsingHelperGutenberg.ProcessGutenbergStreamAsync(stream, logger, cancellationToken);
 
             GutenbergRawEntry? current = null;
 
@@ -29,7 +29,7 @@ namespace DictionaryImporter.Sources.Gutenberg
                         if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
                             yield break;
 
-                        ExtractionHelper.UpdateProgress(ref context);
+                        ParsingHelperGutenberg.UpdateProgress(ref context);
                         yield return current;
                     }
 
@@ -54,11 +54,11 @@ namespace DictionaryImporter.Sources.Gutenberg
                 if (!SourceDataHelper.ShouldContinueProcessing(SourceCode, logger))
                     yield break;
 
-                ExtractionHelper.UpdateProgress(ref context);
+                ParsingHelperGutenberg.UpdateProgress(ref context);
                 yield return current;
             }
 
-            ExtractionHelper.LogExtractionComplete(logger, SourceCode, context.EntryCount);
+            ParsingHelperGutenberg.LogExtractionComplete(logger, SourceCode, context.EntryCount);
         }
 
         private bool ValidateGutenbergEntry(GutenbergRawEntry entry)

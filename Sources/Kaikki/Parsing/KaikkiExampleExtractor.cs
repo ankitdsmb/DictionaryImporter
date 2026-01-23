@@ -27,14 +27,14 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                     return examples;
 
                 // Only parse English root entries
-                if (!KaikkiParsingHelper.TryParseEnglishRoot(parsed.RawFragment, out _))
+                if (!ParsingHelperKaikki.TryParseEnglishRoot(parsed.RawFragment, out _))
                     return examples;
 
                 // FIX:
                 // Previously we extracted examples from the entire raw fragment (whole entry JSON),
                 // which repeats the same examples for every sense.
                 // Now we extract examples from the specific sense corresponding to parsed.SenseNumber.
-                if (!KaikkiParsingHelper.TryParseJsonRoot(parsed.RawFragment, out var root))
+                if (!ParsingHelperKaikki.TryParseJsonRoot(parsed.RawFragment, out var root))
                     return examples;
 
                 if (!root.TryGetProperty("senses", out var senses) || senses.ValueKind != JsonValueKind.Array)
@@ -66,8 +66,8 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                 for (var i = 0; i < examples.Count; i++)
                 {
                     var cleaned =
-                        SourceDataHelper.CleanExampleText(
-                            KaikkiParsingHelper.CleanKaikkiText(examples[i]));
+                        ParsingHelperKaikki.CleanExampleText(
+                            ParsingHelperKaikki.CleanKaikkiText(examples[i]));
 
                     examples[i] = cleaned;
                 }

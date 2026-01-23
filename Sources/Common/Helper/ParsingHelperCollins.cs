@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 
 namespace DictionaryImporter.Sources.Common.Helper
 {
-    internal static class CollinsParsingHelper
+    internal static class ParsingHelperCollins
     {
         #region Core Parsing Methods
 

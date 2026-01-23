@@ -1,6 +1,6 @@
 ﻿namespace DictionaryImporter.Sources.Common.Helper
 {
-    internal static class EnglishChineseParsingHelper
+    internal static class ParsingHelperEnglishChinese
     {
         // MAIN PARSING METHOD
         public static EnglishChineseParsedData ParseEngChnEntry(string rawLine)

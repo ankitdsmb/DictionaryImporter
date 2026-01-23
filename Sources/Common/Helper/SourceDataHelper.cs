@@ -85,7 +85,7 @@ namespace DictionaryImporter.Sources.Common.Helper
 
         public static string NormalizeWordWithSourceContext(string word, string sourceCode)
         {
-            return TextNormalizer.NormalizeWordPreservingLanguage(word, sourceCode);
+            return TextProcessingHelper.NormalizeWordPreservingLanguage(word, sourceCode);
         }
 
         public static string? ExtractJsonString(JsonElement element, string propertyName)
@@ -129,7 +129,7 @@ namespace DictionaryImporter.Sources.Common.Helper
             public int LimitReachedLogged;
         }
 
-        private const int MAX_RECORDS_PER_SOURCE = 25;
+        private const int MAX_RECORDS_PER_SOURCE = 500;
 
         public static bool ShouldContinueProcessing(string sourceCode, ILogger? logger = null)
         {
@@ -182,48 +182,37 @@ namespace DictionaryImporter.Sources.Common.Helper
 
         public static string NormalizeWord(string word)
         {
-            return TextNormalizer.NormalizeWord(word);
+            return TextProcessingHelper.NormalizeWord(word);
         }
 
         public static string NormalizePartOfSpeech(string? pos)
         {
-            return TextNormalizer.NormalizePartOfSpeech(pos);
+            return TextProcessingHelper.NormalizePartOfSpeech(pos);
         }
 
         #endregion Text Normalization
 
         #region Webster and General Parser
-
-        public static string? ExtractMainDefinition(string definition)
-        {
-            return ParserHelper.ExtractMainDefinition(definition);
-        }
-
+        
         public static string? ExtractSection(string definition, string marker)
         {
-            return ParserHelper.ExtractSection(definition, marker);
+            if (string.IsNullOrWhiteSpace(definition))
+                return null;
+
+            var startIndex = definition.IndexOf(marker);
+            if (startIndex < 0)
+                return null;
+
+            startIndex += marker.Length;
+            var endIndex = definition.IndexOf("【", startIndex);
+
+            if (endIndex < 0)
+                endIndex = definition.Length;
+
+            return definition.Substring(startIndex, endIndex - startIndex).Trim();
         }
 
         #endregion Webster and General Parser
-
-        #region Text Cleaning and Language Detection
-
-        public static string CleanEtymologyText(string etymology)
-        {
-            return TextCleaner.CleanEtymologyText(etymology);
-        }
-
-        public static string CleanExampleText(string example)
-        {
-            return TextCleaner.CleanExampleText(example);
-        }
-
-        public static string? DetectLanguageFromEtymology(string etymology)
-        {
-            return TextCleaner.DetectLanguageFromEtymology(etymology);
-        }
-
-        #endregion Text Cleaning and Language Detection
 
         #region Helper Creation
 
@@ -246,15 +235,17 @@ namespace DictionaryImporter.Sources.Common.Helper
         #endregion Helper Creation
 
         #region Logging and Error Handling
-
         public static void LogProgress(ILogger logger, string sourceCode, int count)
         {
-            LoggingHelper.LogProgress(logger, sourceCode, count);
+            if (count % 10 == 0)
+            {
+                logger.LogInformation("{Source} processing progress: {Count} records processed",
+                    sourceCode, count);
+            }
         }
-
         public static void HandleError(ILogger logger, Exception ex, string sourceCode, string operation)
         {
-            LoggingHelper.HandleError(logger, ex, sourceCode, operation);
+            logger.LogError(ex, "Error {Operation} for {Source} entry", operation, sourceCode);
             ResetProcessingState(sourceCode);
         }
 

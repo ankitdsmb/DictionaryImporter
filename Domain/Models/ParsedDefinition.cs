@@ -35,5 +35,7 @@ namespace DictionaryImporter.Domain.Models
         public string? DetectedLanguages { get; set; }
         public string Etymology { get; internal set; }
         public double? PartOfSpeechConfidence { get; internal set; }
+        public string Pronunciation { get; internal set; }
+        public string DedupKey { get; internal set; }
     }
 }

@@ -29,6 +29,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
 
             var now = DateTime.UtcNow;
 
+            // ✅ FIX: dedupe must align with SQL unique key (UX_Staging_Dedup)
             var deduped = DedupeStagingEntries(list);
 
             var sanitized = deduped.Select(e =>
@@ -100,7 +101,6 @@ namespace DictionaryImporter.Infrastructure.Persistence
             }
         }
 
-        // NEW METHOD (added)
         private static List<DictionaryEntryStaging> DedupeStagingEntries(List<DictionaryEntryStaging> entries)
         {
             if (entries == null || entries.Count == 0)
@@ -125,40 +125,53 @@ namespace DictionaryImporter.Infrastructure.Persistence
             return result;
         }
 
-        // NEW METHOD (added)
+        // ✅ FIXED: key must match UX_Staging_Dedup behavior (Source + Sense + WordHash + DefHash)
         private static string BuildStagingKey(DictionaryEntryStaging e)
         {
-            var word = (e.Word ?? string.Empty).Trim().ToLowerInvariant();
-            var normalizedWord = (e.NormalizedWord ?? string.Empty).Trim().ToLowerInvariant();
-            var pos = (e.PartOfSpeech ?? string.Empty).Trim().ToLowerInvariant();
             var source = (e.SourceCode ?? string.Empty).Trim().ToLowerInvariant();
-            var sense = e.SenseNumber; // ✅ int, not nullable
 
+            // SenseNumber is part of unique index (based on duplicate key dump: (KAIKKI, 1, ...))
+            var sense = e.SenseNumber;
+
+            // Use NormalizedWord if present, else Word
+            var word = NormalizeForKey(string.IsNullOrWhiteSpace(e.NormalizedWord) ? e.Word : e.NormalizedWord);
+
+            // Definition is part of unique index
             var def = NormalizeForKey(e.Definition);
-            var ety = NormalizeForKey(e.Etymology);
 
-            if (string.IsNullOrWhiteSpace(word) && string.IsNullOrWhiteSpace(normalizedWord))
+            if (string.IsNullOrWhiteSpace(source))
+                source = "unknown";
+
+            if (string.IsNullOrWhiteSpace(word))
                 return string.Empty;
 
-            return $"{source}|{word}|{normalizedWord}|{pos}|{sense}|{def}|{ety}";
+            if (string.IsNullOrWhiteSpace(def))
+                return string.Empty;
+
+            // IMPORTANT:
+            // Do NOT include PartOfSpeech / Etymology / RawFragment in key,
+            // because SQL unique index is rejecting duplicates based on hashes that don't include those fields.
+            return $"{source}|{sense}|{word}|{def}";
         }
 
-        // NEW METHOD (added)
         private static string NormalizeForKey(string? text)
         {
             if (string.IsNullOrWhiteSpace(text))
                 return string.Empty;
 
             var t = text.Trim().ToLowerInvariant();
-            t = string.Join(" ", t.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries));
 
-            if (t.Length > 256)
-                t = t.Substring(0, 256);
+            // collapse whitespace
+            t = string.Join(" ",
+                t.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries));
+
+            // keep key stable but small
+            if (t.Length > 512)
+                t = t.Substring(0, 512);
 
             return t;
         }
 
-        // NEW METHOD (added)
         private static string? SafeTruncate(string? text, int maxLen)
         {
             if (string.IsNullOrWhiteSpace(text))

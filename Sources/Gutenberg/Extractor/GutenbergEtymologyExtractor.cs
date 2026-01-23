@@ -1,11 +1,12 @@
-﻿using System.Text.Json;
+﻿using System;
 using DictionaryImporter.Sources.Common.Helper;
+using Microsoft.Extensions.Logging;
 
-namespace DictionaryImporter.Sources.Kaikki.Parsing
+namespace DictionaryImporter.Sources.Gutenberg.Extractor
 {
-    internal class KaikkiEtymologyExtractor(ILogger<KaikkiEtymologyExtractor> logger) : IEtymologyExtractor
+    internal sealed class GutenbergEtymologyExtractor(ILogger<GutenbergEtymologyExtractor> logger) : IEtymologyExtractor
     {
-        public string SourceCode => "KAIKKI";
+        public string SourceCode => "GUT_WEBSTER";
 
         public EtymologyExtractionResult Extract(string headword, string definition, string? rawDefinition = null)
         {
@@ -21,17 +22,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
             try
             {
-                if (!ParsingHelperKaikki.TryParseEnglishRoot(rawDefinition, out _))
-                {
-                    return new EtymologyExtractionResult
-                    {
-                        CleanedDefinition = definition,
-                        DetectionMethod = "NotEnglishKaikkiEntry",
-                        SourceText = string.Empty
-                    };
-                }
-
-                var etymology = ParsingHelperKaikki.ExtractEtymology(rawDefinition);
+                var etymology = ParsingHelperGutenberg.ExtractEtymology(rawDefinition);
 
                 if (!string.IsNullOrWhiteSpace(etymology))
                 {
@@ -40,7 +31,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                         EtymologyText = ParsingHelperKaikki.CleanEtymologyText(etymology),
                         LanguageCode = ParsingHelperKaikki.DetectLanguageFromEtymology(etymology),
                         CleanedDefinition = definition,
-                        DetectionMethod = "KaikkiStructuredEtymology",
+                        DetectionMethod = "GutenbergEtymologyMarker",
                         SourceText = etymology
                     };
                 }
@@ -52,20 +43,9 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                     SourceText = string.Empty
                 };
             }
-            catch (Newtonsoft.Json.JsonException ex)
-            {
-                logger.LogDebug(ex, "Failed to parse Kaikki JSON for etymology | Word={Word}", headword);
-
-                return new EtymologyExtractionResult
-                {
-                    CleanedDefinition = definition,
-                    DetectionMethod = "InvalidJson",
-                    SourceText = string.Empty
-                };
-            }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Unexpected error extracting Kaikki etymology | Word={Word}", headword);
+                logger.LogWarning(ex, "Unexpected error extracting Gutenberg etymology | Word={Word}", headword);
 
                 return new EtymologyExtractionResult
                 {

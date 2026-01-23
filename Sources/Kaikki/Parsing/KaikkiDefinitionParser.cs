@@ -34,7 +34,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
             raw = raw.TrimStart();
 
-            if (!KaikkiParsingHelper.IsJsonRawFragment(raw))
+            if (!ParsingHelperKaikki.IsJsonRawFragment(raw))
             {
                 _logger.LogWarning(
                     "KaikkiDefinitionParser skipping non-JSON RawFragment. Word={Word}",
@@ -47,7 +47,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
             var parsedDefinitions = new List<ParsedDefinition>();
 
             // ✅ Parse safely using helper (clone root + safe fail)
-            if (!KaikkiParsingHelper.TryParseJsonRoot(raw, out var root))
+            if (!ParsingHelperKaikki.TryParseJsonRoot(raw, out var root))
             {
                 _logger.LogDebug(
                     "KaikkiDefinitionParser JSON invalid/truncated. Using fallback. Word={Word} Len={Len}",
@@ -60,7 +60,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
             try
             {
-                if (!KaikkiParsingHelper.IsEnglishEntry(root))
+                if (!ParsingHelperKaikki.IsEnglishEntry(root))
                     yield break;
 
                 if (root.TryGetProperty("senses", out var senses) && senses.ValueKind == JsonValueKind.Array)
@@ -69,7 +69,7 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
                     foreach (var sense in senses.EnumerateArray())
                     {
-                        if (!KaikkiParsingHelper.IsEnglishSense(sense))
+                        if (!ParsingHelperKaikki.IsEnglishSense(sense))
                             continue;
 
                         var parsed = ExtractParsedDefinition(sense, entry, senseIndex);
@@ -109,14 +109,14 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
 
         private ParsedDefinition? ExtractParsedDefinition(JsonElement sense, DictionaryEntry entry, int senseNumber)
         {
-            var definition = KaikkiParsingHelper.ExtractDefinitionFromSense(sense);
+            var definition = ParsingHelperKaikki.ExtractDefinitionFromSense(sense);
             if (string.IsNullOrWhiteSpace(definition))
                 return null;
 
-            definition = KaikkiParsingHelper.NormalizeBrokenHtmlEntities(definition);
-            definition = KaikkiParsingHelper.CleanKaikkiText(definition);
+            definition = ParsingHelperKaikki.NormalizeBrokenHtmlEntities(definition);
+            definition = ParsingHelperKaikki.CleanKaikkiText(definition);
 
-            if (!KaikkiParsingHelper.IsAcceptableEnglishText(definition))
+            if (!ParsingHelperKaikki.IsAcceptableEnglishText(definition))
                 return null;
 
             return new ParsedDefinition
@@ -125,10 +125,10 @@ namespace DictionaryImporter.Sources.Kaikki.Parsing
                 Definition = definition,
                 RawFragment = entry.RawFragment,
                 SenseNumber = senseNumber,
-                Domain = KaikkiParsingHelper.ExtractDomain(sense),
-                UsageLabel = KaikkiParsingHelper.ExtractUsageLabel(sense),
-                CrossReferences = KaikkiParsingHelper.ExtractCrossReferences(sense),
-                Synonyms = KaikkiParsingHelper.ExtractSynonymsList(sense),
+                Domain = ParsingHelperKaikki.ExtractDomain(sense),
+                UsageLabel = ParsingHelperKaikki.ExtractUsageLabel(sense),
+                CrossReferences = ParsingHelperKaikki.ExtractCrossReferences(sense),
+                Synonyms = ParsingHelperKaikki.ExtractSynonymsList(sense),
                 Alias = null
             };
         }
