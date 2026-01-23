@@ -1,4 +1,4 @@
-﻿using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Common;
 
 namespace DictionaryImporter.Sources.StructuredJson
 {

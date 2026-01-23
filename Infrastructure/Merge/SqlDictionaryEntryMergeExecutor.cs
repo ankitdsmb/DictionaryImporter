@@ -1,4 +1,12 @@
-﻿namespace DictionaryImporter.Infrastructure.Merge
+﻿using System;
+using System.Data;
+using System.Threading;
+using System.Threading.Tasks;
+using Dapper;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
+
+namespace DictionaryImporter.Infrastructure.Merge
 {
     public sealed class SqlDictionaryEntryMergeExecutor(
         string connectionString,
@@ -12,7 +20,7 @@
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync(ct);
 
-            await using var tx = (SqlTransaction)await connection.BeginTransactionAsync(ct); // Explicit cast
+            await using var tx = (SqlTransaction)await connection.BeginTransactionAsync(ct);
 
             try
             {
@@ -29,7 +37,7 @@
                 var stats = await connection.QuerySingleAsync<StagingStats>(
                     stagingStatsSql,
                     new { SourceCode = sourceCode },
-                    tx); // Now this works with SqlTransaction
+                    tx);
 
                 var duplicateCount = stats.TotalRows - stats.UniqueKeys;
 
@@ -51,7 +59,7 @@
                                                 PartOfSpeech,
                                                 Definition,
                                                 Etymology,
-                                                RawFragment,  -- ← ADD THIS
+                                                RawFragment,
                                                 SenseNumber,
                                                 SourceCode,
                                                 CreatedUtc,
@@ -76,7 +84,7 @@
                                                 PartOfSpeech,
                                                 Definition,
                                                 Etymology,
-                                                RawFragment,  -- ← ADD THIS
+                                                RawFragment,
                                                 SenseNumber,
                                                 SourceCode,
                                                 CreatedUtc
@@ -96,7 +104,7 @@
                                                 PartOfSpeech,
                                                 Definition,
                                                 Etymology,
-                                                RawFragment,  -- ← ADD THIS
+                                                RawFragment,
                                                 SenseNumber,
                                                 SourceCode,
                                                 CreatedUtc
@@ -108,7 +116,7 @@
                                                 Source.PartOfSpeech,
                                                 Source.Definition,
                                                 Source.Etymology,
-                                                Source.RawFragment,  -- ← ADD THIS
+                                                Source.RawFragment,
                                                 Source.SenseNumber,
                                                 Source.SourceCode,
                                                 Source.CreatedUtc
@@ -119,7 +127,7 @@
                     mergeSql,
                     new { SourceCode = sourceCode },
                     tx,
-                    0);
+                    commandTimeout: 0);
 
                 const string clearStagingSql = """
                                                DELETE FROM dbo.DictionaryEntry_Staging
@@ -144,7 +152,7 @@
             }
             catch (Exception ex)
             {
-                await tx.RollbackAsync(ct);
+                await TryRollbackAsync(tx, logger, ct);
 
                 logger.LogError(
                     ex,
@@ -152,6 +160,34 @@
                     sourceCode);
 
                 throw;
+            }
+        }
+
+        private static async Task TryRollbackAsync(
+            SqlTransaction tx,
+            ILogger logger,
+            CancellationToken ct)
+        {
+            try
+            {
+                var connection = tx.Connection;
+
+                if (connection is null)
+                    return;
+
+                if (connection.State != ConnectionState.Open)
+                    return;
+
+                await tx.RollbackAsync(ct);
+            }
+            catch (InvalidOperationException)
+            {
+                // Transaction already completed -> ignore
+            }
+            catch (Exception ex)
+            {
+                // Never allow rollback failures to crash merge
+                logger.LogWarning(ex, "Rollback failed (ignored).");
             }
         }
 

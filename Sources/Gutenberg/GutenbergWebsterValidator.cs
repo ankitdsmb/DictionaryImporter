@@ -1,4 +1,12 @@
-﻿namespace DictionaryImporter.Sources.Gutenberg
+﻿using DictionaryImporter.Infrastructure.Validation;
+using DictionaryImporter.Sources.Kaikki;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace DictionaryImporter.Sources.Gutenberg
 {
     public class GutenbergWebsterValidator(ILogger<GutenbergWebsterValidator> logger) : IDictionaryEntryValidator
     {

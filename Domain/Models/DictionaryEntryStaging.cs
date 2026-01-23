@@ -11,5 +11,7 @@
         public int SenseNumber { get; set; } = 1;
         public string SourceCode { get; set; } = null!;
         public DateTime CreatedUtc { get; set; }
+        public string WordHash { get; internal set; }
+        public string DefinitionHash { get; internal set; }
     }
 }

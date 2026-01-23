@@ -1,4 +1,5 @@
-﻿using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Common;
+using DictionaryImporter.Sources.Common.Helper;
 
 namespace DictionaryImporter.Sources.Gutenberg.Extractor
 {

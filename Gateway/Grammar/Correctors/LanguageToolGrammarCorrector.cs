@@ -1,7 +1,7 @@
-﻿using DictionaryImporter.Gateway.Grammar.Core;
+﻿using System.Net.Http.Headers;
+using DictionaryImporter.Gateway.Grammar.Core;
 using DictionaryImporter.Gateway.Grammar.Core.Models;
 using DictionaryImporter.Gateway.Grammar.Core.Results;
-using System.Net.Http.Headers;
 
 namespace DictionaryImporter.Gateway.Grammar.Correctors
 {

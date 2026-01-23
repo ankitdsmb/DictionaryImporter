@@ -1,4 +1,4 @@
-﻿using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Common;
 using HtmlAgilityPack;
 using System.Net;
 

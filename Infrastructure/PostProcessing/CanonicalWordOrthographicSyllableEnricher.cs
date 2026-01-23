@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Infrastructure.PostProcessing
+﻿using DictionaryImporter.Common;
+
+namespace DictionaryImporter.Infrastructure.PostProcessing
 {
     public sealed class CanonicalWordOrthographicSyllableEnricher(
         string connectionString,
@@ -33,7 +35,7 @@
                 ct.ThrowIfCancellationRequested();
 
                 var syllables =
-                    OrthographicSyllableExtractor.Extract(w.Word);
+                    Helper.OrthographicSyllableExtractor.Extract(w.Word);
 
                 if (syllables.Count == 0)
                 {

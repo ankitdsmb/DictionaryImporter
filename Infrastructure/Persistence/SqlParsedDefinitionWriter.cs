@@ -1,5 +1,5 @@
 ﻿using System.Security.Cryptography;
-using LanguageDetector = DictionaryImporter.Core.Text.LanguageDetector;
+using DictionaryImporter.Common;
 
 namespace DictionaryImporter.Infrastructure.Persistence
 {
@@ -33,7 +33,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 }
             }
 
-            bool hasNonEnglishText = LanguageDetector.ContainsNonEnglishText(parsed.Definition ?? "");
+            bool hasNonEnglishText = Helper.LanguageDetector.ContainsNonEnglishText(parsed.Definition ?? "");
             long? nonEnglishTextId = null;
 
             string definitionToStore = parsed.Definition ?? "";
@@ -213,7 +213,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
 
                 var safeSourceCode = string.IsNullOrWhiteSpace(entry.SourceCode) ? "UNKNOWN" : entry.SourceCode;
 
-                bool hasNonEnglishText = LanguageDetector.ContainsNonEnglishText(entry.Parsed.Definition ?? "");
+                bool hasNonEnglishText = Helper.LanguageDetector.ContainsNonEnglishText(entry.Parsed.Definition ?? "");
                 string definitionToStore = entry.Parsed.Definition ?? "";
                 long? nonEnglishTextId = null;
 
@@ -314,7 +314,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
                                );
                                """;
 
-            var languageCode = LanguageDetector.DetectLanguageCode(originalText);
+            var languageCode = Helper.LanguageDetector.DetectLanguageCode(originalText);
 
             var parameters = new
             {

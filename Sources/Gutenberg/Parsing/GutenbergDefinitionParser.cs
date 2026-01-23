@@ -1,5 +1,9 @@
-﻿using DictionaryImporter.Sources.Common.Helper;
-using DictionaryImporter.Sources.Common.Parsing;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using DictionaryImporter.Sources.Common.Helper;
+using DictionaryImporter.Sources.Parsing;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Gutenberg.Parsing
 {

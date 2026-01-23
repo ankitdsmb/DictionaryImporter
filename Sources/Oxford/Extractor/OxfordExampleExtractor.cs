@@ -1,5 +1,11 @@
 ﻿// File: Sources/Oxford/Extractor/OxfordExampleExtractor.cs
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+using DictionaryImporter.Domain.Models;
+
 namespace DictionaryImporter.Sources.Oxford.Extractor
 {
     public sealed class OxfordExampleExtractor : IExampleExtractor

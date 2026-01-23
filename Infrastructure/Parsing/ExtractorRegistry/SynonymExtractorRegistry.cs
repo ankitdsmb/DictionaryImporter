@@ -1,4 +1,6 @@
-﻿using DictionaryImporter.Sources.Generic;
+﻿using System.Collections.Concurrent;
+using DictionaryImporter.Sources.Generic;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry
 {

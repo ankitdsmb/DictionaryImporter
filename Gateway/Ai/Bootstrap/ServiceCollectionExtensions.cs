@@ -4,6 +4,10 @@ using DictionaryImporter.Gateway.Ai.Core;
 using DictionaryImporter.Gateway.Ai.Merging;
 using DictionaryImporter.Gateway.Ai.Providers;
 using DictionaryImporter.Gateway.Ai.Routing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using System.Collections.Generic;
 
 namespace DictionaryImporter.Gateway.Ai.Bootstrap
 {

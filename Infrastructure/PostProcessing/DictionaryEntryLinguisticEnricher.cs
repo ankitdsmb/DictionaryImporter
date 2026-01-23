@@ -1,4 +1,4 @@
-﻿using IpaNormalizer = DictionaryImporter.Core.PreProcessing.IpaNormalizer;
+﻿using DictionaryImporter.Common;
 
 namespace DictionaryImporter.Infrastructure.PostProcessing
 {
@@ -226,7 +226,7 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
                 }
 
                 var ipaMap =
-                    GenericIpaExtractor.ExtractIpaWithLocale(row.RawFragment);
+                    Helper.GenericIpaExtractor.ExtractIpaWithLocale(row.RawFragment);
 
                 if (ipaMap.Count == 0)
                 {

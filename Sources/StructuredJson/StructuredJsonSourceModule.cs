@@ -1,4 +1,9 @@
-﻿using DictionaryImporter.Sources.StructuredJson.Parsing;
+﻿using System;
+using System.IO;
+using DictionaryImporter.Sources.Parsing;
+using DictionaryImporter.Sources.StructuredJson.Parsing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DictionaryImporter.Sources.StructuredJson
 {

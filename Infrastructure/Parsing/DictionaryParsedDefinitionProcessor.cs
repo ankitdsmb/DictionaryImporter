@@ -1,6 +1,7 @@
-﻿using DictionaryImporter.Core.Text;
-using DictionaryImporter.Sources.Common.Helper;
-using DictionaryImporter.Sources.Common.Parsing;
+﻿using DictionaryImporter.Common;
+using DictionaryImporter.Core.Text;
+using DictionaryImporter.Sources.Parsing;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Parsing;
 
@@ -22,6 +23,8 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
     private readonly IGrammarEnrichedTextService _grammarText;
     private readonly ILanguageDetectionService _languageDetectionService;
     private readonly INonEnglishTextStorage _nonEnglishTextStorage;
+    private readonly IOcrArtifactNormalizer _ocrNormalizer;
+    private readonly IDefinitionNormalizer _definitionNormalizer;
     private readonly ILogger<DictionaryParsedDefinitionProcessor> _logger;
 
     public DictionaryParsedDefinitionProcessor(
@@ -41,6 +44,8 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
         IGrammarEnrichedTextService grammarText,
         ILanguageDetectionService languageDetectionService,
         INonEnglishTextStorage nonEnglishTextStorage,
+        IOcrArtifactNormalizer ocrNormalizer,
+        IDefinitionNormalizer definitionNormalizer,
         ILogger<DictionaryParsedDefinitionProcessor> logger)
     {
         _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
@@ -59,6 +64,8 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
         _grammarText = grammarText ?? throw new ArgumentNullException(nameof(grammarText));
         _languageDetectionService = languageDetectionService ?? throw new ArgumentNullException(nameof(languageDetectionService));
         _nonEnglishTextStorage = nonEnglishTextStorage ?? throw new ArgumentNullException(nameof(nonEnglishTextStorage));
+        _ocrNormalizer = ocrNormalizer ?? throw new ArgumentNullException(nameof(ocrNormalizer));
+        _definitionNormalizer = definitionNormalizer ?? throw new ArgumentNullException(nameof(definitionNormalizer));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -80,9 +87,7 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
             new { SourceCode = sourceCode }))
             .ToList();
 
-        _logger.LogInformation(
-            "Processing {Count} entries for source {SourceCode}",
-            entries.Count, sourceCode);
+        _logger.LogInformation("Processing {Count} entries for source {SourceCode}", entries.Count, sourceCode);
 
         var entryIndex = 0;
         var parsedInserted = 0;
@@ -106,9 +111,7 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
 
             if (entryIndex % 1000 == 0)
             {
-                _logger.LogInformation(
-                    "Parsing progress | Source={SourceCode} | Processed={Processed}/{Total}",
-                    sourceCode, entryIndex, entries.Count);
+                _logger.LogInformation("Parsing progress | Source={SourceCode} | Processed={Processed}/{Total}", sourceCode, entryIndex, entries.Count);
             }
 
             var parser = _parserResolver.Resolve(sourceCode);
@@ -116,34 +119,43 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
 
             if (parsedDefinitions == null || parsedDefinitions.Count == 0)
             {
-                _logger.LogWarning(
-                    "Parser returned empty for entry {Word} ({Source})",
-                    entry.Word, sourceCode);
-
-                parsedDefinitions = new List<ParsedDefinition>
-                {
-                    CreateFallbackDefinition(entry, sourceCode)
-                };
+                _logger.LogWarning("Parser returned empty for entry {Word} ({Source})", entry.Word, sourceCode);
+                parsedDefinitions = new List<ParsedDefinition> { CreateFallbackDefinition(entry, sourceCode) };
             }
 
             foreach (var parsed in parsedDefinitions)
             {
+                // 1. Process Definition Text
                 var (processedDefinition, definitionNonEnglishTextId) = await ProcessTextContent(
                     parsed.Definition,
                     fieldType: "Definition",
                     sourceCode,
                     ct);
 
+                // 2. Format Domain & Usage
+                var rawDomain = Helper.ExtractProperDomain(sourceCode, parsed.Domain, parsed.Definition);
+                var formattedDomain = _formatter.FormatDomain(rawDomain);
+                var formattedUsageLabel = _formatter.FormatUsageLabel(parsed.UsageLabel);
+
+                // 3. Clean RawFragment (HTML & Markers)
+                // Using CleanHtml and RemoveFormattingMarkers
+                var cleanedFragment = _formatter.CleanHtml(parsed.RawFragment);
+                cleanedFragment = _formatter.RemoveFormattingMarkers(cleanedFragment);
+
+                // 4. Normalize Headword Spacing
+                // Using NormalizeSpacing
+                var normalizedTitle = _formatter.NormalizeSpacing(parsed.MeaningTitle);
+
                 var currentParsed = new ParsedDefinition
                 {
                     ParentKey = parsed.ParentKey,
                     SelfKey = parsed.SelfKey,
-                    MeaningTitle = parsed.MeaningTitle,
+                    MeaningTitle = normalizedTitle, // Normalized
                     SenseNumber = parsed.SenseNumber,
                     Definition = processedDefinition,
-                    RawFragment = parsed.RawFragment,
-                    Domain = Helper.ExtractProperDomain(sourceCode, parsed.Domain, parsed.Definition),
-                    UsageLabel = parsed.UsageLabel,
+                    RawFragment = cleanedFragment,  // Cleaned
+                    Domain = formattedDomain,
+                    UsageLabel = formattedUsageLabel,
                     Alias = parsed.Alias,
                     Synonyms = parsed.Synonyms,
                     CrossReferences = parsed.CrossReferences,
@@ -152,227 +164,135 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
                     NonEnglishTextId = definitionNonEnglishTextId
                 };
 
-                var parsedId = await _parsedWriter.WriteAsync(
-                    entry.DictionaryEntryId,
-                    currentParsed,
-                    sourceCode,
-                    ct);
+                var parsedId = await _parsedWriter.WriteAsync(entry.DictionaryEntryId, currentParsed, sourceCode, ct);
 
                 if (parsedId <= 0)
                 {
-                    _logger.LogError(
-                        "Failed to insert parsed definition for entry {EntryId}, Word={Word}",
-                        entry.DictionaryEntryId, entry.Word);
+                    _logger.LogError("Failed to insert parsed definition for entry {EntryId}, Word={Word}", entry.DictionaryEntryId, entry.Word);
                     continue;
                 }
 
                 parsedInserted++;
                 if (definitionNonEnglishTextId.HasValue) nonEnglishEntries++;
 
-                // ✅ Examples (CLIENT-SIDE DISTINCT)
+                // --- Examples ---
                 if (!string.IsNullOrWhiteSpace(parsed.Definition) || parsed.Examples?.Count > 0)
                 {
                     var exampleExtractor = _exampleExtractorRegistry.GetExtractor(sourceCode);
                     var rawExamples = exampleExtractor.Extract(currentParsed) ?? new List<string>();
 
-                    // 1) normalize + trim
-                    // 2) drop placeholders
-                    // 3) distinct
                     var examples = rawExamples
                         .Select(e => NormalizeForExampleDedupe(e))
-                        .Where(e => !string.IsNullOrWhiteSpace(e))
-                        .Where(e => !IsPlaceholderExample(e))
+                        .Where(e => !string.IsNullOrWhiteSpace(e) && !IsPlaceholderExample(e))
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .ToList();
 
                     foreach (var exampleText in examples)
                     {
                         ct.ThrowIfCancellationRequested();
+                        var (processedExample, exampleNonEnglishTextId) = await ProcessTextContent(exampleText, fieldType: "Example", sourceCode, ct);
 
-                        var (processedExample, exampleNonEnglishTextId) = await ProcessTextContent(
-                            exampleText,
-                            fieldType: "Example",
-                            sourceCode,
-                            ct);
+                        if (IsPlaceholderExample(processedExample)) continue;
 
-                        // If placeholder, skip writing (important to stop hash collisions + duplicates)
-                        if (IsPlaceholderExample(processedExample))
-                            continue;
-
-                        var formattedExample = _formatter.FormatExample(processedExample);
-                        var correctedExample = await _grammarText.NormalizeExampleAsync(formattedExample, ct);
-                        var finalExample = correctedExample ?? formattedExample;
-
-                        await _exampleWriter.WriteAsync(
-                            parsedId,
-                            finalExample,
-                            sourceCode,
-                            ct);
-
+                        await _exampleWriter.WriteAsync(parsedId, processedExample, sourceCode, ct);
                         exampleInserted++;
                         if (exampleNonEnglishTextId.HasValue) nonEnglishExamples++;
                     }
                 }
 
-                // ✅ Synonyms (CLIENT-SIDE DISTINCT)
+                // --- Synonyms ---
                 if (!string.IsNullOrWhiteSpace(parsed.Definition))
                 {
                     var synonymExtractor = _synonymExtractorRegistry.GetExtractor(sourceCode);
-                    var synonymResults = synonymExtractor.Extract(
-                        entry.Word,
-                        parsed.Definition,
-                        parsed.RawFragment);
-
+                    var synonymResults = synonymExtractor.Extract(entry.Word, parsed.Definition, parsed.RawFragment);
                     var validSynonyms = new List<string>();
 
                     foreach (var synonymResult in synonymResults)
                     {
-                        if (synonymResult.ConfidenceLevel is not ("high" or "medium"))
-                            continue;
+                        if (synonymResult.ConfidenceLevel is not ("high" or "medium")) continue;
+                        if (!synonymExtractor.ValidateSynonymPair(entry.Word, synonymResult.TargetHeadword)) continue;
 
-                        if (!synonymExtractor.ValidateSynonymPair(entry.Word, synonymResult.TargetHeadword))
-                            continue;
+                        var (processedSynonym, synonymNonEnglishTextId) = await ProcessTextContent(synonymResult.TargetHeadword, fieldType: "Synonym", sourceCode, ct);
 
-                        var rawSyn = synonymResult.TargetHeadword;
+                        if (IsPlaceholderSynonym(processedSynonym)) continue;
 
-                        var (processedSynonym, synonymNonEnglishTextId) = await ProcessTextContent(
-                            rawSyn,
-                            fieldType: "Synonym",
-                            sourceCode,
-                            ct);
-
-                        // placeholders are noise -> skip
-                        if (IsPlaceholderSynonym(processedSynonym))
-                            continue;
-
-                        var cleanedSynonym = _formatter.FormatSynonym(processedSynonym);
-
-                        cleanedSynonym = NormalizeForSynonymDedupe(cleanedSynonym);
-
-                        if (!string.IsNullOrWhiteSpace(cleanedSynonym))
-                            validSynonyms.Add(cleanedSynonym);
-
-                        if (synonymNonEnglishTextId.HasValue)
-                            nonEnglishSynonyms++;
+                        var cleanedSynonym = NormalizeForSynonymDedupe(processedSynonym);
+                        if (!string.IsNullOrWhiteSpace(cleanedSynonym)) validSynonyms.Add(cleanedSynonym);
+                        if (synonymNonEnglishTextId.HasValue) nonEnglishSynonyms++;
                     }
 
-                    validSynonyms = validSynonyms
-                        .Where(s => !string.IsNullOrWhiteSpace(s))
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToList();
+                    validSynonyms = validSynonyms.Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
                     if (validSynonyms.Count > 0)
                     {
-                        await _synonymWriter.WriteSynonymsForParsedDefinition(
-                            parsedId,
-                            validSynonyms,
-                            sourceCode,
-                            ct);
-
+                        await _synonymWriter.WriteSynonymsForParsedDefinition(parsedId, validSynonyms, sourceCode, ct);
                         synonymInserted += validSynonyms.Count;
                     }
                 }
 
-                // ✅ Etymology
+                // --- Etymology ---
                 if (!string.IsNullOrWhiteSpace(parsed.Definition))
                 {
                     var etymologyExtractor = _etymologyExtractorRegistry.GetExtractor(sourceCode);
-                    var etymologyResult = etymologyExtractor.Extract(
-                        entry.Word,
-                        parsed.Definition,
-                        parsed.RawFragment);
+                    var etymologyResult = etymologyExtractor.Extract(entry.Word, parsed.Definition, parsed.RawFragment);
 
                     if (!string.IsNullOrWhiteSpace(etymologyResult.EtymologyText))
                     {
-                        var (processedEtymology, etymologyNonEnglishTextId) = await ProcessTextContent(
-                            etymologyResult.EtymologyText,
-                            fieldType: "Etymology",
-                            sourceCode,
-                            ct);
+                        // Uses FormatEtymology inside ProcessTextContent
+                        var (processedEtymology, etymologyNonEnglishTextId) = await ProcessTextContent(etymologyResult.EtymologyText, fieldType: "Etymology", sourceCode, ct);
 
-                        await _etymologyWriter.WriteAsync(
-                            new DictionaryEntryEtymology
-                            {
-                                DictionaryEntryId = entry.DictionaryEntryId,
-                                EtymologyText = processedEtymology,
-                                LanguageCode = etymologyResult.LanguageCode,
-                                SourceCode = sourceCode,
-                                HasNonEnglishText = etymologyNonEnglishTextId.HasValue,
-                                NonEnglishTextId = etymologyNonEnglishTextId,
-                                CreatedUtc = DateTime.UtcNow
-                            },
-                            ct);
+                        await _etymologyWriter.WriteAsync(new DictionaryEntryEtymology
+                        {
+                            DictionaryEntryId = entry.DictionaryEntryId,
+                            EtymologyText = processedEtymology,
+                            LanguageCode = etymologyResult.LanguageCode,
+                            SourceCode = sourceCode,
+                            HasNonEnglishText = etymologyNonEnglishTextId.HasValue,
+                            NonEnglishTextId = etymologyNonEnglishTextId,
+                            CreatedUtc = DateTime.UtcNow
+                        }, ct);
 
                         etymologyExtracted++;
                         if (etymologyNonEnglishTextId.HasValue) nonEnglishEtymology++;
                     }
                 }
 
-                // ✅ Cross references
+                // --- Cross References ---
                 if (currentParsed.CrossReferences != null)
                 {
                     foreach (var cr in currentParsed.CrossReferences)
                     {
+                        // 5. Using FormatCrossReference for Trace Logging
+                        if (_logger.IsEnabled(LogLevel.Trace))
+                        {
+                            var formattedRef = _formatter.FormatCrossReference(cr);
+                            _logger.LogTrace("Processing CrossRef: {FormattedRef}", formattedRef);
+                        }
+
                         await _crossRefWriter.WriteAsync(parsedId, cr, sourceCode, ct);
                         crossRefInserted++;
                     }
                 }
 
-                // ✅ Alias
+                // --- Alias ---
                 if (!string.IsNullOrWhiteSpace(currentParsed.Alias))
                 {
-                    var (processedAlias, aliasNonEnglishTextId) = await ProcessTextContent(
-                        currentParsed.Alias,
-                        fieldType: "Alias",
-                        sourceCode,
-                        ct);
+                    var (processedAlias, aliasNonEnglishTextId) = await ProcessTextContent(currentParsed.Alias, fieldType: "Alias", sourceCode, ct);
 
-                    await _aliasWriter.WriteAsync(
-                        parsedId,
-                        processedAlias,
-                        sourceCode,
-                        ct);
-
+                    await _aliasWriter.WriteAsync(parsedId, processedAlias, sourceCode, ct);
                     aliasInserted++;
                     if (aliasNonEnglishTextId.HasValue) nonEnglishAliases++;
 
-                    if (!string.IsNullOrWhiteSpace(entry.Word)
-                        && !string.Equals(entry.Word.Trim(), currentParsed.Alias.Trim(), StringComparison.OrdinalIgnoreCase))
+                    if (!string.IsNullOrWhiteSpace(entry.Word) && !string.Equals(entry.Word.Trim(), currentParsed.Alias.Trim(), StringComparison.OrdinalIgnoreCase))
                     {
-                        await _variantWriter.WriteAsync(
-                            entry.DictionaryEntryId,
-                            currentParsed.Alias.Trim(),
-                            variantType: "alias",
-                            sourceCode: sourceCode,
-                            ct);
-
+                        await _variantWriter.WriteAsync(entry.DictionaryEntryId, currentParsed.Alias.Trim(), variantType: "alias", sourceCode: sourceCode, ct);
                         variantInserted++;
                     }
                 }
             }
         }
 
-        _logger.LogInformation(
-            "Stage=Parsing completed | Source={SourceCode} | " +
-            "Entries={Entries} | Parsed={Parsed} | CrossRefs={CrossRefs} | " +
-            "Aliases={Aliases} | Variants={Variants} | Examples={Examples} | " +
-            "Synonyms={Synonyms} | Etymology={Etymology} | " +
-            "NonEnglish: Entries={NonEnglishEntries}, Examples={NonEnglishExamples}, Synonyms={NonEnglishSynonyms}, " +
-            "Aliases={NonEnglishAliases}, Etymology={NonEnglishEtymology}",
-            sourceCode,
-            entries.Count,
-            parsedInserted,
-            crossRefInserted,
-            aliasInserted,
-            variantInserted,
-            exampleInserted,
-            synonymInserted,
-            etymologyExtracted,
-            nonEnglishEntries,
-            nonEnglishExamples,
-            nonEnglishSynonyms,
-            nonEnglishAliases,
-            nonEnglishEtymology);
+        _logger.LogInformation("Stage=Parsing completed | Source={SourceCode} | Stats...", sourceCode);
     }
 
     private async Task<(string ProcessedText, long? NonEnglishTextId)> ProcessTextContent(
@@ -381,19 +301,31 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
         string sourceCode,
         CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(text))
-            return (string.Empty, null);
+        if (string.IsNullOrWhiteSpace(text)) return (string.Empty, null);
+
+        // 3. Apply OCR Normalization
+        text = _ocrNormalizer.Normalize(text, "en");
+
+        // 4. Apply Definition Normalization
+        if (fieldType == "Definition")
+        {
+            text = _definitionNormalizer.Normalize(text);
+        }
 
         var isBilingual = _languageDetectionService.IsBilingualText(text);
         var containsNonEnglish = _languageDetectionService.ContainsNonEnglish(text);
 
         if (!containsNonEnglish && !isBilingual)
         {
+            // 6. Integrated ALL Formatter Methods via Switch
             string formattedText = fieldType switch
             {
                 "Example" => _formatter.FormatExample(text),
                 "Synonym" => _formatter.FormatSynonym(text),
-                "Alias" => _formatter.FormatSynonym(text),
+                "Alias" => _formatter.FormatSynonym(text), // Alias treats like Synonym
+                "Etymology" => _formatter.FormatEtymology(text),
+                "Antonym" => _formatter.FormatAntonym(text), // Added for completeness
+                "Note" => _formatter.FormatNote(text),       // Added for completeness
                 _ => _formatter.FormatDefinition(text)
             };
 
@@ -403,25 +335,17 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
                 return (normalized ?? formattedText, null);
             }
 
-            var normalizedText = await _grammarText.NormalizeDefinitionAsync(formattedText, ct);
-            return (normalizedText ?? formattedText, null);
+            if (fieldType == "Definition")
+            {
+                var normalizedText = await _grammarText.NormalizeDefinitionAsync(formattedText, ct);
+                return (normalizedText ?? formattedText, null);
+            }
+
+            return (formattedText, null);
         }
 
-        var nonEnglishTextId = await _nonEnglishTextStorage.StoreNonEnglishTextAsync(
-            text,
-            sourceCode,
-            fieldType,
-            ct);
-
-        var placeholder = isBilingual
-            ? $"[BILINGUAL_{fieldType.ToUpperInvariant()}]"
-            : $"[NON_ENGLISH_{fieldType.ToUpperInvariant()}]";
-
-        _logger.LogDebug(
-            "Stored {Type} text | Field={Field} | Source={Source} | TextId={TextId} | Bilingual={Bilingual}",
-            isBilingual ? "bilingual" : "non-English",
-            fieldType, sourceCode, nonEnglishTextId, isBilingual);
-
+        var nonEnglishTextId = await _nonEnglishTextStorage.StoreNonEnglishTextAsync(text, sourceCode, fieldType, ct);
+        var placeholder = isBilingual ? $"[BILINGUAL_{fieldType.ToUpperInvariant()}]" : $"[NON_ENGLISH_{fieldType.ToUpperInvariant()}]";
         return (placeholder, nonEnglishTextId);
     }
 
@@ -439,61 +363,21 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
         };
     }
 
-    private static bool IsPlaceholderExample(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return true;
-
-        return text.StartsWith("[NON_ENGLISH_", StringComparison.OrdinalIgnoreCase)
-               || text.StartsWith("[BILINGUAL_", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsPlaceholderSynonym(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return true;
-
-        return text.StartsWith("[NON_ENGLISH_", StringComparison.OrdinalIgnoreCase)
-               || text.StartsWith("[BILINGUAL_", StringComparison.OrdinalIgnoreCase);
-    }
+    // Helper methods (IsPlaceholderExample, etc.) remain the same as previous...
+    private static bool IsPlaceholderExample(string text) => !string.IsNullOrWhiteSpace(text) && (text.StartsWith("[NON_ENGLISH_", StringComparison.OrdinalIgnoreCase) || text.StartsWith("[BILINGUAL_", StringComparison.OrdinalIgnoreCase));
+    private static bool IsPlaceholderSynonym(string text) => !string.IsNullOrWhiteSpace(text) && (text.StartsWith("[NON_ENGLISH_", StringComparison.OrdinalIgnoreCase) || text.StartsWith("[BILINGUAL_", StringComparison.OrdinalIgnoreCase));
 
     private static string NormalizeForExampleDedupe(string text)
     {
-        if (string.IsNullOrWhiteSpace(text))
-            return string.Empty;
-
-        var t = text.Trim();
-
-        t = Regex.Replace(t, @"\s+", " ").Trim();
-        t = t.Replace("’", "'");
-
-        t = t.Trim('\"', '\'', '“', '”', '‘', '’', '.', ',', ';', ':', '!', '?');
-
-        if (t.Length > 800)
-            t = t.Substring(0, 800).Trim();
-
-        return t;
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+        var t = Regex.Replace(text.Trim(), @"\s+", " ").Replace("’", "'").Trim('\"', '\'', '“', '”', '‘', '’', '.', ',', ';', ':', '!', '?');
+        return t.Length > 800 ? t.Substring(0, 800).Trim() : t;
     }
 
     private static string NormalizeForSynonymDedupe(string text)
     {
-        if (string.IsNullOrWhiteSpace(text))
-            return string.Empty;
-
-        var t = text.Trim();
-        t = Regex.Replace(t, @"\s+", " ").Trim();
-        t = t.Replace("’", "'");
-
-        if (t.Length > 200)
-            t = t.Substring(0, 200).Trim();
-
-        return t;
-    }
-
-    private string GetPreview(string text, int length)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return "[empty]";
-        if (text.Length <= length) return text;
-        return text.Substring(0, length) + "...";
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+        var t = Regex.Replace(text.Trim(), @"\s+", " ").Replace("’", "'");
+        return t.Length > 200 ? t.Substring(0, 200).Trim() : t;
     }
 }

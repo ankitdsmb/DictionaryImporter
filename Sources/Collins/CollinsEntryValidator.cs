@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Sources.Collins
+﻿using DictionaryImporter.Infrastructure.Validation;
+
+namespace DictionaryImporter.Sources.Collins
 {
     public sealed class CollinsEntryValidator : IDictionaryEntryValidator
     {
