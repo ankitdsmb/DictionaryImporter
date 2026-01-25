@@ -1,13 +1,21 @@
-﻿using System.Net.Http.Headers;
+﻿using System.Diagnostics;
+using System.Net.Http.Headers;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using DictionaryImporter.Core.Rewrite;
 using DictionaryImporter.Gateway.Grammar.Core;
 using DictionaryImporter.Gateway.Grammar.Core.Models;
 using DictionaryImporter.Gateway.Grammar.Core.Results;
+using DictionaryImporter.Gateway.Rewriter;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Gateway.Grammar.Correctors
 {
     public sealed class LanguageToolGrammarCorrector(
         string languageToolUrl = "http://localhost:2026",
-        ILogger<LanguageToolGrammarCorrector>? logger = null)
+        ILogger<LanguageToolGrammarCorrector>? logger = null,
+        IRewriteContextAccessor? rewriteContextAccessor = null,          // NEW (optional)
+        IRewriteRuleHitRepository? rewriteRuleHitRepository = null)      // NEW (optional)
         : IGrammarCorrector
     {
         // NOTE:
@@ -33,10 +41,13 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
 
         private readonly string _languageToolUrl = languageToolUrl.TrimEnd('/');
 
+        private readonly IRewriteContextAccessor? _rewriteContextAccessor = rewriteContextAccessor;
+        private readonly IRewriteRuleHitRepository? _rewriteRuleHitRepository = rewriteRuleHitRepository;
+
         private readonly GrammarRuleFilter _ruleFilter = new()
         {
-            SafeAutoCorrectRules =
-            [
+            SafeAutoCorrectRules = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
                 "MORFOLOGIK_RULE_EN_US",
                 "MORFOLOGIK_RULE_EN_GB",
                 "UPPERCASE_SENTENCE_START",
@@ -46,7 +57,7 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
                 "DOUBLE_PUNCTUATION",
                 "MISSING_COMMA",
                 "EXTRA_SPACE"
-            ],
+            },
             HighConfidenceThreshold = 80,
             MaxSuggestionsPerIssue = 3
         };
@@ -70,7 +81,6 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
                 var normalizedText = NormalizeInput(text);
                 var normalizedLanguage = NormalizeLanguage(languageCode);
 
-                // IMPORTANT: LanguageTool expects form-url-encoded data
                 using var form = new FormUrlEncodedContent(new Dictionary<string, string>
                 {
                     ["text"] = normalizedText,
@@ -89,7 +99,6 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
 
                 using var response = await _httpClient.SendAsync(request, ct);
 
-                // If LanguageTool returns 400/500 we do NOT throw pipeline
                 if (!response.IsSuccessStatusCode)
                 {
                     var body = await response.Content.ReadAsStringAsync(ct);
@@ -111,8 +120,10 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
 
                 var issues = ConvertToIssues(ltResponse, normalizedText);
 
-                // forAutoCorrect=false because this is only check stage
                 var filteredIssues = FilterIssues(issues, forAutoCorrect: false);
+
+                // NEW: track LanguageTool rule hits (best-effort, never throws)
+                await TryTrackLanguageToolHitsAsync(filteredIssues, ct);
 
                 return new GrammarCheckResult(
                     filteredIssues.Count > 0,
@@ -155,7 +166,7 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
                 .Where(issue =>
                     _ruleFilter.SafeAutoCorrectRules.Contains(issue.RuleId) &&
                     issue.ConfidenceLevel >= _ruleFilter.HighConfidenceThreshold)
-                .OrderByDescending(i => i.StartOffset) // IMPORTANT: keep offsets valid
+                .OrderByDescending(i => i.StartOffset)
                 .ToList();
 
             var correctedText = text;
@@ -163,7 +174,6 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
 
             foreach (var issue in safeIssues)
             {
-                // skip invalid offsets
                 if (issue.StartOffset < 0 || issue.EndOffset <= issue.StartOffset)
                     continue;
 
@@ -178,8 +188,13 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
                 var length = issue.EndOffset - issue.StartOffset;
                 var originalSegment = correctedText.Substring(issue.StartOffset, length);
 
-                correctedText = correctedText.Remove(issue.StartOffset, length)
+                var updated = correctedText.Remove(issue.StartOffset, length)
                     .Insert(issue.StartOffset, replacement);
+
+                if (string.Equals(updated, correctedText, StringComparison.Ordinal))
+                    continue;
+
+                correctedText = updated;
 
                 appliedCorrections.Add(new AppliedCorrection(
                     originalSegment,
@@ -208,7 +223,6 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
             string languageCode = "en-US",
             CancellationToken ct = default)
         {
-            // No external calls here. Keep method async signature to match interface.
             await Task.CompletedTask;
 
             var suggestions = new List<GrammarSuggestion>();
@@ -242,6 +256,89 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
         }
 
         // ------------------------------------------------------------
+        // NEW: Hit tracking
+        // ------------------------------------------------------------
+
+        // NEW METHOD (added)
+        private async Task TryTrackLanguageToolHitsAsync(
+            IReadOnlyList<GrammarIssue> issues,
+            CancellationToken ct)
+        {
+            if (_rewriteRuleHitRepository is null)
+                return;
+
+            if (_rewriteContextAccessor is null)
+                return;
+
+            if (issues is null || issues.Count == 0)
+                return;
+
+            try
+            {
+                var ctx = _rewriteContextAccessor.Current;
+
+                var sourceCode = NormalizeSource(ctx.SourceCode);
+                var mode = MapMode(ctx.Mode);
+
+                // Aggregate counts by RuleId (deterministic)
+                var hitMap = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var issue in issues)
+                {
+                    var ruleId = (issue.RuleId ?? string.Empty).Trim();
+                    if (string.IsNullOrWhiteSpace(ruleId))
+                        continue;
+
+                    // RuleKey column max is 400 chars (safe clamp)
+                    if (ruleId.Length > 400)
+                        ruleId = ruleId[..400];
+
+                    if (hitMap.TryGetValue(ruleId, out var existing))
+                        hitMap[ruleId] = existing + 1;
+                    else
+                        hitMap[ruleId] = 1;
+                }
+
+                if (hitMap.Count == 0)
+                    return;
+
+                var upserts = hitMap
+                    .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(kv => new RewriteRuleHitUpsert
+                    {
+                        SourceCode = sourceCode,
+                        Mode = mode,
+                        RuleType = "LanguageTool",
+                        RuleKey = kv.Key,
+                        HitCount = kv.Value <= 0 ? 1 : kv.Value
+                    })
+                    .ToList();
+
+                await _rewriteRuleHitRepository.UpsertHitsAsync(upserts, ct);
+            }
+            catch (Exception ex)
+            {
+                logger?.LogDebug(ex, "LanguageTool hit tracking failed (ignored).");
+            }
+        }
+
+        // NEW METHOD (added)
+        private static string NormalizeSource(string? sourceCode)
+            => string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode.Trim();
+
+        // NEW METHOD (added)
+        private static string MapMode(RewriteTargetMode mode)
+        {
+            return mode switch
+            {
+                RewriteTargetMode.Definition => "Definition",
+                RewriteTargetMode.Title => "Title",
+                RewriteTargetMode.Example => "Example",
+                _ => mode.ToString()
+            };
+        }
+
+        // ------------------------------------------------------------
         // Internal helpers
         // ------------------------------------------------------------
 
@@ -249,7 +346,6 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
         {
             text = (text ?? string.Empty).Trim();
 
-            // LanguageTool fails sometimes for huge input
             if (text.Length > MaxInputLength)
                 text = text[..MaxInputLength];
 
@@ -273,7 +369,6 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
                 var start = match.Offset;
                 var end = match.Offset + match.Length;
 
-                // Clamp offsets to avoid crashes
                 if (start < 0) start = 0;
                 if (end < start) end = start;
                 if (start > originalText.Length) start = originalText.Length;
@@ -281,12 +376,19 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
 
                 var contextText = BuildContext(originalText, start, end);
 
+                var categoryId = match.Rule?.Category?.Id ?? "LANGUAGETOOL";
+                var normalizedCategory = NormalizeCategory(categoryId);
+
                 issues.Add(new GrammarIssue(
                     StartOffset: start,
                     EndOffset: end,
                     Message: match.Message ?? string.Empty,
-                    ShortMessage: match.Rule?.Category?.Id ?? "LANGUAGETOOL",
-                    Replacements: match.Replacements?.Select(r => r.Value).Take(_ruleFilter.MaxSuggestionsPerIssue).ToList() ?? [],
+                    ShortMessage: normalizedCategory,
+                    Replacements: match.Replacements?
+                        .Select(r => r.Value)
+                        .Where(v => !string.IsNullOrWhiteSpace(v))
+                        .Take(_ruleFilter.MaxSuggestionsPerIssue)
+                        .ToList() ?? [],
                     RuleId: match.Rule?.Id ?? "UNKNOWN_RULE",
                     RuleDescription: match.Rule?.Category?.Name ?? "LanguageTool rule",
                     Tags: BuildTags(match),
@@ -297,6 +399,16 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
             }
 
             return issues;
+        }
+
+        // NEW METHOD (added)
+        private static string NormalizeCategory(string categoryId)
+        {
+            if (string.IsNullOrWhiteSpace(categoryId))
+                return "LANGUAGETOOL";
+
+            // LanguageTool sends categories like "TYPOS", "GRAMMAR", "STYLE", etc.
+            return categoryId.Trim().ToUpperInvariant();
         }
 
         private static string BuildContext(string originalText, int start, int end)
@@ -318,9 +430,8 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
 
             var categoryId = match.Rule?.Category?.Id;
             if (!string.IsNullOrWhiteSpace(categoryId))
-                tags.Add(categoryId);
+                tags.Add(NormalizeCategory(categoryId));
 
-            // Some generic tags for easier filtering/analytics
             tags.Add("languagetool");
 
             return tags;
@@ -336,15 +447,9 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
 
         private static int CalculateConfidence(LanguageToolMatch match)
         {
-            // Simple scoring strategy:
-            // - TYPOS: very high
-            // - GRAMMAR: high
-            // - STYLE: medium
-            // - With replacements: +10
-
             var baseConfidence = 70;
 
-            var cat = match.Rule?.Category?.Id ?? string.Empty;
+            var cat = NormalizeCategory(match.Rule?.Category?.Id ?? string.Empty);
 
             if (cat.Equals("TYPOS", StringComparison.OrdinalIgnoreCase))
                 baseConfidence = 95;
@@ -365,66 +470,58 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
 
         private sealed class GrammarRuleFilter
         {
-            /// <summary>
-            /// Only these rules are allowed to auto-correct, to avoid changing meaning.
-            /// </summary>
-            public HashSet<string> SafeAutoCorrectRules { get; init; } = [];
+            public HashSet<string> SafeAutoCorrectRules { get; init; } =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            /// <summary>
-            /// Minimum confidence required for auto-correction.
-            /// </summary>
             public int HighConfidenceThreshold { get; init; } = 80;
 
-            /// <summary>
-            /// Maximum number of replacement suggestions to keep from LanguageTool.
-            /// </summary>
             public int MaxSuggestionsPerIssue { get; set; } = 3;
 
-            /// <summary>
-            /// Returns true if issue should be ignored (noise reduction).
-            /// </summary>
             public bool ShouldIgnore(GrammarIssue issue)
             {
-                var ignoreCategories = new[] { "CASING", "TYPOGRAPHY", "REDUNDANCY" };
-                var ignoreRules = new[] { "EN_UNPAIRED_BRACKETS", "WHITESPACE_RULE" };
+                // Normalize to uppercase because LanguageTool categories are usually uppercase
+                var ignoreCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "CASING",
+                    "TYPOGRAPHY",
+                    "REDUNDANCY"
+                };
+
+                var ignoreRules = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "EN_UNPAIRED_BRACKETS",
+                    "WHITESPACE_RULE"
+                };
 
                 var category = GetCategoryFromIssue(issue);
 
-                return ignoreCategories.Contains(category.ToUpperInvariant())
+                return ignoreCategories.Contains(category)
                        || ignoreRules.Contains(issue.RuleId)
                        || issue.ConfidenceLevel < 50;
             }
 
             private static string GetCategoryFromIssue(GrammarIssue issue)
             {
+                // Prefer explicit category tags (if present)
                 if (issue.Tags != null)
                 {
-                    var categoryTag = issue.Tags.FirstOrDefault(t =>
-                        t.Contains("grammar", StringComparison.OrdinalIgnoreCase) ||
-                        t.Contains("spelling", StringComparison.OrdinalIgnoreCase) ||
-                        t.Contains("style", StringComparison.OrdinalIgnoreCase) ||
-                        t.Contains("typos", StringComparison.OrdinalIgnoreCase));
+                    var firstCategory = issue.Tags.FirstOrDefault(t =>
+                        t.Equals("TYPOS", StringComparison.OrdinalIgnoreCase) ||
+                        t.Equals("GRAMMAR", StringComparison.OrdinalIgnoreCase) ||
+                        t.Equals("STYLE", StringComparison.OrdinalIgnoreCase) ||
+                        t.Equals("CASING", StringComparison.OrdinalIgnoreCase) ||
+                        t.Equals("TYPOGRAPHY", StringComparison.OrdinalIgnoreCase) ||
+                        t.Equals("REDUNDANCY", StringComparison.OrdinalIgnoreCase) ||
+                        t.Equals("PUNCTUATION", StringComparison.OrdinalIgnoreCase));
 
-                    if (!string.IsNullOrWhiteSpace(categoryTag))
-                        return categoryTag;
+                    if (!string.IsNullOrWhiteSpace(firstCategory))
+                        return firstCategory.ToUpperInvariant();
                 }
 
                 if (!string.IsNullOrWhiteSpace(issue.ShortMessage))
-                    return issue.ShortMessage;
+                    return issue.ShortMessage.Trim().ToUpperInvariant();
 
-                if (!string.IsNullOrWhiteSpace(issue.RuleId))
-                {
-                    if (issue.RuleId.StartsWith("SPELLING_", StringComparison.OrdinalIgnoreCase))
-                        return "spelling";
-
-                    if (issue.RuleId.StartsWith("PATTERN_", StringComparison.OrdinalIgnoreCase))
-                        return "pattern";
-
-                    if (issue.RuleId.StartsWith("GRAMMAR_", StringComparison.OrdinalIgnoreCase))
-                        return "grammar";
-                }
-
-                return "unknown";
+                return "UNKNOWN";
             }
         }
 

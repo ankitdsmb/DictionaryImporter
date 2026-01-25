@@ -10,7 +10,9 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using DictionaryImporter.Core.Text;
 using DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
+using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
+using NTextCat;
 
 namespace DictionaryImporter.Common
 {
@@ -19,7 +21,7 @@ namespace DictionaryImporter.Common
         public const int MAX_RECORDS_PER_SOURCE = 100;
 
         // =====================================================================
-        // REGEX (ALL AT TOP)  -  compiled + shared
+        // 1) REGEX (ALL AT TOP)
         // =====================================================================
 
         private static readonly Regex RxWhitespace =
@@ -31,8 +33,11 @@ namespace DictionaryImporter.Common
         private static readonly Regex RxHasCjk =
             new(@"[\u4E00-\u9FFF]", RegexOptions.Compiled);
 
-        private static readonly Regex RxHtmlTag =
-            new(@"<[^>]+>", RegexOptions.Compiled);
+        private static readonly Regex RxNonWordForNormalizedWord =
+            new(@"[^\p{L}\p{N}\s\-']", RegexOptions.Compiled);
+
+        private static readonly Regex RxNoiseLettersOnly =
+            new(@"[^\p{L}\s]", RegexOptions.Compiled);
 
         private static readonly Regex RxIpaSlashBlock =
             new(@"/[^/]+/", RegexOptions.Compiled);
@@ -45,12 +50,6 @@ namespace DictionaryImporter.Common
                 @"^\s*(n\.|v\.|a\.|adj\.|ad\.|adv\.|vt\.|vi\.|abbr\.)\s+",
                 RegexOptions.IgnoreCase | RegexOptions.Compiled
             );
-
-        private static readonly Regex RxNonWordForNormalizedWord =
-            new(@"[^\p{L}\p{N}\s\-']", RegexOptions.Compiled);
-
-        private static readonly Regex RxNoiseLettersOnly =
-            new(@"[^\p{L}\s]", RegexOptions.Compiled);
 
         private static readonly Regex RxOxfordLeadingDomain =
             new(@"^\(([^)]+)\)", RegexOptions.Compiled);
@@ -79,7 +78,7 @@ namespace DictionaryImporter.Common
         private static readonly Regex RxOrthographicVowel =
             new(@"[aeiouyAEIOUY]", RegexOptions.Compiled);
 
-        // IPA extraction / cleanup regex (GenericIpaExtractor)
+        // IPA extraction / cleanup regex
         private static readonly Regex RxIpaSlashCore =
             new(@"/([^/]+)/", RegexOptions.Compiled);
 
@@ -124,7 +123,7 @@ namespace DictionaryImporter.Common
             new(@"[ɒəʊː]", RegexOptions.Compiled);
 
         // =====================================================================
-        // CONSTANTS / LOOKUPS
+        // 2) LOOKUPS / CONSTANT LISTS
         // =====================================================================
 
         private static readonly HashSet<string> BilingualSources =
@@ -134,6 +133,11 @@ namespace DictionaryImporter.Common
                 "CENTURY21",
                 "ENG_COLLINS"
             };
+
+        private static readonly string[] DomainDefinitionIndicators =
+        {
+            "hours", "days", "weeks", "minutes", "seconds", "o'clock"
+        };
 
         private static readonly HashSet<string> OrthographicDigraphConsonants =
             new(StringComparer.OrdinalIgnoreCase)
@@ -159,13 +163,8 @@ namespace DictionaryImporter.Common
             "ate"
         };
 
-        private static readonly string[] DomainDefinitionIndicators =
-        {
-            "hours", "days", "weeks", "minutes", "seconds", "o'clock"
-        };
-
         // =====================================================================
-        // 1) Shared low-level utilities (centralized normalization)
+        // 4) CORE NORMALIZATION (Shared building blocks)
         // =====================================================================
 
         private static string NormalizeWhitespace(string text)
@@ -176,13 +175,112 @@ namespace DictionaryImporter.Common
             return RxWhitespace.Replace(text, " ").Trim();
         }
 
-        private static bool ContainsCjk(string text)
+        private static string NormalizeHtmlToPlainText(string input)
         {
-            return !string.IsNullOrWhiteSpace(text) && RxHasCjk.IsMatch(text);
+            if (string.IsNullOrWhiteSpace(input))
+                return input;
+
+            var t = input;
+
+            // decode entities first (helps HtmlAgilityPack)
+            if (t.Contains('&'))
+                t = WebUtility.HtmlDecode(t);
+
+            // HtmlAgilityPack (robust to broken HTML)
+            try
+            {
+                var doc = new HtmlDocument
+                {
+                    OptionFixNestedTags = true,
+                    OptionAutoCloseOnEnd = true
+                };
+
+                doc.LoadHtml(t);
+
+                var plain = doc.DocumentNode?.InnerText ?? t;
+                return NormalizeWhitespace(plain);
+            }
+            catch
+            {
+                // safe fallback
+                return NormalizeWhitespace(t);
+            }
+        }
+
+        private static string RemoveDiacritics(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return text;
+
+            var normalizedString = text.Normalize(NormalizationForm.FormD);
+
+            var sb = new StringBuilder(normalizedString.Length);
+
+            foreach (var c in normalizedString)
+            {
+                var category = CharUnicodeInfo.GetUnicodeCategory(c);
+                if (category != UnicodeCategory.NonSpacingMark)
+                    sb.Append(c);
+            }
+
+            return sb.ToString().Normalize(NormalizationForm.FormC);
+        }
+
+        private static string NormalizeAllDashCharacters(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return text;
+
+            var result = new StringBuilder(text.Length);
+
+            foreach (var c in text)
+            {
+                switch (c)
+                {
+                    case '\u002D':
+                        result.Append('-');
+                        break;
+
+                    case '\u2010':
+                    case '\u2011':
+                    case '\u2012':
+                    case '\u2013':
+                    case '\u2014':
+                    case '\u2015':
+                    case '\u2053':
+                    case '\u2E17':
+                    case '\u2E1A':
+                    case '\u2E3A':
+                    case '\u2E3B':
+                    case '\uFE58':
+                    case '\uFE63':
+                    case '\uFF0D':
+                        result.Append('-');
+                        break;
+
+                    case '\u00AD':
+                    case '\u1806':
+                        break;
+
+                    case '_':
+                        result.Append(' ');
+                        break;
+
+                    case '~':
+                        result.Append('-');
+                        break;
+
+                    default:
+                        result.Append(c);
+                        break;
+                }
+            }
+
+            return result.ToString();
         }
 
         // =====================================================================
-        // 2) Bilingual / Non-English Preservation
+        // 5) Bilingual / Non-English Preservation
         // =====================================================================
 
         public static bool ShouldPreserveNonEnglishText(string? sourceCode)
@@ -201,16 +299,12 @@ namespace DictionaryImporter.Common
             if (!ShouldPreserveNonEnglishText(sourceCode))
                 return text;
 
-            var t = text;
-
-            if (t.Contains('&'))
-                t = WebUtility.HtmlDecode(t);
-
-            return NormalizeWhitespace(t);
+            // Use HtmlAgilityPack here as well (Collins/CHN sources may carry HTML fragments)
+            return NormalizeHtmlToPlainText(text);
         }
 
         // =====================================================================
-        // 3) Definition Normalization
+        // 6) Definition Normalization
         // =====================================================================
 
         public static string NormalizeDefinitionForSource(string definition, string sourceCode)
@@ -232,16 +326,12 @@ namespace DictionaryImporter.Common
             if (!string.IsNullOrWhiteSpace(sourceCode))
                 return NormalizeDefinitionForSource(definition, sourceCode);
 
-            var normalized = definition
-                .Replace("\r", " ")
-                .Replace("\n", " ")
-                .Trim();
-
-            return NormalizeWhitespace(normalized);
+            // use HTML-safe normalization always (better than regex)
+            return NormalizeHtmlToPlainText(definition);
         }
 
         // =====================================================================
-        // 4) JSON Helpers
+        // 7) JSON Helpers
         // =====================================================================
 
         public static string? ExtractJsonString(JsonElement element, string propertyName)
@@ -268,7 +358,36 @@ namespace DictionaryImporter.Common
         }
 
         // =====================================================================
-        // 5) Generic Text Checks
+        // 8) Tokenization (Lightweight, no Lucene dependency)
+        // =====================================================================
+
+        public static IReadOnlyList<string> TokenizeWords(string? text, bool keepApostrophes = true)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return Array.Empty<string>();
+
+            var t = NormalizeWhitespace(text);
+
+            // Remove punctuation except apostrophe (optional)
+            if (keepApostrophes)
+            {
+                t = Regex.Replace(t, @"[^\p{L}\p{N}\s'\-]", " ");
+            }
+            else
+            {
+                t = Regex.Replace(t, @"[^\p{L}\p{N}\s\-]", " ");
+            }
+
+            t = NormalizeWhitespace(t);
+
+            if (t.Length == 0)
+                return Array.Empty<string>();
+
+            return t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        }
+
+        // =====================================================================
+        // 9) Generic Text Checks
         // =====================================================================
 
         public static bool ContainsLanguageMarker(string text, params string[] languages)
@@ -291,7 +410,7 @@ namespace DictionaryImporter.Common
         }
 
         // =====================================================================
-        // 6) Source Processing Control
+        // 10) Source Processing Control
         // =====================================================================
 
         private static readonly ConcurrentDictionary<string, ProcessingState> _sourceProcessingState =
@@ -361,7 +480,7 @@ namespace DictionaryImporter.Common
         }
 
         // =====================================================================
-        // 7) Webster and General Parser
+        // 11) Webster and General Parser
         // =====================================================================
 
         public static string? ExtractSection(string definition, string marker)
@@ -386,7 +505,7 @@ namespace DictionaryImporter.Common
         }
 
         // =====================================================================
-        // 8) Helper Creation
+        // 12) Helper Creation
         // =====================================================================
 
         public static ParsedDefinition CreateFallbackParsedDefinition(DictionaryEntry entry)
@@ -406,7 +525,7 @@ namespace DictionaryImporter.Common
         }
 
         // =====================================================================
-        // 9) Logging and Error Handling
+        // 13) Logging and Error Handling
         // =====================================================================
 
         public static void LogProgress(ILogger logger, string sourceCode, int count)
@@ -429,7 +548,7 @@ namespace DictionaryImporter.Common
         }
 
         // =====================================================================
-        // 10) Domain Extraction
+        // 14) Domain Extraction
         // =====================================================================
 
         public static string? ExtractProperDomain(string sourceCode, string? rawDomain, string definition)
@@ -539,7 +658,7 @@ namespace DictionaryImporter.Common
         }
 
         // =====================================================================
-        // 11) Headword Detection
+        // 15) Headword Detection
         // =====================================================================
 
         public static bool IsHeadword(string line, int maxLength = 40, bool requireUppercase = true)
@@ -562,7 +681,7 @@ namespace DictionaryImporter.Common
         }
 
         // =====================================================================
-        // 12) Definition Cleaning helpers
+        // 16) Definition Cleaning helpers
         // =====================================================================
 
         public static string RemoveIpaMarkers(string text)
@@ -621,33 +740,38 @@ namespace DictionaryImporter.Common
             if (string.IsNullOrWhiteSpace(definition))
                 return definition ?? string.Empty;
 
-            var cleaned = definition;
+            // BEST: HTML safe cleanup first, THEN other removals
+            var cleaned = NormalizeHtmlToPlainText(definition);
 
             var hasBilingualMarkers =
-                definition.Contains('【') || definition.Contains('】') ||
-                definition.Contains('•') || definition.Contains('⬄');
+                cleaned.Contains('【') || cleaned.Contains('】') ||
+                cleaned.Contains('•') || cleaned.Contains('⬄');
 
-            if (ContainsCjk(definition) || hasBilingualMarkers)
+            if (RxHasCjk.IsMatch(cleaned) || hasBilingualMarkers)
             {
-                cleaned = RxHtmlTag.Replace(cleaned, " ");
-                return NormalizeWhitespace(cleaned);
+                // preserve structure, just normalize whitespace
+                cleaned = NormalizeWhitespace(cleaned);
+            }
+            else
+            {
+                cleaned = RemoveIpaMarkers(cleaned);
+                cleaned = RemoveSyllableMarkers(cleaned);
+                cleaned = RemovePosMarkers(cleaned);
+
+                if (!string.IsNullOrWhiteSpace(headword))
+                    cleaned = RemoveHeadwordFromDefinition(cleaned, headword);
+
+                if (separators != null && separators.Length > 0)
+                    cleaned = RemoveSeparators(cleaned, separators);
+
+                cleaned = NormalizeWhitespace(cleaned);
             }
 
-            cleaned = RemoveIpaMarkers(cleaned);
-            cleaned = RemoveSyllableMarkers(cleaned);
-            cleaned = RemovePosMarkers(cleaned);
-
-            if (!string.IsNullOrWhiteSpace(headword))
-                cleaned = RemoveHeadwordFromDefinition(cleaned, headword);
-
-            if (separators != null && separators.Length > 0)
-                cleaned = RemoveSeparators(cleaned, separators);
-
-            return NormalizeWhitespace(cleaned);
+            return cleaned;
         }
 
         // =====================================================================
-        // 13) Word Normalization
+        // 17) Word Normalization
         // =====================================================================
 
         public static string NormalizeWordWithSourceContext(string word, string sourceCode)
@@ -697,79 +821,8 @@ namespace DictionaryImporter.Common
             return NormalizeWord(normalized);
         }
 
-        private static string NormalizeAllDashCharacters(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return text;
-
-            var result = new StringBuilder(text.Length);
-
-            foreach (var c in text)
-            {
-                switch (c)
-                {
-                    case '\u002D':
-                        result.Append('-');
-                        break;
-
-                    case '\u2010':
-                    case '\u2011':
-                    case '\u2012':
-                    case '\u2013':
-                    case '\u2014':
-                    case '\u2015':
-                    case '\u2053':
-                    case '\u2E17':
-                    case '\u2E1A':
-                    case '\u2E3A':
-                    case '\u2E3B':
-                    case '\uFE58':
-                    case '\uFE63':
-                    case '\uFF0D':
-                        result.Append('-');
-                        break;
-
-                    case '\u00AD':
-                    case '\u1806':
-                        break;
-
-                    case '_':
-                        result.Append(' ');
-                        break;
-
-                    case '~':
-                        result.Append('-');
-                        break;
-
-                    default:
-                        result.Append(c);
-                        break;
-                }
-            }
-
-            return result.ToString();
-        }
-
-        private static string RemoveDiacritics(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return text;
-
-            var normalizedString = text.Normalize(NormalizationForm.FormD);
-            var sb = new StringBuilder();
-
-            foreach (var c in normalizedString)
-            {
-                var category = CharUnicodeInfo.GetUnicodeCategory(c);
-                if (category != UnicodeCategory.NonSpacingMark)
-                    sb.Append(c);
-            }
-
-            return sb.ToString().Normalize(NormalizationForm.FormC);
-        }
-
         // =====================================================================
-        // 14) POS Normalization
+        // 18) POS Normalization
         // =====================================================================
 
         public static string NormalizePartOfSpeech(string? pos)
@@ -803,7 +856,7 @@ namespace DictionaryImporter.Common
         }
 
         // =====================================================================
-        // 15) Synonym Normalization
+        // 19) Synonym Normalization
         // =====================================================================
 
         public static string NormalizeSynonymText(string? synonymText)
@@ -830,7 +883,7 @@ namespace DictionaryImporter.Common
         }
 
         // =====================================================================
-        // 16) Simple Language Utilities
+        // 20) Simple Language Utilities
         // =====================================================================
 
         public static string LanguageDetect(string? text)
@@ -873,7 +926,7 @@ namespace DictionaryImporter.Common
         }
 
         // =====================================================================
-        // 17) Locale + IPA normalization
+        // 21) Locale + IPA normalization
         // =====================================================================
 
         public static string NormalizeLocaleCode(string localeCode)
@@ -949,14 +1002,11 @@ namespace DictionaryImporter.Common
                         break;
                 }
             }
-
             return NormalizeWhitespace(sb.ToString());
         }
-
         // =====================================================================
-        // 18) CJK Helpers / Strippers
+        // 22) CJK Helpers / Strippers
         // =====================================================================
-
         public static class CjkPunctuationStripper
         {
             public static string RemoveCjkPunctuation(string input)
@@ -967,7 +1017,6 @@ namespace DictionaryImporter.Common
                 return RxCjkPunctuation.Replace(input, string.Empty).Trim();
             }
         }
-
         public static class CjkStripper
         {
             public static string RemoveCjk(string input)
@@ -989,11 +1038,9 @@ namespace DictionaryImporter.Common
                 return RxDomainMarkerStrip.Replace(word, "").Trim();
             }
         }
-
         // =====================================================================
-        // 19) Generic IPA Extraction + Locale detection
+        // 23) Generic IPA Extraction + Locale detection
         // =====================================================================
-
         internal static class GenericIpaExtractor
         {
             public static IReadOnlyDictionary<string, string> ExtractIpaWithLocale(string? text)
@@ -1063,10 +1110,8 @@ namespace DictionaryImporter.Common
                             result.Add(canonicalIpa, systemLocale);
                     }
                 }
-
                 return result;
             }
-
             public static string RemoveAll(string text)
             {
                 if (string.IsNullOrWhiteSpace(text))
@@ -1075,7 +1120,6 @@ namespace DictionaryImporter.Common
                 return RxIpaSlashCore.Replace(text, "").Trim();
             }
         }
-
         internal static class IpaAutoStressNormalizer
         {
             public static string Normalize(string ipaWithSlashes)
@@ -1095,7 +1139,6 @@ namespace DictionaryImporter.Common
                 return $"/ˈ{core}/";
             }
         }
-
         internal static class IpaLocaleDetector
         {
             public static string Detect(string ipa)
@@ -1138,9 +1181,8 @@ namespace DictionaryImporter.Common
         }
 
         // =====================================================================
-        // 20) IPA Syllabification + Rendering
+        // 24) IPA Syllabification + Rendering
         // =====================================================================
-
         internal static class IpaSyllablePostProcessor
         {
             public static IReadOnlyList<IpaSyllable> Normalize(IReadOnlyList<IpaSyllable> syllables)
@@ -1180,14 +1222,11 @@ namespace DictionaryImporter.Common
                 var index = 1;
 
                 foreach (var s in buffer)
-                {
                     result.Add(new IpaSyllable(index++, s.Text, s.StressLevel));
-                }
 
                 return result;
             }
         }
-
         internal static class IpaSyllabifier
         {
             private static readonly HashSet<char> Vowels =
@@ -1228,7 +1267,10 @@ namespace DictionaryImporter.Common
                     {
                         if (hasVowel)
                         {
-                            result.Add(new IpaSyllable(index++, buffer.ToString(0, buffer.Length - 1), currentStress));
+                            result.Add(new IpaSyllable(
+                                index++,
+                                buffer.ToString(0, buffer.Length - 1),
+                                currentStress));
 
                             buffer.Clear();
                             buffer.Append(ch);
@@ -1280,7 +1322,7 @@ namespace DictionaryImporter.Common
         }
 
         // =====================================================================
-        // 21) Orthographic Syllables
+        // 25) Orthographic Syllables
         // =====================================================================
 
         public static class OrthographicSyllableExtractor
@@ -1293,8 +1335,8 @@ namespace DictionaryImporter.Common
                     return result;
 
                 word = word.Trim();
-
                 word = RxWordSanitizer.Replace(word, "");
+
                 if (string.IsNullOrWhiteSpace(word))
                     return result;
 
@@ -1506,28 +1548,74 @@ namespace DictionaryImporter.Common
         }
 
         // =====================================================================
-        // 22) Language Detector (Service-backed)
+        // 26) Language Detector (NTextCat-backed) + fallback to existing service
         // =====================================================================
-
         public static class LanguageDetector
         {
-            private static readonly ILanguageDetectionService _service =
-                new LanguageDetectionService();
+            private static readonly object _lock = new();
+
+            private static DictionaryImporter.Gateway.Grammar.Core.ILanguageDetector? _detector;
+
+            private static DictionaryImporter.Gateway.Grammar.Core.ILanguageDetector GetDetector()
+            {
+                if (_detector != null)
+                    return _detector;
+
+                lock (_lock)
+                {
+                    if (_detector != null)
+                        return _detector;
+
+                    try
+                    {
+                        _detector = new DictionaryImporter.Gateway.Grammar.Engines.LanguageDetector();
+                    }
+                    catch
+                    {
+                        _detector = null;
+                    }
+
+                    return _detector!;
+                }
+            }
+
+            public static string DetectLanguageCode(string text)
+            {
+                if (string.IsNullOrWhiteSpace(text))
+                    return "en-US";
+
+                // Fast shortcut: Chinese detection (instant)
+                foreach (var c in text)
+                {
+                    if (c >= '\u4E00' && c <= '\u9FFF')
+                        return "zh-CN";
+                }
+
+                try
+                {
+                    var detector = GetDetector();
+                    if (detector == null)
+                        return "en-US";
+
+                    var code = detector.Detect(text);
+
+                    return string.IsNullOrWhiteSpace(code) ? "en-US" : code.Trim();
+                }
+                catch
+                {
+                    return "en-US";
+                }
+            }
 
             public static bool ContainsNonEnglishText(string text)
             {
                 if (string.IsNullOrWhiteSpace(text))
                     return false;
 
-                return _service.ContainsNonEnglish(text);
-            }
+                var code = DetectLanguageCode(text);
 
-            public static string? DetectLanguageCode(string text)
-            {
-                if (string.IsNullOrWhiteSpace(text))
-                    return null;
-
-                return _service.DetectPrimaryLanguage(text);
+                // treat only "en-*" as English
+                return !code.StartsWith("en", StringComparison.OrdinalIgnoreCase);
             }
 
             public static bool IsBilingualText(string text)
@@ -1535,7 +1623,22 @@ namespace DictionaryImporter.Common
                 if (string.IsNullOrWhiteSpace(text))
                     return false;
 
-                return _service.IsBilingualText(text);
+                // Safe best-effort bilingual rule:
+                // if contains CJK + English letters => bilingual
+                var hasCjk = false;
+                foreach (var c in text)
+                {
+                    if (c >= '\u4E00' && c <= '\u9FFF')
+                    {
+                        hasCjk = true;
+                        break;
+                    }
+                }
+
+                if (!hasCjk)
+                    return false;
+
+                return Regex.IsMatch(text, @"[A-Za-z]");
             }
         }
     }

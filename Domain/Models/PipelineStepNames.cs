@@ -17,5 +17,6 @@
         public const string Ipa = "IPA";
         public const string IpaSyllables = "IpaSyllables";
         public const string Verification = "Verification";
+        public const string RuleBasedRewrite = "RuleBasedRewrite";
     }
 }
