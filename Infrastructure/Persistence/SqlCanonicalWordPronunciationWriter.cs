@@ -17,15 +17,15 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (canonicalWordId <= 0)
                 return;
 
-            var normalizedLocale = SqlRepositoryHelper.NormalizeLocaleCodeOrNull(localeCode);
+            var normalizedLocale = Helper.SqlRepository.NormalizeLocaleCodeOrNull(localeCode);
             if (string.IsNullOrWhiteSpace(normalizedLocale))
                 return;
 
-            var normalizedIpa = SqlRepositoryHelper.NormalizeIpaOrNull(ipa);
+            var normalizedIpa = Helper.SqlRepository.NormalizeIpaOrNull(ipa);
             if (string.IsNullOrWhiteSpace(normalizedIpa))
                 return;
 
-            await SqlRepositoryHelper.SafeExecuteAsync(async token =>
+            await Helper.SqlRepository.SafeExecuteAsync(async token =>
             {
                 await _sp.ExecuteAsync(
                     "sp_CanonicalWordPronunciation_InsertIfMissing",

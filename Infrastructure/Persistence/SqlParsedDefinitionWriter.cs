@@ -22,7 +22,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             string sourceCode,
             CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             if (dictionaryEntryId <= 0 || parsed == null)
                 return 0;
@@ -36,7 +36,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             {
                 try
                 {
-                    nonEnglishTextId = await SqlRepositoryHelper.StoreNonEnglishTextAsync(
+                    nonEnglishTextId = await Helper.SqlRepository.StoreNonEnglishTextAsync(
                         sp: new SqlStoredProcedureExecutor(connectionString), // local safe call (no DI here)
                         originalText: definitionToStore,
                         sourceCode: sourceCode,
@@ -131,7 +131,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
                     if (entry.DictionaryEntryId <= 0 || entry.Parsed == null)
                         continue;
 
-                    var safeSourceCode = SqlRepositoryHelper.NormalizeSourceCode(entry.SourceCode);
+                    var safeSourceCode = Helper.SqlRepository.NormalizeSourceCode(entry.SourceCode);
 
                     var definitionToStore = entry.Parsed.Definition ?? string.Empty;
                     var hasNonEnglishText = Helper.LanguageDetector.ContainsNonEnglishText(definitionToStore);

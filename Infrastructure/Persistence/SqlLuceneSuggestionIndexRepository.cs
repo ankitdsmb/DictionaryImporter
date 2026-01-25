@@ -22,7 +22,7 @@ namespace DictionaryImporter.Gateway.Rewriter
             int skip,
             CancellationToken cancellationToken)
         {
-            take = SqlRepositoryHelper.Clamp(take, 1, 5000);
+            take = Helper.SqlRepository.Clamp(take, 1, 5000);
             skip = Math.Max(0, skip);
 
             try
@@ -66,7 +66,7 @@ namespace DictionaryImporter.Gateway.Rewriter
             if (string.IsNullOrWhiteSpace(sourceCode))
                 return Array.Empty<LuceneSuggestionIndexRow>();
 
-            take = SqlRepositoryHelper.Clamp(take, 1, 5000);
+            take = Helper.SqlRepository.Clamp(take, 1, 5000);
 
             try
             {

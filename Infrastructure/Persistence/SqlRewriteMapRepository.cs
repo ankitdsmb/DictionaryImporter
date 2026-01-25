@@ -22,7 +22,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             RewriteTargetMode mode,
             CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             try
             {
@@ -42,7 +42,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 return rows
                     .Where(r => r is not null)
                     .Where(r => r.Enabled)
-                    .Select(SqlRepositoryHelper.NormalizeRewriteRuleOrNull)
+                    .Select(Helper.SqlRepository.NormalizeRewriteRuleOrNull)
                     .Where(r => r is not null)
                     .Select(r => r!)
                     .ToList();
@@ -66,7 +66,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             RewriteTargetMode mode,
             CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             try
             {

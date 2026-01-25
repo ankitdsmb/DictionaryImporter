@@ -1,4 +1,8 @@
-﻿using DictionaryImporter.Gateway.Grammar.Feature;
+﻿using System;
+using System.Threading;
+using System.Threading.Tasks;
+using DictionaryImporter.Gateway.Grammar.Feature;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Parsing;
 
@@ -12,21 +16,30 @@ public sealed class GrammarAwareDefinitionParser(
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(rawDefinition))
-            return rawDefinition;
+            return string.Empty;
+
+        sourceCode = string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode.Trim();
 
         try
         {
-            // Parsing-time correction (clean + autocorrect)
             return await grammar.CleanAsync(
-                rawDefinition,
+                rawDefinition.Trim(),
                 applyAutoCorrection: true,
                 languageCode: null,
                 ct: ct);
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Parsing grammar correction failed. Returning original definition.");
-            return rawDefinition;
+            logger.LogWarning(
+                ex,
+                "Parsing grammar correction failed. SourceCode={SourceCode}. Returning original definition.",
+                sourceCode);
+
+            return rawDefinition.Trim();
         }
     }
 }

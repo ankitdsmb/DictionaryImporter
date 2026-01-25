@@ -26,10 +26,10 @@ namespace DictionaryImporter.Domain.Rewrite
             string promotedBy,
             CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
-            promotedBy = SqlRepositoryHelper.NormalizeString(promotedBy, SqlRepositoryHelper.DefaultPromotedBy);
+            sourceCode =  Helper.SqlRepository.NormalizeSourceCode(sourceCode);
+            promotedBy = Helper.SqlRepository.NormalizeString(promotedBy, Helper.SqlRepository.DefaultPromotedBy);
 
-            take = SqlRepositoryHelper.Clamp(take <= 0 ? 1 : take, 1, 5000);
+            take = Helper.SqlRepository.Clamp(take <= 0 ? 1 : take, 1, 5000);
 
             var approved = await _candidateRepository.GetApprovedCandidatesAsync(sourceCode, take, ct);
             if (approved.Count == 0)
@@ -51,7 +51,7 @@ namespace DictionaryImporter.Domain.Rewrite
                 {
                     ct.ThrowIfCancellationRequested();
 
-                    var modeCode = SqlRepositoryHelper.NormalizeModeCode(c.Mode);
+                    var modeCode = Helper.SqlRepository.NormalizeModeCode(c.Mode);
 
                     var from = (c.FromText ?? string.Empty).Trim();
                     var to = (c.ToText ?? string.Empty).Trim();
@@ -60,7 +60,7 @@ namespace DictionaryImporter.Domain.Rewrite
                     if (string.IsNullOrWhiteSpace(to)) continue;
                     if (string.Equals(from, to, StringComparison.Ordinal)) continue;
 
-                    var priority = SqlRepositoryHelper.ComputePriority(c.SuggestedCount, c.AvgConfidenceScore);
+                    var priority = Helper.SqlRepository.ComputePriority(c.SuggestedCount, c.AvgConfidenceScore);
 
                     if (from.Length > 400) from = from.Substring(0, 400);
                     if (to.Length > 400) to = to.Substring(0, 400);
@@ -76,7 +76,7 @@ namespace DictionaryImporter.Domain.Rewrite
                             IsWholeWord = true,
                             IsRegex = false,
                             ModeCode = modeCode,
-                            Notes = SqlRepositoryHelper.BuildPromotionNotes(promotedBy, sourceCode)
+                            Notes = Helper.SqlRepository.BuildPromotionNotes(promotedBy, sourceCode)
                         },
                         ct,
                         tx,

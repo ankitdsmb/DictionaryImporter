@@ -63,7 +63,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             int take,
             CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             take = take <= 0 ? 200 : take;
             if (take > 2000) take = 2000;
@@ -103,16 +103,16 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (candidateIds is null || candidateIds.Count == 0)
                 return;
 
-            approvedBy = SqlRepositoryHelper.NormalizeString(approvedBy, SqlRepositoryHelper.DefaultPromotedBy);
-            approvedBy = SqlRepositoryHelper.Truncate(approvedBy, 128);
+            approvedBy = Helper.SqlRepository.NormalizeString(approvedBy, Helper.SqlRepository.DefaultPromotedBy);
+            approvedBy = Helper.SqlRepository.Truncate(approvedBy, 128);
 
-            var ids = SqlRepositoryHelper.NormalizeDistinctIds(candidateIds);
+            var ids = Helper.SqlRepository.NormalizeDistinctIds(candidateIds);
             if (ids.Length == 0)
                 return;
 
             try
             {
-                var tvp = SqlRepositoryHelper.ToBigIntIdListTvp(ids);
+                var tvp = Helper.SqlRepository.ToBigIntIdListTvp(ids);
 
                 await _sp.ExecuteAsync(
                     "sp_RewriteMapCandidate_MarkPromoted",
@@ -138,7 +138,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             string sourceCode,
             CancellationToken ct)
         {
-            _ = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            _ = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             try
             {
@@ -186,8 +186,8 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 if (c is null)
                     continue;
 
-                var source = SqlRepositoryHelper.NormalizeSourceCode(c.SourceCode);
-                var mode = SqlRepositoryHelper.NormalizeModeCode(c.Mode);
+                var source = Helper.SqlRepository.NormalizeSourceCode(c.SourceCode);
+                var mode = Helper.SqlRepository.NormalizeModeCode(c.Mode);
                 var from = (c.FromText ?? string.Empty).Trim();
                 var to = (c.ToText ?? string.Empty).Trim();
 
@@ -197,10 +197,10 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 if (string.IsNullOrWhiteSpace(to)) continue;
                 if (string.Equals(from, to, StringComparison.Ordinal)) continue;
 
-                from = SqlRepositoryHelper.Truncate(from, 400);
-                to = SqlRepositoryHelper.Truncate(to, 400);
+                from = Helper.SqlRepository.Truncate(from, 400);
+                to = Helper.SqlRepository.Truncate(to, 400);
 
-                var confidence = SqlRepositoryHelper.NormalizeConfidence01(c.Confidence);
+                var confidence = Helper.SqlRepository.NormalizeConfidence01(c.Confidence);
 
                 var key = string.Concat(source, "|", mode, "|", from, "|", to);
 

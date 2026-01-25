@@ -97,8 +97,9 @@ namespace DictionaryImporter.Bootstrap
 
             services.AddSingleton<IRewriteRuleHitRepository>(sp =>
                 new SqlRewriteRuleHitRepository(
-                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlRewriteRuleHitRepository>>()));
+
 
             services.AddScoped<RewriteRuleHitBuffer>();
 

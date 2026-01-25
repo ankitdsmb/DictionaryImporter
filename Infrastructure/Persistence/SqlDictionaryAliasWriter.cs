@@ -26,9 +26,9 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (dictionaryEntryParsedId <= 0)
                 return;
 
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
-            alias = SqlRepositoryHelper.NormalizeAliasOrEmpty(alias);
+            alias = Helper.SqlRepository.NormalizeAliasOrEmpty(alias);
             if (string.IsNullOrWhiteSpace(alias))
                 return;
 

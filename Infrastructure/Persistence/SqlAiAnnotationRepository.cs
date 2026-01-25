@@ -26,8 +26,8 @@ namespace DictionaryImporter.Infrastructure.Persistence
             int take,
             CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
-            take = SqlRepositoryHelper.Clamp(take <= 0 ? DefaultTake : take, 1, 5000);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
+            take = Helper.SqlRepository.Clamp(take <= 0 ? DefaultTake : take, 1, 5000);
 
             try
             {
@@ -54,21 +54,21 @@ namespace DictionaryImporter.Infrastructure.Persistence
             int maxExamplesPerParsedId,
             CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             if (parsedDefinitionIds is null || parsedDefinitionIds.Count == 0)
                 return new Dictionary<long, IReadOnlyList<string>>();
 
             maxExamplesPerParsedId = maxExamplesPerParsedId <= 0 ? 10 : maxExamplesPerParsedId;
-            maxExamplesPerParsedId = SqlRepositoryHelper.Clamp(maxExamplesPerParsedId, 1, MaxExamplesPerParsedIdHardLimit);
+            maxExamplesPerParsedId = Helper.SqlRepository.Clamp(maxExamplesPerParsedId, 1, MaxExamplesPerParsedIdHardLimit);
 
-            var ids = SqlRepositoryHelper.NormalizeDistinctIds(parsedDefinitionIds);
+            var ids = Helper.SqlRepository.NormalizeDistinctIds(parsedDefinitionIds);
             if (ids.Length == 0)
                 return new Dictionary<long, IReadOnlyList<string>>();
 
             try
             {
-                var tvp = SqlRepositoryHelper.ToBigIntIdListTvp(ids);
+                var tvp = Helper.SqlRepository.ToBigIntIdListTvp(ids);
 
                 var rows = await _sp.QueryAsync<ExampleRow>(
                     "sp_AiAnnotation_GetExamplesByParsedIds",
@@ -112,24 +112,24 @@ namespace DictionaryImporter.Infrastructure.Persistence
             string model,
             CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             if (parsedDefinitionIds is null || parsedDefinitionIds.Count == 0)
                 return new HashSet<long>();
 
-            var ids = SqlRepositoryHelper.NormalizeDistinctIds(parsedDefinitionIds);
+            var ids = Helper.SqlRepository.NormalizeDistinctIds(parsedDefinitionIds);
             if (ids.Length == 0)
                 return new HashSet<long>();
 
-            provider = SqlRepositoryHelper.NormalizeString(provider, SqlRepositoryHelper.DefaultProvider);
-            model = SqlRepositoryHelper.NormalizeString(model, SqlRepositoryHelper.DefaultModel);
+            provider = Helper.SqlRepository.NormalizeString(provider, Helper.SqlRepository.DefaultProvider);
+            model = Helper.SqlRepository.NormalizeString(model, Helper.SqlRepository.DefaultModel);
 
             if (provider.Length > 64) provider = provider.Substring(0, 64);
             if (model.Length > 128) model = model.Substring(0, 128);
 
             try
             {
-                var tvp = SqlRepositoryHelper.ToBigIntIdListTvp(ids);
+                var tvp = Helper.SqlRepository.ToBigIntIdListTvp(ids);
 
                 var found = await _sp.QueryAsync<long>(
                     "sp_AiAnnotation_GetAlreadyEnhancedParsedIds",
@@ -161,7 +161,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             IReadOnlyList<AiDefinitionEnhancement> enhancements,
             CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             if (enhancements is null || enhancements.Count == 0)
                 return;
@@ -182,14 +182,14 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 {
                     ct.ThrowIfCancellationRequested();
 
-                    var provider = SqlRepositoryHelper.NormalizeString(e.Provider, SqlRepositoryHelper.DefaultProvider);
-                    var model = SqlRepositoryHelper.NormalizeString(e.Model, SqlRepositoryHelper.DefaultModel);
+                    var provider = Helper.SqlRepository.NormalizeString(e.Provider, Helper.SqlRepository.DefaultProvider);
+                    var model = Helper.SqlRepository.NormalizeString(e.Model, Helper.SqlRepository.DefaultModel);
 
                     if (provider.Length > 64) provider = provider.Substring(0, 64);
                     if (model.Length > 128) model = model.Substring(0, 128);
 
-                    var original = SqlRepositoryHelper.Truncate(e.OriginalDefinition, 4000);
-                    var enhanced = SqlRepositoryHelper.Truncate(e.AiEnhancedDefinition, 4000);
+                    var original = Helper.SqlRepository.Truncate(e.OriginalDefinition, 4000);
+                    var enhanced = Helper.SqlRepository.Truncate(e.AiEnhancedDefinition, 4000);
                     var notesJson = string.IsNullOrWhiteSpace(e.AiNotesJson) ? "{}" : e.AiNotesJson.Trim();
 
                     await _sp.ExecuteAsync(
@@ -225,11 +225,11 @@ namespace DictionaryImporter.Infrastructure.Persistence
             string model,
             CancellationToken cancellationToken)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
             if (parsedDefinitionId <= 0) return null;
 
-            provider = SqlRepositoryHelper.NormalizeString(provider, SqlRepositoryHelper.DefaultProvider);
-            model = SqlRepositoryHelper.NormalizeString(model, SqlRepositoryHelper.DefaultModel);
+            provider = Helper.SqlRepository.NormalizeString(provider, Helper.SqlRepository.DefaultProvider);
+            model = Helper.SqlRepository.NormalizeString(model, Helper.SqlRepository.DefaultModel);
 
             if (provider.Length > 64) provider = provider.Substring(0, 64);
             if (model.Length > 128) model = model.Substring(0, 128);
@@ -267,11 +267,11 @@ namespace DictionaryImporter.Infrastructure.Persistence
             string aiNotesJson,
             CancellationToken cancellationToken)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
             if (parsedDefinitionId <= 0) return;
 
-            provider = SqlRepositoryHelper.NormalizeString(provider, SqlRepositoryHelper.DefaultProvider);
-            model = SqlRepositoryHelper.NormalizeString(model, SqlRepositoryHelper.DefaultModel);
+            provider = Helper.SqlRepository.NormalizeString(provider, Helper.SqlRepository.DefaultProvider);
+            model = Helper.SqlRepository.NormalizeString(model, Helper.SqlRepository.DefaultModel);
 
             if (provider.Length > 64) provider = provider.Substring(0, 64);
             if (model.Length > 128) model = model.Substring(0, 128);
@@ -308,7 +308,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             long parsedDefinitionId,
             CancellationToken cancellationToken)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
             if (parsedDefinitionId <= 0) return null;
 
             try

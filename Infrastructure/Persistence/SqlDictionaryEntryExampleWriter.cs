@@ -24,7 +24,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             string sourceCode,
             CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = SqlRepository.NormalizeSourceCode(sourceCode);
 
             if (dictionaryEntryParsedId <= 0)
                 return;
@@ -35,7 +35,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (string.IsNullOrWhiteSpace(exampleText))
                 return;
 
-            if (SqlRepositoryHelper.IsPlaceholderExample(exampleText))
+            if (SqlRepository.IsPlaceholderExample(exampleText))
                 return;
 
             bool hasNonEnglishText = Helper.LanguageDetector.ContainsNonEnglishText(exampleText);
@@ -44,7 +44,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
 
             if (hasNonEnglishText)
             {
-                nonEnglishTextId = await SqlRepositoryHelper.StoreNonEnglishTextAsync(
+                nonEnglishTextId = await SqlRepository.StoreNonEnglishTextAsync(
                     _sp,
                     originalText: exampleText,
                     sourceCode: sourceCode,
@@ -60,7 +60,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             }
             else
             {
-                exampleToStore = SqlRepositoryHelper.NormalizeExampleForDedupeOrEmpty(exampleToStore ?? string.Empty);
+                exampleToStore = SqlRepository.NormalizeExampleForDedupeOrEmpty(exampleToStore ?? string.Empty);
                 if (string.IsNullOrWhiteSpace(exampleToStore))
                     return;
             }

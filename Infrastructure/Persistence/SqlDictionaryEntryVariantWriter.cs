@@ -24,7 +24,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (entryId <= 0)
                 return;
 
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             variant = (variant ?? string.Empty).Trim();
             type = (type ?? string.Empty).Trim();
@@ -32,8 +32,8 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (string.IsNullOrWhiteSpace(variant) || string.IsNullOrWhiteSpace(type))
                 return;
 
-            variant = SqlRepositoryHelper.Truncate(variant, 200);
-            type = SqlRepositoryHelper.Truncate(type, 50);
+            variant = Helper.SqlRepository.Truncate(variant, 200);
+            type = Helper.SqlRepository.Truncate(type, 50);
 
             try
             {

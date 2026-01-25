@@ -22,7 +22,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
 
         public async Task PersistHistoryAsync(string sourceCode, CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             try
             {
@@ -50,7 +50,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             string sourceCode,
             CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             try
             {
@@ -84,8 +84,8 @@ namespace DictionaryImporter.Infrastructure.Persistence
             int confidence,
             CancellationToken ct)
         {
-            pos = SqlRepositoryHelper.NormalizePosOrEmpty(pos);
-            confidence = SqlRepositoryHelper.NormalizeConfidence(confidence);
+            pos = Helper.SqlRepository.NormalizePosOrEmpty(pos);
+            confidence = Helper.SqlRepository.NormalizeConfidence(confidence);
 
             if (entryId <= 0)
                 return 0;
@@ -121,7 +121,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             string sourceCode,
             CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             try
             {
