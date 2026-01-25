@@ -1,5 +1,5 @@
-﻿using DictionaryImporter.Sources.Common.Helper;
-using DictionaryImporter.Sources.Parsing;
+﻿using DictionaryImporter.Infrastructure.Source;
+using DictionaryImporter.Sources.Common.Helper;
 
 namespace DictionaryImporter.Sources.EnglishChinese.Parsing
 {

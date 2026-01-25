@@ -1,4 +1,4 @@
-﻿using DictionaryImporter.Sources.Parsing;
+﻿using DictionaryImporter.Infrastructure.Source;
 
 namespace DictionaryImporter.Bootstrap
 {

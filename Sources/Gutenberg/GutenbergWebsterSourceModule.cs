@@ -1,5 +1,5 @@
-﻿using DictionaryImporter.Sources.Kaikki;
-using DictionaryImporter.Sources.Parsing;
+﻿using DictionaryImporter.Infrastructure.Source;
+using DictionaryImporter.Sources.Kaikki;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System;

@@ -1,5 +1,5 @@
-﻿using DictionaryImporter.Sources.Century21.Parsing;
-using DictionaryImporter.Sources.Parsing;
+﻿using DictionaryImporter.Infrastructure.Source;
+using DictionaryImporter.Sources.Century21.Parsing;
 
 namespace DictionaryImporter.Sources.Century21
 {

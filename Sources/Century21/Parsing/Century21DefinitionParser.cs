@@ -1,6 +1,6 @@
 ﻿using DictionaryImporter.Common;
 using DictionaryImporter.Common.SourceHelper;
-using DictionaryImporter.Sources.Parsing;
+using DictionaryImporter.Infrastructure.Source;
 using HtmlAgilityPack;
 
 namespace DictionaryImporter.Sources.Century21.Parsing

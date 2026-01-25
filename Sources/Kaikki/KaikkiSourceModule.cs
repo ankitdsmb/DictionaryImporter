@@ -1,5 +1,5 @@
-﻿using DictionaryImporter.Sources.Kaikki.Parsing;
-using DictionaryImporter.Sources.Parsing;
+﻿using DictionaryImporter.Infrastructure.Source;
+using DictionaryImporter.Sources.Kaikki.Parsing;
 
 namespace DictionaryImporter.Sources.Kaikki
 {

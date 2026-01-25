@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using DictionaryImporter.Infrastructure.Source;
 using DictionaryImporter.Sources.Common.Helper;
-using DictionaryImporter.Sources.Parsing;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Gutenberg.Parsing

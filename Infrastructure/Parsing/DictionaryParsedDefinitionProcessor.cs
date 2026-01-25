@@ -1,6 +1,5 @@
 ﻿using DictionaryImporter.Common;
 using DictionaryImporter.Core.Text;
-using DictionaryImporter.Sources.Parsing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Data.SqlClient;
 using Dapper;
@@ -10,6 +9,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using DictionaryImporter.Infrastructure.Source;
 
 namespace DictionaryImporter.Infrastructure.Parsing
 {

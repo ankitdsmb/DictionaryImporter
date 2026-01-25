@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Sources.Parsing
+﻿namespace DictionaryImporter.Infrastructure.Source
 {
     public interface IDictionaryDefinitionParserResolver
     {

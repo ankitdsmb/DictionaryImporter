@@ -1,6 +1,6 @@
 ﻿using System;
 using System.IO;
-using DictionaryImporter.Sources.Parsing;
+using DictionaryImporter.Infrastructure.Source;
 using DictionaryImporter.Sources.StructuredJson.Parsing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

@@ -1,7 +1,7 @@
 ﻿using System;
 using System.IO;
+using DictionaryImporter.Infrastructure.Source;
 using DictionaryImporter.Sources.Collins.parsing;
-using DictionaryImporter.Sources.Parsing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
