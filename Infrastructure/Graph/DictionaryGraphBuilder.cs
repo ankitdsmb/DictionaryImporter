@@ -1,10 +1,37 @@
-﻿namespace DictionaryImporter.Infrastructure.Graph
+﻿using System;
+using System.Data;
+using System.Threading;
+using System.Threading.Tasks;
+using Dapper;
+using DictionaryImporter.Common;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
+
+namespace DictionaryImporter.Infrastructure.Graph
 {
     public sealed class DictionaryGraphBuilder(
         string connectionString,
+        DictionaryConceptBuilder conceptBuilder,
+        DictionaryConceptConfidenceCalculator conceptConfidenceCalculator,
+        DictionaryConceptMerger conceptMerger,
         ILogger<DictionaryGraphBuilder> logger)
         : IGraphBuilder
     {
+        private readonly string _connectionString =
+            connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+
+        private readonly DictionaryConceptBuilder _conceptBuilder =
+            conceptBuilder ?? throw new ArgumentNullException(nameof(conceptBuilder));
+
+        private readonly DictionaryConceptConfidenceCalculator _conceptConfidenceCalculator =
+            conceptConfidenceCalculator ?? throw new ArgumentNullException(nameof(conceptConfidenceCalculator));
+
+        private readonly DictionaryConceptMerger _conceptMerger =
+            conceptMerger ?? throw new ArgumentNullException(nameof(conceptMerger));
+
+        private readonly ILogger<DictionaryGraphBuilder> _logger =
+            logger ?? throw new ArgumentNullException(nameof(logger));
+
         public Task BuildAsync(
             string sourceCode,
             CancellationToken ct)
@@ -20,189 +47,82 @@
             GraphRebuildMode rebuildMode,
             CancellationToken ct)
         {
-            logger.LogInformation(
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
+
+            _logger.LogInformation(
                 "GraphBuilder started | Source={Source} | Mode={Mode}",
                 sourceCode,
                 rebuildMode);
 
-            await using var conn = new SqlConnection(connectionString);
-            await conn.OpenAsync(ct);
+            try
+            {
+                await using var conn = new SqlConnection(_connectionString);
+                await conn.OpenAsync(ct);
 
-            logger.LogInformation(
-                "GraphBuilder | WORD→SENSE started | Source={Source}",
-                sourceCode);
+                // ✅ ONE SP for ALL edges (core + crossrefs)
+                var insertedEdges =
+                    await conn.ExecuteScalarAsync<long>(
+                        new CommandDefinition(
+                            "sp_GraphEdge_BuildAllBySource",
+                            new
+                            {
+                                SourceCode = sourceCode,
+                                RebuildMode = rebuildMode.ToString()
+                            },
+                            commandType: CommandType.StoredProcedure,
+                            cancellationToken: ct,
+                            commandTimeout: 0));
 
-            await conn.ExecuteAsync(
-                new CommandDefinition(
-                    """
-                    INSERT INTO dbo.GraphEdge
-                    (FromNodeId, ToNodeId, RelationType, SourceCode, Confidence, CreatedUtc)
-                    SELECT DISTINCT
-                        CONCAT('Word:', e.CanonicalWordId),
-                        CONCAT('Sense:', p.DictionaryEntryParsedId),
-                        'HAS_SENSE',
-                        @SourceCode,
-                        1.0,
-                        SYSUTCDATETIME()
-                    FROM dbo.DictionaryEntry e
-                    JOIN dbo.DictionaryEntryParsed p
-                        ON p.DictionaryEntryId = e.DictionaryEntryId
-                    WHERE e.SourceCode = @SourceCode
-                      AND e.CanonicalWordId IS NOT NULL
-                      AND NOT EXISTS
-                    (
-                        SELECT 1
-                        FROM dbo.GraphEdge g
-                        WHERE g.FromNodeId   = CONCAT('Word:', e.CanonicalWordId)
-                          AND g.ToNodeId     = CONCAT('Sense:', p.DictionaryEntryParsedId)
-                          AND g.RelationType = 'HAS_SENSE'
-                    );
-                    """,
-                    new { SourceCode = sourceCode },
-                    cancellationToken: ct,
-                    commandTimeout: 0));
+                _logger.LogInformation(
+                    "GraphBuilder edges completed | Source={Source} | InsertedEdges={Inserted}",
+                    sourceCode,
+                    insertedEdges);
 
-            logger.LogInformation(
-                "GraphBuilder | WORD→SENSE completed | Source={Source}",
-                sourceCode);
+                // Concepts + confidence + merge
+                _logger.LogInformation(
+                    "GraphBuilder | CONCEPTS started | Source={Source}",
+                    sourceCode);
 
-            logger.LogInformation(
-                "GraphBuilder | SENSE→SENSE started | Source={Source}",
-                sourceCode);
+                try
+                {
+                    await _conceptBuilder.BuildAsync(sourceCode, ct);
+                    await _conceptConfidenceCalculator.CalculateAsync(ct);
+                    await _conceptMerger.MergeAsync(ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(
+                        ex,
+                        "GraphBuilder | CONCEPTS failed (non-fatal) | Source={Source}",
+                        sourceCode);
+                }
 
-            await conn.ExecuteAsync(
-                new CommandDefinition(
-                    """
-                    INSERT INTO dbo.GraphEdge
-                    (FromNodeId, ToNodeId, RelationType, SourceCode, Confidence, CreatedUtc)
-                    SELECT DISTINCT
-                        CONCAT('Sense:', p.ParentParsedId),
-                        CONCAT('Sense:', p.DictionaryEntryParsedId),
-                        'SUB_SENSE_OF',
-                        @SourceCode,
-                        1.0,
-                        SYSUTCDATETIME()
-                    FROM dbo.DictionaryEntryParsed p
-                    JOIN dbo.DictionaryEntry e
-                        ON e.DictionaryEntryId = p.DictionaryEntryId
-                    WHERE e.SourceCode = @SourceCode
-                      AND p.ParentParsedId IS NOT NULL
-                      AND p.ParentParsedId <> p.DictionaryEntryParsedId
-                      AND NOT EXISTS
-                    (
-                        SELECT 1
-                        FROM dbo.GraphEdge g
-                        WHERE g.FromNodeId   = CONCAT('Sense:', p.ParentParsedId)
-                          AND g.ToNodeId     = CONCAT('Sense:', p.DictionaryEntryParsedId)
-                          AND g.RelationType = 'SUB_SENSE_OF'
-                    );
-                    """,
-                    new { SourceCode = sourceCode },
-                    cancellationToken: ct,
-                    commandTimeout: 0));
+                _logger.LogInformation(
+                    "GraphBuilder | CONCEPTS completed | Source={Source}",
+                    sourceCode);
 
-            logger.LogInformation(
-                "GraphBuilder | SENSE→SENSE completed | Source={Source}",
-                sourceCode);
-
-            logger.LogInformation(
-                "GraphBuilder | SENSE→DOMAIN started | Source={Source}",
-                sourceCode);
-
-            await conn.ExecuteAsync(
-                new CommandDefinition(
-                    """
-                    INSERT INTO dbo.GraphEdge
-                    (FromNodeId, ToNodeId, RelationType, SourceCode, Confidence, CreatedUtc)
-                    SELECT DISTINCT
-                        CONCAT('Sense:', p.DictionaryEntryParsedId),
-                        CONCAT('Domain:', LTRIM(RTRIM(p.Domain))),
-                        'IN_DOMAIN',
-                        @SourceCode,
-                        0.9,
-                        SYSUTCDATETIME()
-                    FROM dbo.DictionaryEntryParsed p
-                    JOIN dbo.DictionaryEntry e
-                        ON e.DictionaryEntryId = p.DictionaryEntryId
-                    WHERE e.SourceCode = @SourceCode
-                      AND p.Domain IS NOT NULL
-                      AND LTRIM(RTRIM(p.Domain)) <> ''
-                      AND NOT EXISTS
-                    (
-                        SELECT 1
-                        FROM dbo.GraphEdge g
-                        WHERE g.FromNodeId   = CONCAT('Sense:', p.DictionaryEntryParsedId)
-                          AND g.ToNodeId     = CONCAT('Domain:', LTRIM(RTRIM(p.Domain)))
-                          AND g.RelationType = 'IN_DOMAIN'
-                    );
-                    """,
-                    new { SourceCode = sourceCode },
-                    cancellationToken: ct,
-                    commandTimeout: 0));
-
-            logger.LogInformation(
-                "GraphBuilder | SENSE→DOMAIN completed | Source={Source}",
-                sourceCode);
-
-            logger.LogInformation(
-                "GraphBuilder | SENSE→LANGUAGE started | Source={Source}",
-                sourceCode);
-
-            await conn.ExecuteAsync(
-                new CommandDefinition(
-                    """
-                    INSERT INTO dbo.GraphEdge
-                    (FromNodeId, ToNodeId, RelationType, SourceCode, Confidence, CreatedUtc)
-                    SELECT DISTINCT
-                        CONCAT('Sense:', p.DictionaryEntryParsedId),
-                        CONCAT('Lang:', LTRIM(RTRIM(e.LanguageCode))),
-                        'DERIVED_FROM',
-                        @SourceCode,
-                        0.8,
-                        SYSUTCDATETIME()
-                    FROM dbo.DictionaryEntryEtymology e
-                    JOIN dbo.DictionaryEntryParsed p
-                        ON p.DictionaryEntryId = e.DictionaryEntryId
-                    JOIN dbo.DictionaryEntry de
-                        ON de.DictionaryEntryId = p.DictionaryEntryId
-                    WHERE de.SourceCode = @SourceCode
-                      AND e.LanguageCode IS NOT NULL
-                      AND LTRIM(RTRIM(e.LanguageCode)) <> ''
-                      AND NOT EXISTS
-                    (
-                        SELECT 1
-                        FROM dbo.GraphEdge g
-                        WHERE g.FromNodeId   = CONCAT('Sense:', p.DictionaryEntryParsedId)
-                          AND g.ToNodeId     = CONCAT('Lang:', LTRIM(RTRIM(e.LanguageCode)))
-                          AND g.RelationType = 'DERIVED_FROM'
-                    );
-                    """,
-                    new { SourceCode = sourceCode },
-                    cancellationToken: ct,
-                    commandTimeout: 0));
-
-            logger.LogInformation(
-                "GraphBuilder | SENSE→LANGUAGE completed | Source={Source}",
-                sourceCode);
-
-            logger.LogInformation(
-                "GraphBuilder | CROSS-REFERENCES started | Source={Source}",
-                sourceCode);
-
-            await DictionaryGraphBuilderCrossReferences.BuildAsync(
-                conn,
-                sourceCode,
-                rebuildMode,
-                ct);
-
-            logger.LogInformation(
-                "GraphBuilder | CROSS-REFERENCES completed | Source={Source}",
-                sourceCode);
-
-            logger.LogInformation(
-                "GraphBuilder completed | Source={Source} | Mode={Mode}",
-                sourceCode,
-                rebuildMode);
+                _logger.LogInformation(
+                    "GraphBuilder completed | Source={Source} | Mode={Mode}",
+                    sourceCode,
+                    rebuildMode);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // STRICT: never crash pipeline
+                _logger.LogError(
+                    ex,
+                    "GraphBuilder failed (non-fatal) | Source={Source} | Mode={Mode}",
+                    sourceCode,
+                    rebuildMode);
+            }
         }
     }
 }

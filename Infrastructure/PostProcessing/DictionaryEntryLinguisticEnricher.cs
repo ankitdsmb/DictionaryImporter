@@ -1,4 +1,11 @@
-﻿using DictionaryImporter.Common;
+﻿using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using DictionaryImporter.Common;
+using DictionaryImporter.Core.Text;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.PostProcessing
 {
@@ -24,24 +31,35 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
             string sourceCode,
             CancellationToken ct)
         {
-            sourceCode = string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode;
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             _logger.LogInformation(
                 "Linguistic enrichment started | SourceCode={SourceCode}",
                 sourceCode);
 
-            await using var conn = new SqlConnection(_connectionString);
-            await conn.OpenAsync(ct);
+            try
+            {
+                await InferAndPersistPartOfSpeech(sourceCode, ct);
 
-            await InferAndPersistPartOfSpeech(sourceCode, ct);
+                await BackfillExplicitPartOfSpeechConfidence(sourceCode, ct);
 
-            await BackfillExplicitPartOfSpeechConfidence(sourceCode, ct);
+                await PersistPartOfSpeechHistory(sourceCode, ct);
 
-            await PersistPartOfSpeechHistory(sourceCode, ct);
+                await ExtractSynonymsFromCrossReferences(sourceCode, ct);
 
-            await ExtractSynonymsFromCrossReferences(conn, sourceCode, ct);
-
-            await EnrichCanonicalWordIpaFromDefinition(conn, sourceCode, ct);
+                await EnrichCanonicalWordIpaFromDefinition(sourceCode, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Linguistic enrichment failed (non-fatal) | SourceCode={SourceCode}",
+                    sourceCode);
+            }
 
             _logger.LogInformation(
                 "Linguistic enrichment completed | SourceCode={SourceCode}",
@@ -60,8 +78,25 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
                 "POS inference started | SourceCode={SourceCode}",
                 sourceCode);
 
-            var rows =
-                await _posRepository.GetEntriesNeedingPosAsync(sourceCode, ct);
+            IReadOnlyList<(long EntryId, string Definition)> rows;
+
+            try
+            {
+                rows = await _posRepository.GetEntriesNeedingPosAsync(sourceCode, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "POS inference query failed (non-fatal) | SourceCode={SourceCode}",
+                    sourceCode);
+
+                return;
+            }
 
             var updated = 0;
 
@@ -69,21 +104,50 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
             {
                 ct.ThrowIfCancellationRequested();
 
+                if (row.EntryId <= 0)
+                    continue;
+
                 if (string.IsNullOrWhiteSpace(row.Definition))
                     continue;
 
-                var result =
-                    _posInferer.InferWithConfidence(row.Definition);
+                object resultObj;
 
-                if (string.IsNullOrWhiteSpace(result.Pos) || result.Pos == "unk")
+                try
+                {
+                    resultObj = _posInferer.InferWithConfidence(row.Definition);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                // Avoid strong typing to missing model compile issue.
+                // Expected: result.Pos (string) + result.Confidence (decimal/int)
+                var pos = TryReadPropertyAsString(resultObj, "Pos");
+                if (string.IsNullOrWhiteSpace(pos) || pos == "unk")
                     continue;
 
-                var affected =
-                    await _posRepository.UpdatePartOfSpeechIfUnknownAsync(
+                pos = Helper.NormalizePartOfSpeech(pos);
+                if (string.IsNullOrWhiteSpace(pos) || pos == "unk")
+                    continue;
+
+                var confidenceValue = TryReadPropertyAsDecimal(resultObj, "Confidence");
+                var confidenceInt = NormalizeConfidenceToPercent(confidenceValue);
+
+                int affected;
+
+                try
+                {
+                    affected = await _posRepository.UpdatePartOfSpeechIfUnknownAsync(
                         row.EntryId,
-                        result.Pos,
-                        result.Confidence,
+                        pos,
+                        confidenceInt,
                         ct);
+                }
+                catch
+                {
+                    continue;
+                }
 
                 if (affected > 0)
                     updated++;
@@ -99,78 +163,82 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
             string sourceCode,
             CancellationToken ct)
         {
-            var rows =
-                await _posRepository.BackfillConfidenceAsync(sourceCode, ct);
+            try
+            {
+                var rows = await _posRepository.BackfillConfidenceAsync(sourceCode, ct);
 
-            _logger.LogInformation(
-                "POS confidence backfilled | SourceCode={SourceCode} | Rows={Rows}",
-                sourceCode,
-                rows);
+                _logger.LogInformation(
+                    "POS confidence backfilled | SourceCode={SourceCode} | Rows={Rows}",
+                    sourceCode,
+                    rows);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "POS confidence backfill failed (non-fatal) | SourceCode={SourceCode}",
+                    sourceCode);
+            }
         }
 
         private async Task PersistPartOfSpeechHistory(
             string sourceCode,
             CancellationToken ct)
         {
-            await _posRepository.PersistHistoryAsync(sourceCode, ct);
+            try
+            {
+                await _posRepository.PersistHistoryAsync(sourceCode, ct);
 
-            _logger.LogInformation(
-                "POS history persisted | SourceCode={SourceCode}",
-                sourceCode);
+                _logger.LogInformation(
+                    "POS history persisted | SourceCode={SourceCode}",
+                    sourceCode);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "POS history persist failed (non-fatal) | SourceCode={SourceCode}",
+                    sourceCode);
+            }
         }
 
         // ============================================================
-        // Synonyms extracted from CrossRefs (FIXED: SourceCode)
+        // Synonyms extracted from CrossRefs (SP-based repository)
         // ============================================================
 
         private async Task ExtractSynonymsFromCrossReferences(
-            SqlConnection conn,
             string sourceCode,
             CancellationToken ct)
         {
-            // ✅ FIX:
-            // Table dbo.DictionaryEntrySynonym has SourceCode column (NOT Source).
-            // Also keep SourceCode for extracted synonyms = "CROSSREF"
-            const string sql = """
-                               INSERT INTO dbo.DictionaryEntrySynonym
-                               (
-                                   DictionaryEntryParsedId,
-                                   SynonymText,
-                                   SourceCode,
-                                   CreatedUtc,
-                                   HasNonEnglishText,
-                                   NonEnglishTextId
-                               )
-                               SELECT DISTINCT
-                                   cr.SourceParsedId,
-                                   LOWER(cr.TargetWord),
-                                   'CROSSREF',
-                                   SYSUTCDATETIME(),
-                                   0,
-                                   NULL
-                               FROM dbo.DictionaryEntryCrossReference cr
-                               JOIN dbo.DictionaryEntryParsed p
-                                   ON p.DictionaryEntryParsedId = cr.SourceParsedId
-                               JOIN dbo.DictionaryEntry e
-                                   ON e.DictionaryEntryId = p.DictionaryEntryId
-                               WHERE e.SourceCode = @SourceCode
-                                 AND cr.ReferenceType IN ('See','SeeAlso')
-                                 AND NOT EXISTS
-                               (
-                                   SELECT 1
-                                   FROM dbo.DictionaryEntrySynonym s
-                                   WHERE s.DictionaryEntryParsedId = cr.SourceParsedId
-                                     AND s.SynonymText = LOWER(cr.TargetWord)
-                                     AND s.SourceCode = 'CROSSREF'
-                               );
-                               """;
+            var repo = new SqlDictionaryEntryLinguisticEnrichmentRepository(_connectionString);
 
-            var rows =
-                await conn.ExecuteAsync(
-                    new CommandDefinition(
-                        sql,
-                        new { SourceCode = sourceCode },
-                        cancellationToken: ct));
+            long rows;
+
+            try
+            {
+                rows = await repo.ExtractSynonymsFromCrossReferencesAsync(sourceCode, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Synonym extraction failed (non-fatal) | SourceCode={SourceCode}",
+                    sourceCode);
+
+                return;
+            }
 
             _logger.LogInformation(
                 "Synonyms extracted from cross-references | SourceCode={SourceCode} | Rows={Rows}",
@@ -179,11 +247,10 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
         }
 
         // ============================================================
-        // IPA enrichment (no change, only safety)
+        // IPA enrichment (SP-based repository)
         // ============================================================
 
         private async Task EnrichCanonicalWordIpaFromDefinition(
-            SqlConnection conn,
             string sourceCode,
             CancellationToken ct)
         {
@@ -191,25 +258,27 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
                 "IPA enrichment started | SourceCode={SourceCode}",
                 sourceCode);
 
-            const string sql = """
-                               SELECT DISTINCT
-                                   cw.CanonicalWordId,
-                                   p.RawFragment
-                               FROM dbo.DictionaryEntryParsed p
-                               JOIN dbo.DictionaryEntry e
-                                   ON e.DictionaryEntryId = p.DictionaryEntryId
-                               JOIN dbo.CanonicalWord cw
-                                   ON cw.CanonicalWordId = e.CanonicalWordId
-                               WHERE e.SourceCode = @SourceCode
-                                 AND p.RawFragment LIKE '%/%';
-                               """;
+            var repo = new SqlDictionaryEntryLinguisticEnrichmentRepository(_connectionString);
 
-            var rows =
-                await conn.QueryAsync<(long CanonicalWordId, string RawFragment)>(
-                    new CommandDefinition(
-                        sql,
-                        new { SourceCode = sourceCode },
-                        cancellationToken: ct));
+            IReadOnlyList<CanonicalWordIpaCandidateRow> rows;
+
+            try
+            {
+                rows = await repo.GetIpaCandidatesFromParsedFragmentsAsync(sourceCode, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "IPA candidate fetch failed (non-fatal) | SourceCode={SourceCode}",
+                    sourceCode);
+
+                return;
+            }
 
             var inserted = 0;
             var candidates = 0;
@@ -219,14 +288,29 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
             {
                 ct.ThrowIfCancellationRequested();
 
+                if (row is null || row.CanonicalWordId <= 0)
+                {
+                    skipped++;
+                    continue;
+                }
+
                 if (string.IsNullOrWhiteSpace(row.RawFragment))
                 {
                     skipped++;
                     continue;
                 }
 
-                var ipaMap =
-                    Helper.GenericIpaExtractor.ExtractIpaWithLocale(row.RawFragment);
+                IReadOnlyDictionary<string, string> ipaMap;
+
+                try
+                {
+                    ipaMap = Helper.GenericIpaExtractor.ExtractIpaWithLocale(row.RawFragment);
+                }
+                catch
+                {
+                    skipped++;
+                    continue;
+                }
 
                 if (ipaMap.Count == 0)
                 {
@@ -248,8 +332,17 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
                         continue;
                     }
 
-                    var normalizedIpa =
-                        IpaNormalizer.Normalize(rawIpa);
+                    string normalizedIpa;
+
+                    try
+                    {
+                        normalizedIpa = IpaNormalizer.Normalize(rawIpa);
+                    }
+                    catch
+                    {
+                        skipped++;
+                        continue;
+                    }
 
                     if (string.IsNullOrWhiteSpace(normalizedIpa))
                     {
@@ -257,41 +350,25 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
                         continue;
                     }
 
-                    const string insertSql = """
-                                             IF NOT EXISTS
-                                             (
-                                                 SELECT 1
-                                                 FROM dbo.CanonicalWordPronunciation
-                                                 WHERE CanonicalWordId = @CanonicalWordId
-                                                   AND LocaleCode = @LocaleCode
-                                             )
-                                             BEGIN
-                                                 INSERT INTO dbo.CanonicalWordPronunciation
-                                                 (
-                                                     CanonicalWordId,
-                                                     LocaleCode,
-                                                     Ipa
-                                                 )
-                                                 VALUES
-                                                 (
-                                                     @CanonicalWordId,
-                                                     @LocaleCode,
-                                                     @Ipa
-                                                 );
-                                             END
-                                             """;
+                    int affected;
 
-                    var affected =
-                        await conn.ExecuteAsync(
-                            new CommandDefinition(
-                                insertSql,
-                                new
-                                {
-                                    row.CanonicalWordId,
-                                    LocaleCode = locale,
-                                    Ipa = normalizedIpa
-                                },
-                                cancellationToken: ct));
+                    try
+                    {
+                        affected = await repo.InsertCanonicalWordPronunciationIfMissingAsync(
+                            row.CanonicalWordId,
+                            locale,
+                            normalizedIpa,
+                            ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch
+                    {
+                        skipped++;
+                        continue;
+                    }
 
                     if (affected > 0)
                         inserted++;
@@ -304,6 +381,81 @@ namespace DictionaryImporter.Infrastructure.PostProcessing
                 candidates,
                 inserted,
                 skipped);
+        }
+
+        // ============================================================
+        // NEW METHODS (added)
+        // ============================================================
+
+        private static string? TryReadPropertyAsString(object obj, string propertyName)
+        {
+            if (obj is null || string.IsNullOrWhiteSpace(propertyName))
+                return null;
+
+            try
+            {
+                var prop = obj.GetType().GetProperty(propertyName);
+                var value = prop?.GetValue(obj);
+
+                return value is string s && !string.IsNullOrWhiteSpace(s)
+                    ? s.Trim()
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static decimal TryReadPropertyAsDecimal(object obj, string propertyName)
+        {
+            if (obj is null || string.IsNullOrWhiteSpace(propertyName))
+                return 0;
+
+            try
+            {
+                var prop = obj.GetType().GetProperty(propertyName);
+                var value = prop?.GetValue(obj);
+
+                if (value is null)
+                    return 0;
+
+                if (value is decimal d)
+                    return d;
+
+                if (value is double db)
+                    return (decimal)db;
+
+                if (value is float f)
+                    return (decimal)f;
+
+                if (value is int i)
+                    return i;
+
+                if (value is long l)
+                    return l;
+
+                if (decimal.TryParse(value.ToString(), out var parsed))
+                    return parsed;
+
+                return 0;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        private static int NormalizeConfidenceToPercent(decimal confidence)
+        {
+            // If inferer returns 0..1, scale to 0..100
+            if (confidence >= 0m && confidence <= 1m)
+                confidence = confidence * 100m;
+
+            if (confidence < 0m) confidence = 0m;
+            if (confidence > 100m) confidence = 100m;
+
+            return (int)Math.Round(confidence, MidpointRounding.AwayFromZero);
         }
     }
 }
