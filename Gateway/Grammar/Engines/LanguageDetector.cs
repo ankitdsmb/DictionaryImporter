@@ -14,7 +14,7 @@ namespace DictionaryImporter.Gateway.Grammar.Engines
                 // File must exist in output folder
                 var profilePath = Path.Combine(
                     AppContext.BaseDirectory,
-                    "AITextKit",
+                    "Gateway",
                     "Grammar",
                     "Configuration",
                     "Core14.profile.xml"

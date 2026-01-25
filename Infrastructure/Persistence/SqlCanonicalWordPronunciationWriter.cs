@@ -1,15 +1,13 @@
-﻿using System;
-using System.Text.RegularExpressions;
+﻿using DictionaryImporter.Common;
 using System.Threading;
 using System.Threading.Tasks;
-using Dapper;
-using DictionaryImporter.Common;
-using Microsoft.Data.SqlClient;
 
 namespace DictionaryImporter.Infrastructure.Persistence
 {
-    public sealed class SqlCanonicalWordPronunciationWriter(string connectionString)
+    public sealed class SqlCanonicalWordPronunciationWriter(ISqlStoredProcedureExecutor sp)
     {
+        private readonly ISqlStoredProcedureExecutor _sp = sp;
+
         public async Task WriteIfNotExistsAsync(
             long canonicalWordId,
             string localeCode,
@@ -19,63 +17,27 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (canonicalWordId <= 0)
                 return;
 
-            if (string.IsNullOrWhiteSpace(localeCode))
+            var normalizedLocale = SqlRepositoryHelper.NormalizeLocaleCodeOrNull(localeCode);
+            if (string.IsNullOrWhiteSpace(normalizedLocale))
                 return;
 
-            localeCode = Helper.NormalizeLocaleCode(localeCode);
-            if (string.IsNullOrWhiteSpace(localeCode))
+            var normalizedIpa = SqlRepositoryHelper.NormalizeIpaOrNull(ipa);
+            if (string.IsNullOrWhiteSpace(normalizedIpa))
                 return;
 
-            ipa = Helper.NormalizeIpa(ipa);
-
-            // If IPA becomes empty after normalization, skip (avoid junk rows)
-            if (string.IsNullOrWhiteSpace(ipa))
-                return;
-
-            const string sql = """
-                               IF NOT EXISTS (
-                                   SELECT 1
-                                   FROM dbo.CanonicalWordPronunciation WITH (NOLOCK)
-                                   WHERE CanonicalWordId = @CanonicalWordId
-                                     AND LocaleCode = @LocaleCode
-                                     AND Ipa = @Ipa
-                               )
-                               BEGIN
-                                   INSERT INTO dbo.CanonicalWordPronunciation
-                                   (
-                                       CanonicalWordId,
-                                       LocaleCode,
-                                       Ipa
-                                   )
-                                   VALUES
-                                   (
-                                       @CanonicalWordId,
-                                       @LocaleCode,
-                                       @Ipa
-                                   )
-                               END
-                               """;
-
-            try
+            await SqlRepositoryHelper.SafeExecuteAsync(async token =>
             {
-                await using var conn = new SqlConnection(connectionString);
-                await conn.OpenAsync(ct);
-
-                await conn.ExecuteAsync(
-                    new CommandDefinition(
-                        sql,
-                        new
-                        {
-                            CanonicalWordId = canonicalWordId,
-                            LocaleCode = localeCode,
-                            Ipa = ipa
-                        },
-                        cancellationToken: ct));
-            }
-            catch
-            {
-                // ✅ Never crash importer
-            }
+                await _sp.ExecuteAsync(
+                    "sp_CanonicalWordPronunciation_InsertIfMissing",
+                    new
+                    {
+                        CanonicalWordId = canonicalWordId,
+                        LocaleCode = normalizedLocale,
+                        Ipa = normalizedIpa
+                    },
+                    token,
+                    timeoutSeconds: 30);
+            }, ct);
         }
     }
 }

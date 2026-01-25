@@ -1,4 +1,6 @@
-﻿using DictionaryImporter.Gateway.Grammar.Core;
+﻿using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
+using DictionaryImporter.Gateway.Grammar.Core;
 using DictionaryImporter.Gateway.Grammar.Core.Models;
 using DictionaryImporter.Gateway.Grammar.Core.Results;
 using DictionaryImporter.Gateway.Grammar.Engines;
@@ -6,7 +8,7 @@ using DictionaryImporter.Gateway.Grammar.Engines;
 namespace DictionaryImporter.Gateway.Grammar.Correctors
 {
     public sealed class CustomRuleCorrectorAdapter(
-        CustomRuleEngine engine,
+        ICustomGrammarRuleEngine engineWrapper,
         ILogger<CustomRuleCorrectorAdapter> logger)
         : IGrammarCorrector
     {
@@ -14,9 +16,13 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
             RegexOptions.Compiled |
             RegexOptions.CultureInvariant;
 
+        private const int MaxAppliedCorrections = 200;
+
         // ✅ Cache compiled regex by pattern string
         private static readonly ConcurrentDictionary<string, Regex?> RegexCache =
             new(StringComparer.Ordinal);
+
+        private readonly CustomRuleEngine engine = engineWrapper.Engine;
 
         public Task<GrammarCheckResult> CheckAsync(
             string text,
@@ -62,10 +68,14 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
                 {
                     ct.ThrowIfCancellationRequested();
 
+                    if (applied.Count >= MaxAppliedCorrections)
+                        break;
+
                     if (!IsValid(rule))
                         continue;
 
-                    var replacement = rule.Replacement ?? string.Empty;
+                    if (!rule.Enabled)
+                        continue;
 
                     if (!IsLanguageApplicable(rule, languageCode))
                         continue;
@@ -78,7 +88,11 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
                         continue;
 
                     var before = current;
+                    var replacement = rule.Replacement ?? string.Empty;
                     var after = regex.Replace(before, replacement);
+
+                    if (string.IsNullOrWhiteSpace(after))
+                        continue;
 
                     if (string.Equals(after, before, StringComparison.Ordinal))
                         continue;
@@ -88,12 +102,11 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
                     applied.Add(new AppliedCorrection(
                         $"REGEX_{rule.Id}",
                         rule.Id,
-                        rule.Description ?? $"Regex replace: {rule.Pattern}",
-                        current,
+                        string.IsNullOrWhiteSpace(rule.Description)
+                            ? $"Regex replace: {rule.Pattern}"
+                            : rule.Description,
+                        after,
                         ClampConfidence(rule.Confidence)));
-
-                    rule.UsageCount++;
-                    rule.SuccessCount++;
                 }
 
                 return Task.FromResult(new GrammarCorrectionResult(
@@ -123,11 +136,13 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
             GrammarPatternRule rule,
             ILogger<CustomRuleCorrectorAdapter> logger)
         {
-            return RegexCache.GetOrAdd(rule.Pattern, pattern =>
+            var cacheKey = $"{rule.Pattern}||{(int)DefaultOptions}";
+
+            return RegexCache.GetOrAdd(cacheKey, _ =>
             {
                 try
                 {
-                    return new Regex(pattern, DefaultOptions);
+                    return new Regex(rule.Pattern, DefaultOptions);
                 }
                 catch (Exception ex)
                 {
@@ -202,6 +217,14 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
 
                 if (map.TryGetValue(key, out var existing))
                 {
+                    // Prefer enabled rule, then higher confidence, then lower priority
+                    if (existing.Enabled != r.Enabled)
+                    {
+                        if (r.Enabled)
+                            map[key] = r;
+                        continue;
+                    }
+
                     if (r.Confidence > existing.Confidence)
                         map[key] = r;
 
@@ -213,6 +236,7 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
 
             return map.Values
                 .OrderBy(r => CategoryPriority(r.Category))
+                .ThenBy(r => r.Priority)
                 .ThenByDescending(r => r.Confidence)
                 .ToList();
         }
@@ -230,6 +254,8 @@ namespace DictionaryImporter.Gateway.Grammar.Correctors
                 "CAPITALIZATION" => 5,
                 "SPELLING" => 6,
                 "GRAMMAR" => 7,
+                "STYLE" => 8,
+                "CLEANUP" => 9,
                 _ => 99
             };
         }

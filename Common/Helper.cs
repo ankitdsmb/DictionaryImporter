@@ -1,529 +1,229 @@
-﻿using DictionaryImporter.Core.Text;
+﻿using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Net;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading;
+using DictionaryImporter.Core.Text;
+using DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
+using HtmlAgilityPack;
+using Microsoft.Extensions.Logging;
+using NTextCat;
 
 namespace DictionaryImporter.Common
 {
     public static class Helper
     {
+        public const int MAX_RECORDS_PER_SOURCE = 10;
 
-        public const int MAX_RECORDS_PER_SOURCE = 1000;
+        // =====================================================================
+        // 1) REGEX (ALL AT TOP)
+        // =====================================================================
 
-        #region Bilingual / Non-English Preservation
+        private static readonly Regex RxWhitespace =
+            new(@"\s+", RegexOptions.Compiled);
 
-        private static readonly HashSet<string> BilingualSources = new(StringComparer.OrdinalIgnoreCase)
+        private static readonly Regex RxHasEnglishLetter =
+            new("[A-Za-z]", RegexOptions.Compiled);
+
+        private static readonly Regex RxHasCjk =
+            new(@"[\u4E00-\u9FFF]", RegexOptions.Compiled);
+
+        private static readonly Regex RxNonWordForNormalizedWord =
+            new(@"[^\p{L}\p{N}\s\-']", RegexOptions.Compiled);
+
+        private static readonly Regex RxNoiseLettersOnly =
+            new(@"[^\p{L}\s]", RegexOptions.Compiled);
+
+        private static readonly Regex RxIpaSlashBlock =
+            new(@"/[^/]+/", RegexOptions.Compiled);
+
+        private static readonly Regex RxEnglishOrthographicSyllableLine =
+            new(@"^\s*[A-Za-z]+(?:·[A-Za-z]+)+\s*", RegexOptions.Compiled);
+
+        private static readonly Regex RxLeadingPos =
+            new(
+                @"^\s*(n\.|v\.|a\.|adj\.|ad\.|adv\.|vt\.|vi\.|abbr\.)\s+",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled
+            );
+
+        private static readonly Regex RxOxfordLeadingDomain =
+            new(@"^\(([^)]+)\)", RegexOptions.Compiled);
+
+        private static readonly Regex RxGutenbergDomain =
+            new(@"[<\(]([^>)]+)[>\)]", RegexOptions.Compiled);
+
+        private static readonly Regex RxChnDomain =
+            new(@"〔([^〕]+)〕", RegexOptions.Compiled);
+
+        private static readonly Regex RxKaikkiDomainStrip =
+            new(@"[<>\(\)]", RegexOptions.Compiled);
+
+        private static readonly Regex RxDomainMarkerStrip =
+            new(@"^[\(\[【].+?[\)\]】]\s*", RegexOptions.Compiled);
+
+        private static readonly Regex RxCjkPunctuation =
+            new(@"[，。、；：！？【】（）《》〈〉「」『』]", RegexOptions.Compiled);
+
+        private static readonly Regex RxCjkBlocks =
+            new(@"[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]", RegexOptions.Compiled);
+
+        private static readonly Regex RxWordSanitizer =
+            new(@"[^A-Za-z'\-]", RegexOptions.Compiled);
+
+        private static readonly Regex RxOrthographicVowel =
+            new(@"[aeiouyAEIOUY]", RegexOptions.Compiled);
+
+        // IPA extraction / cleanup regex
+        private static readonly Regex RxIpaSlashCore =
+            new(@"/([^/]+)/", RegexOptions.Compiled);
+
+        private static readonly Regex RxIpaPresence =
+            new(@"[ˈˌɑ-ʊəɐɛɪɔʌθðŋʃʒʤʧɡɜɒɫɾɹɻʲ̃ː]", RegexOptions.Compiled);
+
+        private static readonly Regex RxIpaAllowedChars =
+            new(@"[^ˈˌɑ-ʊəɐɛɪɔʌθðŋʃʒʤʧɡɜɒɫɾɹɻʲ̃ː\. ]", RegexOptions.Compiled);
+
+        private static readonly Regex RxIpaReject =
+            new(@"^[0-9\s./:-]+$", RegexOptions.Compiled);
+
+        private static readonly Regex RxIpaProseReject =
+            new(@"\b(strong|weak|form|plural|singular)\b",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex RxIpaEditorialPunctuation =
+            new(@"[.,，]", RegexOptions.Compiled);
+
+        private static readonly Regex RxParen =
+            new(@"[\(\)]", RegexOptions.Compiled);
+
+        private static readonly Regex RxEdgeHyphen =
+            new(@"(^-)|(-$)", RegexOptions.Compiled);
+
+        private static readonly Regex RxIpaStress =
+            new(@"[ˈˌ]", RegexOptions.Compiled);
+
+        private static readonly Regex RxIpaVowelForStressInjection =
+            new(@"[ɑæɐəɛɪiɔʊuʌeɜ]", RegexOptions.Compiled);
+
+        private static readonly Regex RxIpaSyllableVowel =
+            new(@"[aeiouæɪʊəɐɑɔɛɜʌoøɒyɯɨɶ]", RegexOptions.Compiled);
+
+        private static readonly Regex RxIpaSyllableConsonant =
+            new(@"[bcdfghjklmnpqrstvwxyzθðʃʒŋ]", RegexOptions.Compiled);
+
+        private static readonly Regex RxIpaAmericanMarkers =
+            new(@"[ɹɑɚɝoʊ]", RegexOptions.Compiled);
+
+        private static readonly Regex RxIpaBritishMarkers =
+            new(@"[ɒəʊː]", RegexOptions.Compiled);
+
+        // =====================================================================
+        // 2) LOOKUPS / CONSTANT LISTS
+        // =====================================================================
+
+        private static readonly HashSet<string> BilingualSources =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                "ENG_CHN",
+                "CENTURY21",
+                "ENG_COLLINS"
+            };
+
+        private static readonly string[] DomainDefinitionIndicators =
         {
-            "ENG_CHN",
-            "CENTURY21",
-            "ENG_COLLINS"
+            "hours", "days", "weeks", "minutes", "seconds", "o'clock"
         };
 
-        public static bool ShouldPreserveNonEnglishText(string? sourceCode)
+        private static readonly HashSet<string> OrthographicDigraphConsonants =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                "ch", "sh", "th", "ph", "wh",
+                "ck", "ng", "gh", "gn", "kn", "wr",
+                "qu"
+            };
+
+        private static readonly string[] OrthographicStrongSuffixes =
         {
-            if (string.IsNullOrWhiteSpace(sourceCode))
-                return false;
+            "ation", "ition", "tation",
+            "tion", "sion",
+            "ture", "sure",
+            "cial", "tial", "cian", "gian",
+            "ment", "ness",
+            "able", "ible",
+            "ing", "edly", "ed",
+            "er", "est", "ly",
+            "ious", "eous", "uous",
+            "ative", "itive",
+            "ize", "ise",
+            "ate"
+        };
 
-            return BilingualSources.Contains(sourceCode);
-        }
+        // =====================================================================
+        // 4) CORE NORMALIZATION (Shared building blocks)
+        // =====================================================================
 
-        public static string PreserveBilingualContent(string text, string sourceCode)
+        private static string NormalizeWhitespace(string text)
         {
             if (string.IsNullOrWhiteSpace(text))
                 return text;
 
-            if (!ShouldPreserveNonEnglishText(sourceCode))
-                return text;
+            return RxWhitespace.Replace(text, " ").Trim();
+        }
 
-            var t = text;
+        private static string NormalizeHtmlToPlainText(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+                return input;
 
+            var t = input;
+
+            // decode entities first (helps HtmlAgilityPack)
             if (t.Contains('&'))
                 t = WebUtility.HtmlDecode(t);
 
-            t = Regex.Replace(t, @"\s+", " ").Trim();
-
-            return t;
-        }
-
-        #endregion
-
-        #region Entry Validation (Definition Normalization)
-
-        public static string NormalizeDefinitionForSource(string definition, string sourceCode)
-        {
-            if (string.IsNullOrWhiteSpace(definition))
-                return definition;
-
-            if (ShouldPreserveNonEnglishText(sourceCode))
-                return PreserveBilingualContent(definition, sourceCode);
-
-            return NormalizeDefinition(definition);
-        }
-
-        public static string NormalizeDefinition(string definition, string? sourceCode = null)
-        {
-            if (string.IsNullOrWhiteSpace(definition))
-                return definition;
-
-            if (!string.IsNullOrWhiteSpace(sourceCode))
-                return NormalizeDefinitionForSource(definition, sourceCode);
-
-            var normalized = definition
-                .Replace("\r", " ")
-                .Replace("\n", " ")
-                .Trim();
-
-            normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
-
-            return normalized;
-        }
-
-        #endregion
-
-        #region Shared Validation and Extraction
-
-        public static string NormalizeWordWithSourceContext(string word, string sourceCode)
-        {
-            return NormalizeWordPreservingLanguage(word, sourceCode);
-        }
-
-        public static string? ExtractJsonString(JsonElement element, string propertyName)
-        {
-            if (element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String)
+            // HtmlAgilityPack (robust to broken HTML)
+            try
             {
-                var value = property.GetString();
-                return !string.IsNullOrWhiteSpace(value) ? value : null;
-            }
-
-            return null;
-        }
-
-        public static JsonElement.ArrayEnumerator? ExtractJsonArray(JsonElement element, string propertyName)
-        {
-            if (element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.Array)
-                return property.EnumerateArray();
-
-            return null;
-        }
-
-        public static bool ContainsLanguageMarker(string text, params string[] languages)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return false;
-
-            foreach (var language in languages)
-            {
-                if (text.Contains(language, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-
-            return false;
-        }
-
-        #endregion
-
-        #region Source Processing Control
-
-        private static readonly ConcurrentDictionary<string, ProcessingState> _sourceProcessingState =
-            new(StringComparer.OrdinalIgnoreCase);
-
-        private sealed class ProcessingState
-        {
-            public int Count;
-            public int LimitReachedLogged;
-        }
-
-        public static bool ShouldContinueProcessing(string sourceCode, ILogger? logger = null)
-        {
-            if (string.IsNullOrWhiteSpace(sourceCode))
-                return false;
-
-            var state = _sourceProcessingState.GetOrAdd(sourceCode, _ => new ProcessingState());
-
-            if (Volatile.Read(ref state.Count) >= MAX_RECORDS_PER_SOURCE)
-            {
-                LogLimitOnce(logger, sourceCode);
-                return false;
-            }
-
-            var newCount = Interlocked.Increment(ref state.Count);
-
-            if (newCount > MAX_RECORDS_PER_SOURCE)
-            {
-                LogLimitOnce(logger, sourceCode);
-                return false;
-            }
-
-            return true;
-        }
-
-        private static void LogLimitOnce(ILogger? logger, string sourceCode)
-        {
-            if (logger == null)
-                return;
-
-            var state = _sourceProcessingState.GetOrAdd(sourceCode, _ => new ProcessingState());
-
-            if (Volatile.Read(ref state.LimitReachedLogged) == 0)
-            {
-                if (Interlocked.Exchange(ref state.LimitReachedLogged, 1) == 0)
+                var doc = new HtmlDocument
                 {
-                    logger.LogInformation(
-                        "Reached maximum of {MaxRecords} records for {Source} source",
-                        MAX_RECORDS_PER_SOURCE, sourceCode);
-                }
+                    OptionFixNestedTags = true,
+                    OptionAutoCloseOnEnd = true
+                };
+
+                doc.LoadHtml(t);
+
+                var plain = doc.DocumentNode?.InnerText ?? t;
+                return NormalizeWhitespace(plain);
+            }
+            catch
+            {
+                // safe fallback
+                return NormalizeWhitespace(t);
             }
         }
 
-        public static void ResetProcessingState(string sourceCode)
-        {
-            if (string.IsNullOrWhiteSpace(sourceCode))
-                return;
-
-            _sourceProcessingState.TryRemove(sourceCode, out _);
-        }
-
-        public static int GetCurrentCount(string sourceCode)
-        {
-            return _sourceProcessingState.TryGetValue(sourceCode, out var state) ? state.Count : 0;
-        }
-
-        #endregion
-
-        #region Webster and General Parser
-
-        public static string? ExtractSection(string definition, string marker)
-        {
-            if (string.IsNullOrWhiteSpace(definition))
-                return null;
-
-            if (string.IsNullOrWhiteSpace(marker))
-                return null;
-
-            var startIndex = definition.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-            if (startIndex < 0)
-                return null;
-
-            startIndex += marker.Length;
-
-            var endIndex = definition.IndexOf("【", startIndex, StringComparison.Ordinal);
-            if (endIndex < 0)
-                endIndex = definition.Length;
-
-            return definition.Substring(startIndex, endIndex - startIndex).Trim();
-        }
-
-        #endregion
-
-        #region Helper Creation
-
-        public static ParsedDefinition CreateFallbackParsedDefinition(DictionaryEntry entry)
-        {
-            return new ParsedDefinition
-            {
-                MeaningTitle = entry?.Word ?? "unnamed sense",
-                Definition = entry?.Definition ?? string.Empty,
-                RawFragment = entry?.RawFragment ?? string.Empty,
-                SenseNumber = entry?.SenseNumber ?? 1,
-                Domain = null,
-                UsageLabel = null,
-                CrossReferences = new List<CrossReference>(),
-                Synonyms = new List<string>(),
-                Alias = null
-            };
-        }
-
-        #endregion
-
-        #region Logging and Error Handling
-
-        public static void LogProgress(ILogger logger, string sourceCode, int count)
-        {
-            if (logger == null)
-                return;
-
-            if (count % 10 == 0)
-            {
-                logger.LogInformation(
-                    "{Source} processing progress: {Count} records processed",
-                    sourceCode, count);
-            }
-        }
-
-        public static void HandleError(ILogger logger, Exception ex, string sourceCode, string operation)
-        {
-            logger.LogError(ex, "Error {Operation} for {Source} entry", operation, sourceCode);
-            ResetProcessingState(sourceCode);
-        }
-
-        #endregion
-
-        #region Domain Extraction
-
-        public static string? ExtractProperDomain(string sourceCode, string? rawDomain, string definition)
-        {
-            if (string.IsNullOrWhiteSpace(rawDomain))
-                return null;
-
-            var domain = rawDomain.Trim();
-
-            switch (sourceCode)
-            {
-                case "ENG_OXFORD":
-                    var oxfordMatch = Regex.Match(definition ?? string.Empty, @"^\(([^)]+)\)");
-                    if (oxfordMatch.Success)
-                    {
-                        var oxfordDomain = oxfordMatch.Groups[1].Value.Trim();
-                        oxfordDomain = oxfordDomain.Split('.')[0].Trim();
-                        return oxfordDomain.Length <= 100 ? oxfordDomain : oxfordDomain.Substring(0, 100);
-                    }
-                    return null;
-
-                case "ENG_COLLINS":
-                    if (domain.StartsWith("【语域标签】：", StringComparison.OrdinalIgnoreCase))
-                    {
-                        domain = domain.Substring("【语域标签】：".Length).Trim();
-
-                        var parts = domain.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                        if (parts.Length > 0)
-                            return parts[0].Trim();
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(definition))
-                    {
-                        if (definition.Contains("主美") || definition.Contains("美式")) return "US";
-                        if (definition.Contains("主英") || definition.Contains("英式")) return "UK";
-                        if (definition.Contains("正式")) return "FORMAL";
-                        if (definition.Contains("非正式")) return "INFORMAL";
-                    }
-
-                    return null;
-
-                case "STRUCT_JSON":
-                case "KAIKKI":
-                    domain = Regex.Replace(domain, @"[<>\(\)]", "").Trim();
-                    return domain.Length <= 50 ? domain : domain.Substring(0, 50);
-
-                case "GUT_WEBSTER":
-                    var gutenbergMatch = Regex.Match(domain, @"[<\(]([^>)]+)[>\)]");
-                    if (gutenbergMatch.Success)
-                        return gutenbergMatch.Groups[1].Value.Trim().TrimEnd('.');
-
-                    return null;
-
-                case "CENTURY21":
-                    return null;
-
-                case "ENG_CHN":
-                    var chnMatch = Regex.Match(definition ?? string.Empty, @"〔([^〕]+)〕");
-                    if (chnMatch.Success)
-                        return chnMatch.Groups[1].Value.Trim();
-                    return null;
-
-                default:
-                    return CleanDomainGeneric(domain);
-            }
-        }
-
-        private static string? CleanDomainGeneric(string domain)
-        {
-            if (string.IsNullOrWhiteSpace(domain))
-                return null;
-
-            domain = domain.Trim();
-
-            if (domain.Length > 100)
-                return null;
-
-            var definitionIndicators = new[] { "hours", "days", "weeks", "minutes", "seconds", "o'clock" };
-            if (definitionIndicators.Any(ind => domain.Contains(ind, StringComparison.OrdinalIgnoreCase)))
-                return null;
-
-            domain = Regex.Replace(domain, @"[\u4e00-\u9fff]", "").Trim();
-
-            return string.IsNullOrWhiteSpace(domain) ? null : domain;
-        }
-
-        #endregion
-
-        #region Regex Patterns
-
-        private static readonly Regex HasEnglishLetter = new("[A-Za-z]", RegexOptions.Compiled);
-        private static readonly Regex IpaRegex = new(@"/[^/]+/", RegexOptions.Compiled);
-        private static readonly Regex EnglishSyllableRegex = new(@"^\s*[A-Za-z]+(?:·[A-Za-z]+)+\s*", RegexOptions.Compiled);
-
-        private static readonly Regex PosRegex = new(
-            @"^\s*(n\.|v\.|a\.|adj\.|ad\.|adv\.|vt\.|vi\.|abbr\.)\s+",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        #endregion
-
-        #region Headword Detection
-
-        public static bool IsHeadword(string line, int maxLength = 40, bool requireUppercase = true)
-        {
-            if (string.IsNullOrWhiteSpace(line))
-                return false;
-
-            var text = line.Trim();
-
-            if (text.Length > maxLength)
-                return false;
-
-            if (requireUppercase && !text.Equals(text.ToUpperInvariant(), StringComparison.Ordinal))
-                return false;
-
-            if (!text.Any(char.IsLetter))
-                return false;
-
-            return true;
-        }
-
-        public static bool ContainsEnglishLetters(string text)
-        {
-            return !string.IsNullOrWhiteSpace(text) && HasEnglishLetter.IsMatch(text);
-        }
-
-        #endregion
-
-        #region Text Cleaning and Normalization
-
-        public static string RemoveIpaMarkers(string text)
+        private static string RemoveDiacritics(string text)
         {
             if (string.IsNullOrWhiteSpace(text))
                 return text;
 
-            return IpaRegex.Replace(text, string.Empty);
-        }
+            var normalizedString = text.Normalize(NormalizationForm.FormD);
 
-        public static string RemoveSyllableMarkers(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return text;
+            var sb = new StringBuilder(normalizedString.Length);
 
-            return EnglishSyllableRegex.Replace(text, string.Empty);
-        }
-
-        public static string RemovePosMarkers(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return text;
-
-            return PosRegex.Replace(text, string.Empty);
-        }
-
-        public static string RemoveHeadwordFromDefinition(string definition, string headword)
-        {
-            if (string.IsNullOrWhiteSpace(definition) || string.IsNullOrWhiteSpace(headword))
-                return definition ?? string.Empty;
-
-            var escapedHeadword = Regex.Escape(headword);
-
-            return Regex.Replace(
-                definition,
-                @"^\s*" + escapedHeadword + @"\s+",
-                string.Empty,
-                RegexOptions.IgnoreCase);
-        }
-
-        public static string RemoveSeparators(string text, params char[] separators)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return text;
-
-            var result = text;
-
-            foreach (var separator in separators)
-                result = result.Replace(separator.ToString(), string.Empty);
-
-            return result;
-        }
-
-        public static string NormalizeWhitespace(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return text;
-
-            return Regex.Replace(text, @"\s+", " ").Trim();
-        }
-
-        public static string CleanDefinition(string definition, string? headword = null, params char[] separators)
-        {
-            if (string.IsNullOrWhiteSpace(definition))
-                return definition ?? string.Empty;
-
-            var cleaned = definition;
-
-            bool hasChineseChars = Regex.IsMatch(definition, @"[\u4E00-\u9FFF]");
-            bool hasBilingualMarkers =
-                definition.Contains('【') || definition.Contains('】') ||
-                definition.Contains('•') || definition.Contains('⬄');
-
-            if (hasChineseChars || hasBilingualMarkers)
+            foreach (var c in normalizedString)
             {
-                cleaned = Regex.Replace(cleaned, @"<[^>]+>", " ");
-                cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
-                return cleaned;
+                var category = CharUnicodeInfo.GetUnicodeCategory(c);
+                if (category != UnicodeCategory.NonSpacingMark)
+                    sb.Append(c);
             }
 
-            cleaned = RemoveIpaMarkers(cleaned);
-            cleaned = RemoveSyllableMarkers(cleaned);
-            cleaned = RemovePosMarkers(cleaned);
-
-            if (!string.IsNullOrWhiteSpace(headword))
-                cleaned = RemoveHeadwordFromDefinition(cleaned, headword);
-
-            if (separators != null && separators.Length > 0)
-                cleaned = RemoveSeparators(cleaned, separators);
-
-            cleaned = NormalizeWhitespace(cleaned);
-
-            return cleaned;
-        }
-
-        #endregion
-
-        #region Word Normalization
-
-        public static string NormalizeWord(string? word)
-        {
-            if (string.IsNullOrWhiteSpace(word))
-                return string.Empty;
-
-            var normalized = word.ToLowerInvariant();
-
-            normalized = NormalizeAllDashCharacters(normalized);
-
-            var formattingChars = new[] { "★", "☆", "●", "○", "▶", "【", "】" };
-            foreach (var ch in formattingChars)
-                normalized = normalized.Replace(ch, "");
-
-            normalized = RemoveDiacritics(normalized);
-
-            normalized = Regex.Replace(normalized, @"[^\p{L}\p{N}\s\-']", " ");
-            normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
-
-            return normalized;
-        }
-
-        public static string NormalizeWordPreservingLanguage(string? word, string sourceCode)
-        {
-            if (string.IsNullOrWhiteSpace(word))
-                return string.Empty;
-
-            var normalized = word.Trim();
-
-            normalized = NormalizeAllDashCharacters(normalized);
-
-            if (ShouldPreserveNonEnglishText(sourceCode))
-            {
-                var formattingChars = new[] { "★", "☆", "●", "○", "▶" };
-                foreach (var ch in formattingChars)
-                    normalized = normalized.Replace(ch, "");
-
-                return Regex.Replace(normalized, @"\s+", " ").Trim();
-            }
-
-            return NormalizeWord(normalized);
+            return sb.ToString().Normalize(NormalizationForm.FormC);
         }
 
         private static string NormalizeAllDashCharacters(string text)
@@ -533,7 +233,7 @@ namespace DictionaryImporter.Common
 
             var result = new StringBuilder(text.Length);
 
-            foreach (char c in text)
+            foreach (var c in text)
             {
                 switch (c)
                 {
@@ -579,27 +279,551 @@ namespace DictionaryImporter.Common
             return result.ToString();
         }
 
-        private static string RemoveDiacritics(string text)
+        // =====================================================================
+        // 5) Bilingual / Non-English Preservation
+        // =====================================================================
+
+        public static bool ShouldPreserveNonEnglishText(string? sourceCode)
+        {
+            if (string.IsNullOrWhiteSpace(sourceCode))
+                return false;
+
+            return BilingualSources.Contains(sourceCode);
+        }
+
+        public static string PreserveBilingualContent(string text, string sourceCode)
         {
             if (string.IsNullOrWhiteSpace(text))
                 return text;
 
-            var normalizedString = text.Normalize(NormalizationForm.FormD);
-            var sb = new StringBuilder();
+            if (!ShouldPreserveNonEnglishText(sourceCode))
+                return text;
 
-            foreach (var c in normalizedString)
-            {
-                var category = CharUnicodeInfo.GetUnicodeCategory(c);
-                if (category != UnicodeCategory.NonSpacingMark)
-                    sb.Append(c);
-            }
-
-            return sb.ToString().Normalize(NormalizationForm.FormC);
+            // Use HtmlAgilityPack here as well (Collins/CHN sources may carry HTML fragments)
+            return NormalizeHtmlToPlainText(text);
         }
 
-        #endregion
+        // =====================================================================
+        // 6) Definition Normalization
+        // =====================================================================
 
-        #region POS Normalization
+        public static string NormalizeDefinitionForSource(string definition, string sourceCode)
+        {
+            if (string.IsNullOrWhiteSpace(definition))
+                return definition;
+
+            if (ShouldPreserveNonEnglishText(sourceCode))
+                return PreserveBilingualContent(definition, sourceCode);
+
+            return NormalizeDefinition(definition);
+        }
+
+        public static string NormalizeDefinition(string definition, string? sourceCode = null)
+        {
+            if (string.IsNullOrWhiteSpace(definition))
+                return definition;
+
+            if (!string.IsNullOrWhiteSpace(sourceCode))
+                return NormalizeDefinitionForSource(definition, sourceCode);
+
+            // use HTML-safe normalization always (better than regex)
+            return NormalizeHtmlToPlainText(definition);
+        }
+
+        // =====================================================================
+        // 7) JSON Helpers
+        // =====================================================================
+
+        public static string? ExtractJsonString(JsonElement element, string propertyName)
+        {
+            if (element.TryGetProperty(propertyName, out var property) &&
+                property.ValueKind == JsonValueKind.String)
+            {
+                var value = property.GetString();
+                return !string.IsNullOrWhiteSpace(value) ? value : null;
+            }
+
+            return null;
+        }
+
+        public static JsonElement.ArrayEnumerator? ExtractJsonArray(JsonElement element, string propertyName)
+        {
+            if (element.TryGetProperty(propertyName, out var property) &&
+                property.ValueKind == JsonValueKind.Array)
+            {
+                return property.EnumerateArray();
+            }
+
+            return null;
+        }
+
+        // =====================================================================
+        // 8) Tokenization (Lightweight, no Lucene dependency)
+        // =====================================================================
+
+        public static IReadOnlyList<string> TokenizeWords(string? text, bool keepApostrophes = true)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return Array.Empty<string>();
+
+            var t = NormalizeWhitespace(text);
+
+            // Remove punctuation except apostrophe (optional)
+            if (keepApostrophes)
+            {
+                t = Regex.Replace(t, @"[^\p{L}\p{N}\s'\-]", " ");
+            }
+            else
+            {
+                t = Regex.Replace(t, @"[^\p{L}\p{N}\s\-]", " ");
+            }
+
+            t = NormalizeWhitespace(t);
+
+            if (t.Length == 0)
+                return Array.Empty<string>();
+
+            return t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        }
+
+        // =====================================================================
+        // 9) Generic Text Checks
+        // =====================================================================
+
+        public static bool ContainsLanguageMarker(string text, params string[] languages)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            foreach (var language in languages)
+            {
+                if (text.Contains(language, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+
+        public static bool ContainsEnglishLetters(string text)
+        {
+            return !string.IsNullOrWhiteSpace(text) && RxHasEnglishLetter.IsMatch(text);
+        }
+
+        // =====================================================================
+        // 10) Source Processing Control
+        // =====================================================================
+
+        private static readonly ConcurrentDictionary<string, ProcessingState> _sourceProcessingState =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        private sealed class ProcessingState
+        {
+            public int Count;
+            public int LimitReachedLogged;
+        }
+
+        public static bool ShouldContinueProcessing(string sourceCode, ILogger? logger = null)
+        {
+            if (string.IsNullOrWhiteSpace(sourceCode))
+                return false;
+
+            var state = _sourceProcessingState.GetOrAdd(sourceCode, _ => new ProcessingState());
+
+            if (Volatile.Read(ref state.Count) >= MAX_RECORDS_PER_SOURCE)
+            {
+                LogLimitOnce(logger, sourceCode);
+                return false;
+            }
+
+            var newCount = Interlocked.Increment(ref state.Count);
+
+            if (newCount > MAX_RECORDS_PER_SOURCE)
+            {
+                LogLimitOnce(logger, sourceCode);
+                return false;
+            }
+
+            return true;
+        }
+
+        public static void ResetProcessingState(string sourceCode)
+        {
+            if (string.IsNullOrWhiteSpace(sourceCode))
+                return;
+
+            _sourceProcessingState.TryRemove(sourceCode, out _);
+        }
+
+        public static int GetCurrentCount(string sourceCode)
+        {
+            return _sourceProcessingState.TryGetValue(sourceCode, out var state)
+                ? state.Count
+                : 0;
+        }
+
+        private static void LogLimitOnce(ILogger? logger, string sourceCode)
+        {
+            if (logger == null)
+                return;
+
+            var state = _sourceProcessingState.GetOrAdd(sourceCode, _ => new ProcessingState());
+
+            if (Volatile.Read(ref state.LimitReachedLogged) != 0)
+                return;
+
+            if (Interlocked.Exchange(ref state.LimitReachedLogged, 1) != 0)
+                return;
+
+            logger.LogInformation(
+                "Reached maximum of {MaxRecords} records for {Source} source",
+                MAX_RECORDS_PER_SOURCE, sourceCode);
+        }
+
+        // =====================================================================
+        // 11) Webster and General Parser
+        // =====================================================================
+
+        public static string? ExtractSection(string definition, string marker)
+        {
+            if (string.IsNullOrWhiteSpace(definition))
+                return null;
+
+            if (string.IsNullOrWhiteSpace(marker))
+                return null;
+
+            var startIndex = definition.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (startIndex < 0)
+                return null;
+
+            startIndex += marker.Length;
+
+            var endIndex = definition.IndexOf("【", startIndex, StringComparison.Ordinal);
+            if (endIndex < 0)
+                endIndex = definition.Length;
+
+            return definition.Substring(startIndex, endIndex - startIndex).Trim();
+        }
+
+        // =====================================================================
+        // 12) Helper Creation
+        // =====================================================================
+
+        public static ParsedDefinition CreateFallbackParsedDefinition(DictionaryEntry entry)
+        {
+            return new ParsedDefinition
+            {
+                MeaningTitle = entry?.Word ?? "unnamed sense",
+                Definition = entry?.Definition ?? string.Empty,
+                RawFragment = entry?.RawFragment ?? string.Empty,
+                SenseNumber = entry?.SenseNumber ?? 1,
+                Domain = null,
+                UsageLabel = null,
+                CrossReferences = new List<CrossReference>(),
+                Synonyms = new List<string>(),
+                Alias = null
+            };
+        }
+
+        // =====================================================================
+        // 13) Logging and Error Handling
+        // =====================================================================
+
+        public static void LogProgress(ILogger logger, string sourceCode, int count)
+        {
+            if (logger == null)
+                return;
+
+            if (count % 10 != 0)
+                return;
+
+            logger.LogInformation(
+                "{Source} processing progress: {Count} records processed",
+                sourceCode, count);
+        }
+
+        public static void HandleError(ILogger logger, Exception ex, string sourceCode, string operation)
+        {
+            logger.LogError(ex, "Error {Operation} for {Source} entry", operation, sourceCode);
+            ResetProcessingState(sourceCode);
+        }
+
+        // =====================================================================
+        // 14) Domain Extraction
+        // =====================================================================
+
+        public static string? ExtractProperDomain(string sourceCode, string? rawDomain, string definition)
+        {
+            if (string.IsNullOrWhiteSpace(rawDomain))
+                return null;
+
+            var domain = rawDomain.Trim();
+
+            switch (sourceCode)
+            {
+                case "ENG_OXFORD":
+                    return ExtractOxfordDomain(definition);
+
+                case "ENG_COLLINS":
+                    return ExtractCollinsDomain(domain, definition);
+
+                case "STRUCT_JSON":
+                case "KAIKKI":
+                    domain = RxKaikkiDomainStrip.Replace(domain, "").Trim();
+                    return domain.Length <= 50 ? domain : domain.Substring(0, 50);
+
+                case "GUT_WEBSTER":
+                    return ExtractGutenbergDomain(domain);
+
+                case "CENTURY21":
+                    return null;
+
+                case "ENG_CHN":
+                    return ExtractChnDomain(definition);
+
+                default:
+                    return CleanDomainGeneric(domain);
+            }
+        }
+
+        private static string? ExtractOxfordDomain(string definition)
+        {
+            var oxfordMatch = RxOxfordLeadingDomain.Match(definition ?? string.Empty);
+            if (!oxfordMatch.Success)
+                return null;
+
+            var oxfordDomain = oxfordMatch.Groups[1].Value.Trim();
+            oxfordDomain = oxfordDomain.Split('.')[0].Trim();
+
+            return oxfordDomain.Length <= 100
+                ? oxfordDomain
+                : oxfordDomain.Substring(0, 100);
+        }
+
+        private static string? ExtractCollinsDomain(string domain, string definition)
+        {
+            if (domain.StartsWith("【语域标签】：", StringComparison.OrdinalIgnoreCase))
+            {
+                domain = domain.Substring("【语域标签】：".Length).Trim();
+
+                var parts = domain.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length > 0)
+                    return parts[0].Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(definition))
+            {
+                if (definition.Contains("主美") || definition.Contains("美式")) return "US";
+                if (definition.Contains("主英") || definition.Contains("英式")) return "UK";
+                if (definition.Contains("正式")) return "FORMAL";
+                if (definition.Contains("非正式")) return "INFORMAL";
+            }
+
+            return null;
+        }
+
+        private static string? ExtractGutenbergDomain(string domain)
+        {
+            var gutenbergMatch = RxGutenbergDomain.Match(domain);
+            if (!gutenbergMatch.Success)
+                return null;
+
+            return gutenbergMatch.Groups[1].Value.Trim().TrimEnd('.');
+        }
+
+        private static string? ExtractChnDomain(string definition)
+        {
+            var chnMatch = RxChnDomain.Match(definition ?? string.Empty);
+            if (!chnMatch.Success)
+                return null;
+
+            return chnMatch.Groups[1].Value.Trim();
+        }
+
+        private static string? CleanDomainGeneric(string domain)
+        {
+            if (string.IsNullOrWhiteSpace(domain))
+                return null;
+
+            domain = domain.Trim();
+
+            if (domain.Length > 100)
+                return null;
+
+            if (DomainDefinitionIndicators.Any(ind => domain.Contains(ind, StringComparison.OrdinalIgnoreCase)))
+                return null;
+
+            domain = RxHasCjk.Replace(domain, "").Trim();
+
+            return string.IsNullOrWhiteSpace(domain) ? null : domain;
+        }
+
+        // =====================================================================
+        // 15) Headword Detection
+        // =====================================================================
+
+        public static bool IsHeadword(string line, int maxLength = 40, bool requireUppercase = true)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                return false;
+
+            var text = line.Trim();
+
+            if (text.Length > maxLength)
+                return false;
+
+            if (requireUppercase && !text.Equals(text.ToUpperInvariant(), StringComparison.Ordinal))
+                return false;
+
+            if (!text.Any(char.IsLetter))
+                return false;
+
+            return true;
+        }
+
+        // =====================================================================
+        // 16) Definition Cleaning helpers
+        // =====================================================================
+
+        public static string RemoveIpaMarkers(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return text;
+
+            return RxIpaSlashBlock.Replace(text, string.Empty);
+        }
+
+        public static string RemoveSyllableMarkers(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return text;
+
+            return RxEnglishOrthographicSyllableLine.Replace(text, string.Empty);
+        }
+
+        public static string RemovePosMarkers(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return text;
+
+            return RxLeadingPos.Replace(text, string.Empty);
+        }
+
+        public static string RemoveHeadwordFromDefinition(string definition, string headword)
+        {
+            if (string.IsNullOrWhiteSpace(definition) || string.IsNullOrWhiteSpace(headword))
+                return definition ?? string.Empty;
+
+            var escapedHeadword = Regex.Escape(headword);
+
+            return Regex.Replace(
+                definition,
+                @"^\s*" + escapedHeadword + @"\s+",
+                string.Empty,
+                RegexOptions.IgnoreCase);
+        }
+
+        public static string RemoveSeparators(string text, params char[] separators)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return text;
+
+            var result = text;
+
+            foreach (var separator in separators)
+                result = result.Replace(separator.ToString(), string.Empty);
+
+            return result;
+        }
+
+        public static string CleanDefinition(string definition, string? headword = null, params char[] separators)
+        {
+            if (string.IsNullOrWhiteSpace(definition))
+                return definition ?? string.Empty;
+
+            // BEST: HTML safe cleanup first, THEN other removals
+            var cleaned = NormalizeHtmlToPlainText(definition);
+
+            var hasBilingualMarkers =
+                cleaned.Contains('【') || cleaned.Contains('】') ||
+                cleaned.Contains('•') || cleaned.Contains('⬄');
+
+            if (RxHasCjk.IsMatch(cleaned) || hasBilingualMarkers)
+            {
+                // preserve structure, just normalize whitespace
+                cleaned = NormalizeWhitespace(cleaned);
+            }
+            else
+            {
+                cleaned = RemoveIpaMarkers(cleaned);
+                cleaned = RemoveSyllableMarkers(cleaned);
+                cleaned = RemovePosMarkers(cleaned);
+
+                if (!string.IsNullOrWhiteSpace(headword))
+                    cleaned = RemoveHeadwordFromDefinition(cleaned, headword);
+
+                if (separators != null && separators.Length > 0)
+                    cleaned = RemoveSeparators(cleaned, separators);
+
+                cleaned = NormalizeWhitespace(cleaned);
+            }
+
+            return cleaned;
+        }
+
+        // =====================================================================
+        // 17) Word Normalization
+        // =====================================================================
+
+        public static string NormalizeWordWithSourceContext(string word, string sourceCode)
+        {
+            return NormalizeWordPreservingLanguage(word, sourceCode);
+        }
+
+        public static string NormalizeWord(string? word)
+        {
+            if (string.IsNullOrWhiteSpace(word))
+                return string.Empty;
+
+            var normalized = word.ToLowerInvariant();
+
+            normalized = NormalizeAllDashCharacters(normalized);
+
+            var formattingChars = new[] { "★", "☆", "●", "○", "▶", "【", "】" };
+            foreach (var ch in formattingChars)
+                normalized = normalized.Replace(ch, "");
+
+            normalized = RemoveDiacritics(normalized);
+
+            normalized = RxNonWordForNormalizedWord.Replace(normalized, " ");
+            normalized = NormalizeWhitespace(normalized);
+
+            return normalized;
+        }
+
+        public static string NormalizeWordPreservingLanguage(string? word, string sourceCode)
+        {
+            if (string.IsNullOrWhiteSpace(word))
+                return string.Empty;
+
+            var normalized = word.Trim();
+
+            normalized = NormalizeAllDashCharacters(normalized);
+
+            if (ShouldPreserveNonEnglishText(sourceCode))
+            {
+                var formattingChars = new[] { "★", "☆", "●", "○", "▶" };
+                foreach (var ch in formattingChars)
+                    normalized = normalized.Replace(ch, "");
+
+                return NormalizeWhitespace(normalized);
+            }
+
+            return NormalizeWord(normalized);
+        }
+
+        // =====================================================================
+        // 18) POS Normalization
+        // =====================================================================
 
         public static string NormalizePartOfSpeech(string? pos)
         {
@@ -631,8 +855,9 @@ namespace DictionaryImporter.Common
             };
         }
 
-        #endregion
-
+        // =====================================================================
+        // 19) Synonym Normalization
+        // =====================================================================
 
         public static string NormalizeSynonymText(string? synonymText)
         {
@@ -641,26 +866,25 @@ namespace DictionaryImporter.Common
 
             var t = synonymText.Trim();
 
-            // Never store placeholders
             if (t.Equals("[NON_ENGLISH]", StringComparison.OrdinalIgnoreCase))
                 return string.Empty;
 
-            t = Regex.Replace(t, @"\s+", " ").Trim();
+            t = NormalizeWhitespace(t);
 
             t = t.Trim('\"', '\'', '“', '”', '‘', '’', '.', ',', ';', ':', '!', '?');
 
             if (t.Length > 80)
                 t = t.Substring(0, 80).Trim();
 
-            // Keep original behavior: only accept English synonyms
-            if (!Regex.IsMatch(t, @"[A-Za-z]"))
+            if (!RxHasEnglishLetter.IsMatch(t))
                 return string.Empty;
 
             return t;
         }
 
-        private static readonly Regex Noise =
-            new(@"[^\p{L}\s]", RegexOptions.Compiled);
+        // =====================================================================
+        // 20) Simple Language Utilities
+        // =====================================================================
 
         public static string LanguageDetect(string? text)
         {
@@ -673,6 +897,7 @@ namespace DictionaryImporter.Common
 
             return "en";
         }
+
         public static string NormalizedWordSanitize(string input, string language)
         {
             if (string.IsNullOrWhiteSpace(input))
@@ -682,10 +907,8 @@ namespace DictionaryImporter.Common
                 return input.Trim();
 
             var text = input.ToLowerInvariant();
-            text = Noise.Replace(text, " ");
-            text = Regex.Replace(text, @"\s+", " ").Trim();
-
-            return text;
+            text = RxNoiseLettersOnly.Replace(text, " ");
+            return NormalizeWhitespace(text);
         }
 
         public static bool IsCanonicalEligible(string normalized)
@@ -702,7 +925,10 @@ namespace DictionaryImporter.Common
             return true;
         }
 
-        // NEW METHOD (added)  --  SqlCanonicalWordPronunciationWriter
+        // =====================================================================
+        // 21) Locale + IPA normalization
+        // =====================================================================
+
         public static string NormalizeLocaleCode(string localeCode)
         {
             if (string.IsNullOrWhiteSpace(localeCode))
@@ -710,7 +936,6 @@ namespace DictionaryImporter.Common
 
             var t = localeCode.Trim();
 
-            // keep it simple and stable
             t = t.Replace('_', '-');
 
             if (t.Length > 15)
@@ -719,7 +944,6 @@ namespace DictionaryImporter.Common
             return t;
         }
 
-        // NEW METHOD (added)  --  SqlCanonicalWordPronunciationWriter
         public static string NormalizeIpa(string? ipa)
         {
             if (string.IsNullOrWhiteSpace(ipa))
@@ -727,22 +951,18 @@ namespace DictionaryImporter.Common
 
             var t = ipa.Trim();
 
-            // remove wiki/template remnants if any
             t = t.Replace("[[", "").Replace("]]", "");
             t = t.Replace("{{", "").Replace("}}", "");
 
-            // collapse whitespace
-            t = Regex.Replace(t, @"\s+", " ").Trim();
+            t = NormalizeWhitespace(t);
 
-            // hard safety cap
             if (t.Length > 300)
                 t = t.Substring(0, 300).Trim();
 
-            // must contain at least something meaningful (IPA symbols are not only A-Z)
             if (t.Length < 2)
                 return string.Empty;
 
-            return t;
+            return IpaNormalize(t);
         }
 
         public static string IpaNormalize(string ipa)
@@ -755,6 +975,7 @@ namespace DictionaryImporter.Common
             var sb = new StringBuilder(ipa.Length);
 
             foreach (var ch in ipa)
+            {
                 switch (ch)
                 {
                     case ':':
@@ -780,89 +1001,48 @@ namespace DictionaryImporter.Common
                         sb.Append(ch);
                         break;
                 }
-
-            return sb
-                .ToString()
-                .Trim()
-                .Replace("  ", " ");
+            }
+            return NormalizeWhitespace(sb.ToString());
         }
-
-
-
+        // =====================================================================
+        // 22) CJK Helpers / Strippers
+        // =====================================================================
         public static class CjkPunctuationStripper
         {
-            private static readonly Regex CjkPunctuationRegex =
-                new(@"[，。、；：！？【】（）《》〈〉「」『』]",
-                    RegexOptions.Compiled);
-
             public static string RemoveCjkPunctuation(string input)
             {
                 if (string.IsNullOrWhiteSpace(input))
                     return input;
 
-                return CjkPunctuationRegex.Replace(input, string.Empty).Trim();
+                return RxCjkPunctuation.Replace(input, string.Empty).Trim();
             }
         }
         public static class CjkStripper
         {
-            private static readonly Regex CjkRegex =
-                new(@"[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]",
-                    RegexOptions.Compiled);
-
             public static string RemoveCjk(string input)
             {
                 if (string.IsNullOrWhiteSpace(input))
                     return input;
 
-                return CjkRegex.Replace(input, string.Empty).Trim();
+                return RxCjkBlocks.Replace(input, string.Empty).Trim();
             }
         }
+
         internal static class DomainMarkerStripper
         {
-            private static readonly Regex Marker =
-                new(@"^[\(\[【].+?[\)\]】]\s*", RegexOptions.Compiled);
-
             public static string Strip(string word)
             {
                 if (string.IsNullOrWhiteSpace(word))
                     return word;
 
-                return Marker.Replace(word, "").Trim();
+                return RxDomainMarkerStrip.Replace(word, "").Trim();
             }
         }
+        // =====================================================================
+        // 23) Generic IPA Extraction + Locale detection
+        // =====================================================================
         internal static class GenericIpaExtractor
         {
-            private static readonly Regex SlashBlockRegex =
-                new(@"/([^/]+)/", RegexOptions.Compiled);
-
-            private static readonly Regex IpaPresenceRegex =
-                new(@"[ˈˌɑ-ʊəɐɛɪɔʌθðŋʃʒʤʧɡɜɒɫɾɹɻʲ̃ː]",
-                    RegexOptions.Compiled);
-
-            private static readonly Regex IpaAllowedCharsRegex =
-                new(@"[^ˈˌɑ-ʊəɐɛɪɔʌθðŋʃʒʤʧɡɜɒɫɾɹɻʲ̃ː\. ]",
-                    RegexOptions.Compiled);
-
-            private static readonly Regex RejectRegex =
-                new(@"^[0-9\s./:-]+$", RegexOptions.Compiled);
-
-            private static readonly Regex ProseRegex =
-                new(@"\b(strong|weak|form|plural|singular)\b",
-                    RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-            private static readonly Regex EditorialPunctuationRegex =
-                new(@"[.,，]", RegexOptions.Compiled);
-
-            private static readonly Regex ParenthesesRegex =
-                new(@"[\(\)]", RegexOptions.Compiled);
-
-            private static readonly Regex EdgeHyphenRegex =
-                new(@"(^-)|(-$)", RegexOptions.Compiled);
-
-            /// <summary>
-            ///     Extracts DISTINCT IPA → Locale mappings.
-            ///     IPA is ALWAYS returned in canonical /.../ format.
-            /// </summary>
             public static IReadOnlyDictionary<string, string> ExtractIpaWithLocale(string? text)
             {
                 var result = new Dictionary<string, string>();
@@ -870,53 +1050,52 @@ namespace DictionaryImporter.Common
                 if (string.IsNullOrWhiteSpace(text))
                     return result;
 
-                var slashMatches = SlashBlockRegex.Matches(text);
+                var slashMatches = RxIpaSlashCore.Matches(text);
 
                 var candidates =
                     slashMatches.Count > 0
                         ? slashMatches.Select(m => m.Groups[1].Value)
-                        : [text];
+                        : new[] { text };
 
                 foreach (var raw in candidates)
                 {
                     if (string.IsNullOrWhiteSpace(raw))
                         continue;
 
-                    if (RejectRegex.IsMatch(raw))
+                    if (RxIpaReject.IsMatch(raw))
                         continue;
 
-                    if (ProseRegex.IsMatch(raw))
+                    if (RxIpaProseReject.IsMatch(raw))
                         continue;
 
-                    if (!IpaPresenceRegex.IsMatch(raw))
+                    if (!RxIpaPresence.IsMatch(raw))
                         continue;
 
                     var cleaned = raw;
 
                     cleaned = cleaned.Replace(":", "ː");
-                    cleaned = EditorialPunctuationRegex.Replace(cleaned, "");
-                    cleaned = ParenthesesRegex.Replace(cleaned, "");
-                    cleaned = IpaAllowedCharsRegex.Replace(cleaned, "");
-                    cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
+                    cleaned = RxIpaEditorialPunctuation.Replace(cleaned, "");
+                    cleaned = RxParen.Replace(cleaned, "");
+                    cleaned = RxIpaAllowedChars.Replace(cleaned, "");
+                    cleaned = NormalizeWhitespace(cleaned);
 
                     if (cleaned.Length == 0)
                         continue;
 
-                    var parts =
-                        cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    var parts = cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
                     foreach (var part in parts)
                     {
-                        var ipaCore =
-                            EdgeHyphenRegex.Replace(part.Trim(), "");
+                        var ipaCore = RxEdgeHyphen.Replace(part.Trim(), "");
 
                         if (ipaCore.Length == 0)
                             continue;
 
-                        if (!IpaPresenceRegex.IsMatch(ipaCore))
+                        if (!RxIpaPresence.IsMatch(ipaCore))
                             continue;
 
-                        var canonicalIpa = IpaAutoStressNormalizer.Normalize($"/{ipaCore}/");
+                        var canonicalIpa =
+                            IpaAutoStressNormalizer.Normalize($"/{ipaCore}/");
 
                         if (result.ContainsKey(canonicalIpa))
                             continue;
@@ -927,36 +1106,22 @@ namespace DictionaryImporter.Common
                         var systemLocale =
                             IpaLocaleDetector.MapToSystemLocale(detectedLocale);
 
-                        if (!string.IsNullOrWhiteSpace(systemLocale)) result.Add(canonicalIpa, systemLocale);
+                        if (!string.IsNullOrWhiteSpace(systemLocale))
+                            result.Add(canonicalIpa, systemLocale);
                     }
                 }
-
                 return result;
             }
-
-            /// <summary>
-            ///     Removes all slash-enclosed IPA blocks from text.
-            /// </summary>
             public static string RemoveAll(string text)
             {
                 if (string.IsNullOrWhiteSpace(text))
                     return text;
 
-                return SlashBlockRegex.Replace(text, "").Trim();
+                return RxIpaSlashCore.Replace(text, "").Trim();
             }
         }
         internal static class IpaAutoStressNormalizer
         {
-            private static readonly Regex StressRegex =
-                new(@"[ˈˌ]", RegexOptions.Compiled);
-
-            private static readonly Regex VowelRegex =
-                new(@"[ɑæɐəɛɪiɔʊuʌeɜ]", RegexOptions.Compiled);
-
-            /// <summary>
-            ///     Injects primary stress (ˈ) if IPA has multiple syllables
-            ///     and no existing stress markers.
-            /// </summary>
             public static string Normalize(string ipaWithSlashes)
             {
                 if (string.IsNullOrWhiteSpace(ipaWithSlashes))
@@ -964,30 +1129,18 @@ namespace DictionaryImporter.Common
 
                 var core = ipaWithSlashes.Trim('/');
 
-                if (StressRegex.IsMatch(core))
+                if (RxIpaStress.IsMatch(core))
                     return ipaWithSlashes;
 
-                var vowelCount = VowelRegex.Matches(core).Count;
+                var vowelCount = RxIpaVowelForStressInjection.Matches(core).Count;
                 if (vowelCount < 2)
                     return ipaWithSlashes;
 
-                var stressed = "ˈ" + core;
-
-                return $"/{stressed}/";
+                return $"/ˈ{core}/";
             }
         }
         internal static class IpaLocaleDetector
         {
-            private static readonly Regex AmericanMarkers =
-                new(@"[ɹɑɚɝoʊ]", RegexOptions.Compiled);
-
-            private static readonly Regex BritishMarkers =
-                new(@"[ɒəʊː]", RegexOptions.Compiled);
-
-            /// <summary>
-            ///     Detects IPA locale using phonetic markers.
-            ///     Returns a BCP-47 language tag.
-            /// </summary>
             public static string Detect(string ipa)
             {
                 if (string.IsNullOrWhiteSpace(ipa))
@@ -996,10 +1149,10 @@ namespace DictionaryImporter.Common
                 var usScore = 0;
                 var gbScore = 0;
 
-                if (AmericanMarkers.IsMatch(ipa))
+                if (RxIpaAmericanMarkers.IsMatch(ipa))
                     usScore++;
 
-                if (BritishMarkers.IsMatch(ipa))
+                if (RxIpaBritishMarkers.IsMatch(ipa))
                     gbScore++;
 
                 if (ipa.Contains("ɚ") || ipa.Contains("ɝ"))
@@ -1017,9 +1170,6 @@ namespace DictionaryImporter.Common
                 return "en";
             }
 
-            /// <summary>
-            ///     Optional compatibility mapping for systems using en-UK.
-            /// </summary>
             public static string MapToSystemLocale(string detectedLocale)
             {
                 return detectedLocale switch
@@ -1030,20 +1180,12 @@ namespace DictionaryImporter.Common
             }
         }
 
+        // =====================================================================
+        // 24) IPA Syllabification + Rendering
+        // =====================================================================
         internal static class IpaSyllablePostProcessor
         {
-            private static readonly Regex VowelRegex =
-                new(@"[aeiouæɪʊəɐɑɔɛɜʌoøɒyɯɨɶ]", RegexOptions.Compiled);
-
-            private static readonly Regex ConsonantRegex =
-                new(@"[bcdfghjklmnpqrstvwxyzθðʃʒŋ]", RegexOptions.Compiled);
-
-            /// <summary>
-            ///     Normalizes syllables by merging invalid syllables
-            ///     into their previous neighbor.
-            /// </summary>
-            public static IReadOnlyList<IpaSyllable> Normalize(
-                IReadOnlyList<IpaSyllable> syllables)
+            public static IReadOnlyList<IpaSyllable> Normalize(IReadOnlyList<IpaSyllable> syllables)
             {
                 if (syllables == null || syllables.Count == 0)
                     return syllables;
@@ -1058,8 +1200,8 @@ namespace DictionaryImporter.Common
                         continue;
                     }
 
-                    var hasVowel = VowelRegex.IsMatch(current.Text);
-                    var hasConsonant = ConsonantRegex.IsMatch(current.Text);
+                    var hasVowel = RxIpaSyllableVowel.IsMatch(current.Text);
+                    var hasConsonant = RxIpaSyllableConsonant.IsMatch(current.Text);
 
                     if (!hasVowel || !hasConsonant)
                     {
@@ -1080,16 +1222,11 @@ namespace DictionaryImporter.Common
                 var index = 1;
 
                 foreach (var s in buffer)
-                    result.Add(
-                        new IpaSyllable(
-                            index++,
-                            s.Text,
-                            s.StressLevel));
+                    result.Add(new IpaSyllable(index++, s.Text, s.StressLevel));
 
                 return result;
             }
         }
-
         internal static class IpaSyllabifier
         {
             private static readonly HashSet<char> Vowels =
@@ -1130,11 +1267,10 @@ namespace DictionaryImporter.Common
                     {
                         if (hasVowel)
                         {
-                            result.Add(
-                                new IpaSyllable(
-                                    index++,
-                                    buffer.ToString(0, buffer.Length - 1),
-                                    currentStress));
+                            result.Add(new IpaSyllable(
+                                index++,
+                                buffer.ToString(0, buffer.Length - 1),
+                                currentStress));
 
                             buffer.Clear();
                             buffer.Append(ch);
@@ -1146,44 +1282,12 @@ namespace DictionaryImporter.Common
                 }
 
                 if (buffer.Length > 0)
-                    result.Add(
-                        new IpaSyllable(
-                            index,
-                            buffer.ToString(),
-                            currentStress));
+                    result.Add(new IpaSyllable(index, buffer.ToString(), currentStress));
 
                 return result;
             }
         }
 
-        public static class LanguageDetector
-        {
-            private static readonly ILanguageDetectionService _service = new LanguageDetectionService();
-
-            public static bool ContainsNonEnglishText(string text)
-            {
-                if (string.IsNullOrWhiteSpace(text))
-                    return false;
-
-                return _service.ContainsNonEnglish(text);
-            }
-
-            public static string? DetectLanguageCode(string text)
-            {
-                if (string.IsNullOrWhiteSpace(text))
-                    return null;
-
-                return _service.DetectPrimaryLanguage(text);
-            }
-
-            public static bool IsBilingualText(string text)
-            {
-                if (string.IsNullOrWhiteSpace(text))
-                    return false;
-
-                return _service.IsBilingualText(text);
-            }
-        }
         internal static class IpaStressRenderer
         {
             public static string Render(
@@ -1194,7 +1298,6 @@ namespace DictionaryImporter.Common
                     return string.Empty;
 
                 var sb = new StringBuilder();
-
                 var useDots = profile == IpaStressRenderProfile.EnUk;
 
                 sb.Append('/');
@@ -1206,10 +1309,8 @@ namespace DictionaryImporter.Common
                     if (i > 0 && useDots)
                         sb.Append('.');
 
-                    if (s.StressLevel == 2)
-                        sb.Append('ˈ');
-                    else if (s.StressLevel == 1)
-                        sb.Append('ˌ');
+                    if (s.StressLevel == 2) sb.Append('ˈ');
+                    else if (s.StressLevel == 1) sb.Append('ˌ');
 
                     sb.Append(s.Text);
                 }
@@ -1220,14 +1321,12 @@ namespace DictionaryImporter.Common
             }
         }
 
+        // =====================================================================
+        // 25) Orthographic Syllables
+        // =====================================================================
+
         public static class OrthographicSyllableExtractor
         {
-            private static readonly Regex VowelRegex =
-                new(@"[aeiouyAEIOUY]", RegexOptions.Compiled);
-
-            /// <summary>
-            ///     Extracts orthographic syllables from a word.
-            /// </summary>
             public static IReadOnlyList<string> Extract(string word)
             {
                 var result = new List<string>();
@@ -1236,30 +1335,310 @@ namespace DictionaryImporter.Common
                     return result;
 
                 word = word.Trim();
+                word = RxWordSanitizer.Replace(word, "");
+
+                if (string.IsNullOrWhiteSpace(word))
+                    return result;
+
+                if (word.Contains('-'))
+                {
+                    var parts = word.Split('-', StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var part in parts)
+                        result.AddRange(Extract(part));
+
+                    return result.Count == 0 ? new[] { word } : result;
+                }
+
+                if (word.Length <= 3)
+                    return new[] { word };
+
+                var vowelGroups = GetVowelGroups(word);
+                if (vowelGroups.Count <= 1)
+                    return new[] { word };
+
+                var suffixCut = TryFindSuffixCut(word);
+                if (suffixCut > 0 && suffixCut < word.Length - 1)
+                {
+                    var left = word.Substring(0, suffixCut);
+                    var right = word.Substring(suffixCut);
+
+                    if (HasVowel(left) && HasVowel(right))
+                    {
+                        var leftSyl = Extract(left).ToList();
+                        var rightSyl = Extract(right).ToList();
+
+                        leftSyl.AddRange(rightSyl);
+                        return NormalizeFinalSylList(leftSyl);
+                    }
+                }
+
+                var cuts = new List<int>();
+
+                for (var g = 0; g < vowelGroups.Count - 1; g++)
+                {
+                    var leftVowel = vowelGroups[g];
+                    var rightVowel = vowelGroups[g + 1];
+
+                    var betweenStart = leftVowel.End + 1;
+                    var betweenEnd = rightVowel.Start - 1;
+
+                    if (betweenStart > betweenEnd)
+                        continue;
+
+                    var cluster = word.Substring(betweenStart, betweenEnd - betweenStart + 1);
+
+                    var cutIndex = ChooseCutIndex(betweenStart, cluster);
+
+                    if (cutIndex > 0 && cutIndex < word.Length)
+                        cuts.Add(cutIndex);
+                }
+
+                if (cuts.Count == 0)
+                    return new[] { word };
+
+                cuts = cuts.Distinct().OrderBy(x => x).ToList();
 
                 var last = 0;
 
-                for (var i = 1; i < word.Length - 1; i++)
-                    if (VowelRegex.IsMatch(word[i - 1].ToString()) &&
-                        !VowelRegex.IsMatch(word[i].ToString()) &&
-                        VowelRegex.IsMatch(word[i + 1].ToString()))
+                foreach (var cut in cuts)
+                {
+                    if (cut <= last)
+                        continue;
+
+                    var part = word.Substring(last, cut - last);
+                    if (!string.IsNullOrWhiteSpace(part))
+                        result.Add(part);
+
+                    last = cut;
+                }
+
+                if (last < word.Length)
+                    result.Add(word.Substring(last));
+
+                return NormalizeFinalSylList(result);
+            }
+
+            private sealed class VowelGroup
+            {
+                public int Start { get; init; }
+                public int End { get; init; }
+            }
+
+            private static List<VowelGroup> GetVowelGroups(string word)
+            {
+                var groups = new List<VowelGroup>();
+
+                var i = 0;
+                while (i < word.Length)
+                {
+                    if (!IsVowel(word[i]))
                     {
-                        result.Add(word.Substring(last, i - last));
-                        last = i;
+                        i++;
+                        continue;
                     }
 
-                result.Add(word.Substring(last));
-                return result;
+                    var start = i;
+                    var end = i;
+
+                    while (end + 1 < word.Length && IsVowel(word[end + 1]))
+                        end++;
+
+                    groups.Add(new VowelGroup { Start = start, End = end });
+                    i = end + 1;
+                }
+
+                return groups;
+            }
+
+            private static bool IsVowel(char c)
+            {
+                return RxOrthographicVowel.IsMatch(c.ToString());
+            }
+
+            private static bool HasVowel(string text)
+            {
+                if (string.IsNullOrWhiteSpace(text))
+                    return false;
+
+                foreach (var ch in text)
+                    if (IsVowel(ch))
+                        return true;
+
+                return false;
+            }
+
+            private static int TryFindSuffixCut(string word)
+            {
+                foreach (var suffix in OrthographicStrongSuffixes)
+                {
+                    if (word.Length <= suffix.Length + 2)
+                        continue;
+
+                    if (word.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                        return word.Length - suffix.Length;
+                }
+
+                return -1;
+            }
+
+            private static int ChooseCutIndex(int betweenStart, string cluster)
+            {
+                if (cluster.Length == 1)
+                    return betweenStart;
+
+                if (cluster.Length == 2)
+                {
+                    if (OrthographicDigraphConsonants.Contains(cluster))
+                        return betweenStart;
+
+                    return betweenStart + 1;
+                }
+
+                if (cluster.Length >= 3)
+                {
+                    var first2 = cluster.Substring(0, 2);
+                    if (OrthographicDigraphConsonants.Contains(first2))
+                        return betweenStart;
+
+                    return betweenStart + 1;
+                }
+
+                return betweenStart;
+            }
+
+            private static IReadOnlyList<string> NormalizeFinalSylList(List<string> syllables)
+            {
+                if (syllables == null || syllables.Count == 0)
+                    return Array.Empty<string>();
+
+                for (var i = 0; i < syllables.Count; i++)
+                {
+                    if (string.IsNullOrWhiteSpace(syllables[i]))
+                    {
+                        syllables.RemoveAt(i);
+                        i--;
+                    }
+                }
+
+                if (syllables.Count <= 1)
+                    return syllables;
+
+                for (var i = 0; i < syllables.Count - 1; i++)
+                {
+                    if (syllables[i].Length == 1)
+                    {
+                        syllables[i + 1] = syllables[i] + syllables[i + 1];
+                        syllables.RemoveAt(i);
+                        i--;
+                    }
+                }
+
+                return syllables;
             }
         }
+
         public static class OrthographicSyllableRenderer
         {
-            public static string Render(
-                IReadOnlyList<string> syllables)
+            public static string Render(IReadOnlyList<string> syllables)
             {
                 return syllables == null || syllables.Count == 0
                     ? string.Empty
                     : string.Join("·", syllables);
+            }
+        }
+
+        // =====================================================================
+        // 26) Language Detector (NTextCat-backed) + fallback to existing service
+        // =====================================================================
+        public static class LanguageDetector
+        {
+            private static readonly object _lock = new();
+
+            private static DictionaryImporter.Gateway.Grammar.Core.ILanguageDetector? _detector;
+
+            private static DictionaryImporter.Gateway.Grammar.Core.ILanguageDetector GetDetector()
+            {
+                if (_detector != null)
+                    return _detector;
+
+                lock (_lock)
+                {
+                    if (_detector != null)
+                        return _detector;
+
+                    try
+                    {
+                        _detector = new DictionaryImporter.Gateway.Grammar.Engines.LanguageDetector();
+                    }
+                    catch
+                    {
+                        _detector = null;
+                    }
+
+                    return _detector!;
+                }
+            }
+
+            public static string DetectLanguageCode(string text)
+            {
+                if (string.IsNullOrWhiteSpace(text))
+                    return "en-US";
+
+                // Fast shortcut: Chinese detection (instant)
+                foreach (var c in text)
+                {
+                    if (c >= '\u4E00' && c <= '\u9FFF')
+                        return "zh-CN";
+                }
+
+                try
+                {
+                    var detector = GetDetector();
+                    if (detector == null)
+                        return "en-US";
+
+                    var code = detector.Detect(text);
+
+                    return string.IsNullOrWhiteSpace(code) ? "en-US" : code.Trim();
+                }
+                catch
+                {
+                    return "en-US";
+                }
+            }
+
+            public static bool ContainsNonEnglishText(string text)
+            {
+                if (string.IsNullOrWhiteSpace(text))
+                    return false;
+
+                var code = DetectLanguageCode(text);
+
+                // treat only "en-*" as English
+                return !code.StartsWith("en", StringComparison.OrdinalIgnoreCase);
+            }
+
+            public static bool IsBilingualText(string text)
+            {
+                if (string.IsNullOrWhiteSpace(text))
+                    return false;
+
+                // Safe best-effort bilingual rule:
+                // if contains CJK + English letters => bilingual
+                var hasCjk = false;
+                foreach (var c in text)
+                {
+                    if (c >= '\u4E00' && c <= '\u9FFF')
+                    {
+                        hasCjk = true;
+                        break;
+                    }
+                }
+
+                if (!hasCjk)
+                    return false;
+
+                return Regex.IsMatch(text, @"[A-Za-z]");
             }
         }
     }

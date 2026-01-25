@@ -1,8 +1,15 @@
-﻿namespace DictionaryImporter.Core.Persistence
+﻿namespace DictionaryImporter.Core.Abstractions.Persistence
 {
     public sealed class AiDefinitionCandidate
     {
-        public long ParsedDefinitionId { get; set; }
-        public string DefinitionText { get; set; } = string.Empty;
+        public long ParsedDefinitionId { get; init; }
+
+        public string DefinitionText { get; init; } = string.Empty;
+
+        // REQUIRED by RuleBasedDefinitionEnhancementStep
+        public string MeaningTitle { get; init; } = string.Empty;
+
+        // kept for compatibility (some pipelines pass empty string)
+        public string ExampleText { get; init; } = string.Empty;
     }
 }

@@ -1,5 +1,7 @@
 ﻿using DictionaryImporter.Bootstrap.Extensions;
+using DictionaryImporter.Core.Jobs;
 using DictionaryImporter.Gateway.Ai.Bootstrap;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DictionaryImporter.Bootstrap
 {
@@ -11,6 +13,11 @@ namespace DictionaryImporter.Bootstrap
                                    ?? throw new InvalidOperationException("Connection string 'DictionaryImporter' not configured");
 
             BootstrapLogging.Register(services);
+
+            // ✅ Register RuleBased rewrite job (Option 2)
+            services.Configure<RuleBasedRewriteJobOptions>(
+                configuration.GetSection("RuleBasedRewriteJob"));
+            services.AddScoped<RuleBasedRewriteJob>();
 
             // Add SQL batching
             services.AddSqlBatching(connectionString);
@@ -25,8 +32,8 @@ namespace DictionaryImporter.Bootstrap
                 .AddCanonical(connectionString)
                 .AddValidation(connectionString)
                 .AddLinguistics()
-                .AddGrammar(configuration)          // ← MOVED BEFORE AddParsing
-                .AddParsing(connectionString)       // ← Now has all dependencies
+                .AddGrammar(configuration)          // ✅ Grammar + DictionaryRewriteCorrector are registered here
+                .AddParsing(connectionString)
                 .AddGraph(connectionString)
                 .AddConcepts(connectionString)
                 .AddIpa(connectionString)

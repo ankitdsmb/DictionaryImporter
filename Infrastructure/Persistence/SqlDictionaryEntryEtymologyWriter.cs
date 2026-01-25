@@ -1,10 +1,20 @@
-﻿namespace DictionaryImporter.Infrastructure.Persistence
+﻿using System;
+using System.Threading;
+using System.Threading.Tasks;
+using DictionaryImporter.Common;
+using DictionaryImporter.Domain.Models;
+using Microsoft.Extensions.Logging;
+
+namespace DictionaryImporter.Infrastructure.Persistence
 {
-    public class SqlDictionaryEntryEtymologyWriter(
-        string connectionString,
+    public sealed class SqlDictionaryEntryEtymologyWriter(
+        ISqlStoredProcedureExecutor sp,
         ILogger<SqlDictionaryEntryEtymologyWriter> logger)
         : IEntryEtymologyWriter
     {
+        private readonly ISqlStoredProcedureExecutor _sp = sp;
+        private readonly ILogger<SqlDictionaryEntryEtymologyWriter> _logger = logger;
+
         public async Task WriteAsync(DictionaryEntryEtymology etymology, CancellationToken ct)
         {
             if (etymology == null)
@@ -13,93 +23,41 @@
             if (etymology.DictionaryEntryId <= 0)
                 return;
 
-            var sourceCode = string.IsNullOrWhiteSpace(etymology.SourceCode)
-                ? "UNKNOWN"
-                : etymology.SourceCode.Trim();
+            var sourceCode = SqlRepositoryHelper.NormalizeSourceCode(etymology.SourceCode);
 
-            var etymologyText = NormalizeEtymologyText(etymology.EtymologyText);
-
+            var etymologyText = SqlRepositoryHelper.NormalizeEtymologyTextOrEmpty(etymology.EtymologyText);
             if (string.IsNullOrWhiteSpace(etymologyText))
                 return;
 
-            // ✅ LanguageCode is init-only -> do NOT assign back to object
-            var languageCode = string.IsNullOrWhiteSpace(etymology.LanguageCode)
-                ? null
-                : etymology.LanguageCode.Trim();
-
-            const string sql = """
-                IF NOT EXISTS
-                (
-                    SELECT 1
-                    FROM dbo.DictionaryEntryEtymology WITH (NOLOCK)
-                    WHERE DictionaryEntryId = @DictionaryEntryId
-                      AND SourceCode = @SourceCode
-                      AND ISNULL(LanguageCode, '') = ISNULL(@LanguageCode, '')
-                      AND EtymologyText = @EtymologyText
-                )
-                BEGIN
-                    INSERT INTO dbo.DictionaryEntryEtymology (
-                        DictionaryEntryId, EtymologyText, LanguageCode,
-                        SourceCode, CreatedUtc
-                    ) VALUES (
-                        @DictionaryEntryId, @EtymologyText, @LanguageCode,
-                        @SourceCode, SYSUTCDATETIME()
-                    );
-                END
-                """;
-
-            var parameters = new
-            {
-                DictionaryEntryId = etymology.DictionaryEntryId,
-                EtymologyText = etymologyText,
-                LanguageCode = languageCode,
-                SourceCode = sourceCode
-            };
+            var languageCode = SqlRepositoryHelper.NormalizeNullableString(etymology.LanguageCode, maxLen: 32);
 
             try
             {
-                await using var connection = new SqlConnection(connectionString);
-                await connection.OpenAsync(ct);
+                await _sp.ExecuteAsync(
+                    "sp_DictionaryEntryEtymology_InsertIfMissing",
+                    new
+                    {
+                        DictionaryEntryId = etymology.DictionaryEntryId,
+                        EtymologyText = etymologyText,
+                        LanguageCode = languageCode,
+                        SourceCode = sourceCode
+                    },
+                    ct,
+                    timeoutSeconds: 30);
 
-                await connection.ExecuteAsync(
-                    new CommandDefinition(sql, parameters, cancellationToken: ct));
-
-                logger.LogDebug(
+                _logger.LogDebug(
                     "Wrote etymology (if missing) for DictionaryEntryId={EntryId} | SourceCode={SourceCode}",
                     etymology.DictionaryEntryId,
                     sourceCode);
             }
             catch (Exception ex)
             {
-                // ✅ Never crash importer
-                logger.LogDebug(
+                _logger.LogDebug(
                     ex,
                     "Failed to write etymology for DictionaryEntryId={EntryId} | SourceCode={SourceCode}",
                     etymology.DictionaryEntryId,
                     sourceCode);
             }
-        }
-
-        // NEW METHOD (added)
-        private static string NormalizeEtymologyText(string? text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return string.Empty;
-
-            var t = text.Trim();
-
-            t = Regex.Replace(t, @"\s+", " ").Trim();
-
-            if (t.Equals("[NON_ENGLISH]", StringComparison.OrdinalIgnoreCase))
-                return string.Empty;
-
-            if (t.Length < 3)
-                return string.Empty;
-
-            if (t.Length > 4000)
-                t = t.Substring(0, 4000).Trim();
-
-            return t;
         }
     }
 }
