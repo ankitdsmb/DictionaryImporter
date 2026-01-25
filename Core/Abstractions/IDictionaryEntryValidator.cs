@@ -1,10 +1,9 @@
 ﻿using DictionaryImporter.Infrastructure.Validation;
 
-namespace DictionaryImporter.Core.Abstractions
+namespace DictionaryImporter.Core.Abstractions;
+
+public interface IDictionaryEntryValidator
 {
-    public interface IDictionaryEntryValidator
-    {
-        ValidationResult Validate(
-            DictionaryEntry entry);
-    }
+    ValidationResult Validate(
+        DictionaryEntry entry);
 }

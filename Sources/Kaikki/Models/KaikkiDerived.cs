@@ -1,9 +1,8 @@
-﻿namespace DictionaryImporter.Sources.Kaikki.Models
-{
-    public sealed class KaikkiDerived
-    {
-        public string Word { get; set; } = null!;
+﻿namespace DictionaryImporter.Sources.Kaikki.Models;
 
-        public string? Sense { get; set; }
-    }
+public sealed class KaikkiDerived
+{
+    public string Word { get; set; } = null!;
+
+    public string? Sense { get; set; }
 }

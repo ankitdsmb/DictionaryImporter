@@ -1,7 +1,6 @@
-﻿namespace DictionaryImporter.Core.Abstractions
+﻿namespace DictionaryImporter.Core.Abstractions;
+
+public interface ISynonymExtractorRegistry
 {
-    public interface ISynonymExtractorRegistry
-    {
-        ISynonymExtractor GetExtractor(string sourceCode);
-    }
+    ISynonymExtractor GetExtractor(string sourceCode);
 }

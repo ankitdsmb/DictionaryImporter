@@ -1,5 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions.Persistence;
-using DictionaryImporter.Gateway.Ai.Abstractions;
+﻿using DictionaryImporter.Gateway.Ai.Abstractions;
 
 namespace DictionaryImporter.Core.Pipeline;
 

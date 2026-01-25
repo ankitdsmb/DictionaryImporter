@@ -1,19 +1,18 @@
-﻿namespace DictionaryImporter.Gateway.Rewriter
+﻿namespace DictionaryImporter.Gateway.Rewriter;
+
+public sealed class LuceneSuggestionResult
 {
-    public sealed class LuceneSuggestionResult
-    {
-        public LuceneSuggestionMode Mode { get; init; }
+    public LuceneSuggestionMode Mode { get; init; }
 
-        public string SuggestionText { get; init; } = string.Empty;
+    public string SuggestionText { get; init; } = string.Empty;
 
-        public double Score { get; init; }
+    public double Score { get; init; }
 
-        public string MatchedHash { get; init; } = string.Empty;
+    public string MatchedHash { get; init; } = string.Empty;
 
-        public string MatchedOriginalPreview { get; init; } = string.Empty;
+    public string MatchedOriginalPreview { get; init; } = string.Empty;
 
-        public string Source { get; init; } = "lucene-memory";
+    public string Source { get; init; } = "lucene-memory";
 
-        public DateTime CreatedUtc { get; init; } = DateTime.UtcNow;
-    }
+    public DateTime CreatedUtc { get; init; } = DateTime.UtcNow;
 }

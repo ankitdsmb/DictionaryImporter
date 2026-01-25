@@ -2,118 +2,117 @@
 
 using DictionaryImporter.Common.SourceHelper;
 
-namespace DictionaryImporter.Sources.Kaikki.Parsing
+namespace DictionaryImporter.Sources.Kaikki.Parsing;
+
+public sealed class KaikkiExampleExtractor(ILogger<KaikkiExampleExtractor> logger) : IExampleExtractor
 {
-    public sealed class KaikkiExampleExtractor(ILogger<KaikkiExampleExtractor> logger) : IExampleExtractor
+    public string SourceCode => "KAIKKI";
+
+    public IReadOnlyList<string> Extract(ParsedDefinition parsed)
     {
-        public string SourceCode => "KAIKKI";
+        var examples = new List<string>();
 
-        public IReadOnlyList<string> Extract(ParsedDefinition parsed)
+        try
         {
-            var examples = new List<string>();
+            if (parsed == null)
+                return examples;
 
-            try
+            if (string.IsNullOrWhiteSpace(parsed.RawFragment))
+                return examples;
+
+            // Only parse English root entries
+            if (!ParsingHelperKaikki.TryParseEnglishRoot(parsed.RawFragment, out _))
+                return examples;
+
+            // FIX:
+            // Previously we extracted examples from the entire raw fragment (whole entry JSON),
+            // which repeats the same examples for every sense.
+            // Now we extract examples from the specific sense corresponding to parsed.SenseNumber.
+            if (!ParsingHelperKaikki.TryParseJsonRoot(parsed.RawFragment, out var root))
+                return examples;
+
+            if (!root.TryGetProperty("senses", out var senses) || senses.ValueKind != JsonValueKind.Array)
+                return examples;
+
+            var senseIndex = parsed.SenseNumber <= 0 ? 1 : parsed.SenseNumber;
+            var zeroBasedIndex = senseIndex - 1;
+
+            JsonElement? senseElement = null;
+
+            var idx = 0;
+            foreach (var sense in senses.EnumerateArray())
             {
-                if (parsed == null)
-                    return examples;
-
-                if (string.IsNullOrWhiteSpace(parsed.RawFragment))
-                    return examples;
-
-                // Only parse English root entries
-                if (!ParsingHelperKaikki.TryParseEnglishRoot(parsed.RawFragment, out _))
-                    return examples;
-
-                // FIX:
-                // Previously we extracted examples from the entire raw fragment (whole entry JSON),
-                // which repeats the same examples for every sense.
-                // Now we extract examples from the specific sense corresponding to parsed.SenseNumber.
-                if (!ParsingHelperKaikki.TryParseJsonRoot(parsed.RawFragment, out var root))
-                    return examples;
-
-                if (!root.TryGetProperty("senses", out var senses) || senses.ValueKind != JsonValueKind.Array)
-                    return examples;
-
-                var senseIndex = parsed.SenseNumber <= 0 ? 1 : parsed.SenseNumber;
-                var zeroBasedIndex = senseIndex - 1;
-
-                JsonElement? senseElement = null;
-
-                var idx = 0;
-                foreach (var sense in senses.EnumerateArray())
+                if (idx == zeroBasedIndex)
                 {
-                    if (idx == zeroBasedIndex)
-                    {
-                        senseElement = sense;
-                        break;
-                    }
-
-                    idx++;
+                    senseElement = sense;
+                    break;
                 }
 
-                if (senseElement == null)
-                    return examples;
-
-                // Extract examples ONLY from this sense
-                examples = ExtractExamplesFromSense(senseElement.Value);
-
-                for (var i = 0; i < examples.Count; i++)
-                {
-                    var cleaned =
-                        ParsingHelperKaikki.CleanExampleText(
-                            ParsingHelperKaikki.CleanKaikkiText(examples[i]));
-
-                    examples[i] = cleaned;
-                }
+                idx++;
             }
-            catch (Newtonsoft.Json.JsonException ex)
+
+            if (senseElement == null)
+                return examples;
+
+            // Extract examples ONLY from this sense
+            examples = ExtractExamplesFromSense(senseElement.Value);
+
+            for (var i = 0; i < examples.Count; i++)
             {
-                logger.LogDebug(ex, "Failed to parse Kaikki JSON for example extraction");
-            }
-            catch (Exception ex)
-            {
-                logger.LogDebug(ex, "Failed to extract examples from Kaikki JSON");
-            }
+                var cleaned =
+                    ParsingHelperKaikki.CleanExampleText(
+                        ParsingHelperKaikki.CleanKaikkiText(examples[i]));
 
-            return examples
-                .Where(e => !string.IsNullOrWhiteSpace(e))
-                .Select(e => e.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+                examples[i] = cleaned;
+            }
+        }
+        catch (Newtonsoft.Json.JsonException ex)
+        {
+            logger.LogDebug(ex, "Failed to parse Kaikki JSON for example extraction");
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Failed to extract examples from Kaikki JSON");
         }
 
-        private static List<string> ExtractExamplesFromSense(JsonElement sense)
-        {
-            var results = new List<string>();
+        return examples
+            .Where(e => !string.IsNullOrWhiteSpace(e))
+            .Select(e => e.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 
-            // Kaikki/Wiktionary-json usually stores examples as objects with "text"
-            // Example:
-            // "examples": [{ "text": "..." }, ...]
-            if (sense.TryGetProperty("examples", out var examples) && examples.ValueKind == JsonValueKind.Array)
+    private static List<string> ExtractExamplesFromSense(JsonElement sense)
+    {
+        var results = new List<string>();
+
+        // Kaikki/Wiktionary-json usually stores examples as objects with "text"
+        // Example:
+        // "examples": [{ "text": "..." }, ...]
+        if (sense.TryGetProperty("examples", out var examples) && examples.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var ex in examples.EnumerateArray())
             {
-                foreach (var ex in examples.EnumerateArray())
+                if (ex.ValueKind == JsonValueKind.String)
                 {
-                    if (ex.ValueKind == JsonValueKind.String)
+                    var s = ex.GetString();
+                    if (!string.IsNullOrWhiteSpace(s))
+                        results.Add(s);
+                    continue;
+                }
+
+                if (ex.ValueKind == JsonValueKind.Object)
+                {
+                    if (ex.TryGetProperty("text", out var textProp) && textProp.ValueKind == JsonValueKind.String)
                     {
-                        var s = ex.GetString();
+                        var s = textProp.GetString();
                         if (!string.IsNullOrWhiteSpace(s))
                             results.Add(s);
-                        continue;
-                    }
-
-                    if (ex.ValueKind == JsonValueKind.Object)
-                    {
-                        if (ex.TryGetProperty("text", out var textProp) && textProp.ValueKind == JsonValueKind.String)
-                        {
-                            var s = textProp.GetString();
-                            if (!string.IsNullOrWhiteSpace(s))
-                                results.Add(s);
-                        }
                     }
                 }
             }
-
-            return results;
         }
+
+        return results;
     }
 }

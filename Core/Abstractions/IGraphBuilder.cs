@@ -1,7 +1,6 @@
-﻿namespace DictionaryImporter.Core.Abstractions
+﻿namespace DictionaryImporter.Core.Abstractions;
+
+public interface IGraphBuilder
 {
-    public interface IGraphBuilder
-    {
-        Task BuildAsync(string sourceCode, CancellationToken ct);
-    }
+    Task BuildAsync(string sourceCode, CancellationToken ct);
 }

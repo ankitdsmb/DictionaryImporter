@@ -1,12 +1,11 @@
-﻿namespace DictionaryImporter.Core.Pipeline.Steps
-{
-    public sealed class AiEnhancementPipelineStep(AiEnhancementStep step) : IImportPipelineStep
-    {
-        public string Name => PipelineStepNames.AiEnhancement;
+﻿namespace DictionaryImporter.Core.Pipeline.Steps;
 
-        public async Task ExecuteAsync(ImportPipelineContext context)
-        {
-            await step.ExecuteAsync(context.SourceCode, context.CancellationToken);
-        }
+public sealed class AiEnhancementPipelineStep(AiEnhancementStep step) : IImportPipelineStep
+{
+    public string Name => PipelineStepNames.AiEnhancement;
+
+    public async Task ExecuteAsync(ImportPipelineContext context)
+    {
+        await step.ExecuteAsync(context.SourceCode, context.CancellationToken);
     }
 }

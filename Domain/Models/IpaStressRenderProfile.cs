@@ -1,8 +1,7 @@
-﻿namespace DictionaryImporter.Domain.Models
+﻿namespace DictionaryImporter.Domain.Models;
+
+public enum IpaStressRenderProfile
 {
-    public enum IpaStressRenderProfile
-    {
-        EnUs,
-        EnUk
-    }
+    EnUs,
+    EnUk
 }

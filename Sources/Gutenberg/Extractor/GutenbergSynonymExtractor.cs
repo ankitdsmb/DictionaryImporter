@@ -1,63 +1,62 @@
 ﻿using DictionaryImporter.Common;
 using DictionaryImporter.Sources.Common.Helper;
 
-namespace DictionaryImporter.Sources.Gutenberg.Extractor
+namespace DictionaryImporter.Sources.Gutenberg.Extractor;
+
+internal sealed class GutenbergSynonymExtractor : ISynonymExtractor
 {
-    internal sealed class GutenbergSynonymExtractor : ISynonymExtractor
+    private readonly ILogger<GutenbergSynonymExtractor> _logger;
+
+    public GutenbergSynonymExtractor(ILogger<GutenbergSynonymExtractor> logger)
     {
-        private readonly ILogger<GutenbergSynonymExtractor> _logger;
+        _logger = logger;
+    }
 
-        public GutenbergSynonymExtractor(ILogger<GutenbergSynonymExtractor> logger)
+    public string SourceCode => "GUT_WEBSTER";
+
+    public IReadOnlyList<SynonymDetectionResult> Extract(
+        string headword,
+        string definition,
+        string? rawDefinition = null)
+    {
+        var results = new List<SynonymDetectionResult>();
+
+        try
         {
-            _logger = logger;
-        }
+            if (string.IsNullOrWhiteSpace(rawDefinition))
+                return results;
 
-        public string SourceCode => "GUT_WEBSTER";
+            var synonyms = ParsingHelperGutenberg.ExtractSynonyms(rawDefinition);
 
-        public IReadOnlyList<SynonymDetectionResult> Extract(
-            string headword,
-            string definition,
-            string? rawDefinition = null)
-        {
-            var results = new List<SynonymDetectionResult>();
-
-            try
+            foreach (var synonym in synonyms.Distinct(StringComparer.OrdinalIgnoreCase))
             {
-                if (string.IsNullOrWhiteSpace(rawDefinition))
-                    return results;
+                if (!ValidateSynonymPair(headword, synonym))
+                    continue;
 
-                var synonyms = ParsingHelperGutenberg.ExtractSynonyms(rawDefinition);
+                var normalizedTarget = Helper.NormalizeWord(synonym);
 
-                foreach (var synonym in synonyms.Distinct(StringComparer.OrdinalIgnoreCase))
+                if (string.IsNullOrWhiteSpace(normalizedTarget))
+                    continue;
+
+                results.Add(new SynonymDetectionResult
                 {
-                    if (!ValidateSynonymPair(headword, synonym))
-                        continue;
-
-                    var normalizedTarget = Helper.NormalizeWord(synonym);
-
-                    if (string.IsNullOrWhiteSpace(normalizedTarget))
-                        continue;
-
-                    results.Add(new SynonymDetectionResult
-                    {
-                        TargetHeadword = normalizedTarget,
-                        ConfidenceLevel = "high",
-                        DetectionMethod = "GutenbergSynonymSection",
-                        SourceText = $"Gutenberg synonym: {synonym}"
-                    });
-                }
+                    TargetHeadword = normalizedTarget,
+                    ConfidenceLevel = "high",
+                    DetectionMethod = "GutenbergSynonymSection",
+                    SourceText = $"Gutenberg synonym: {synonym}"
+                });
             }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to extract Gutenberg synonyms | Headword={Headword}", headword);
-            }
-
-            return results;
         }
-
-        public bool ValidateSynonymPair(string headwordA, string headwordB)
+        catch (Exception ex)
         {
-            return ParsingHelperGutenberg.ValidateSynonymPair(headwordA, headwordB);
+            _logger.LogDebug(ex, "Failed to extract Gutenberg synonyms | Headword={Headword}", headword);
         }
+
+        return results;
+    }
+
+    public bool ValidateSynonymPair(string headwordA, string headwordB)
+    {
+        return ParsingHelperGutenberg.ValidateSynonymPair(headwordA, headwordB);
     }
 }

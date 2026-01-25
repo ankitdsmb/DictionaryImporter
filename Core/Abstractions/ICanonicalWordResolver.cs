@@ -1,9 +1,8 @@
-﻿namespace DictionaryImporter.Core.Abstractions
+﻿namespace DictionaryImporter.Core.Abstractions;
+
+public interface ICanonicalWordResolver
 {
-    public interface ICanonicalWordResolver
-    {
-        Task ResolveAsync(
-            string sourceCode,
-            CancellationToken ct);
-    }
+    Task ResolveAsync(
+        string sourceCode,
+        CancellationToken ct);
 }

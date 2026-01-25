@@ -3,102 +3,101 @@ using DictionaryImporter.Gateway.Grammar.Core.Models;
 using DictionaryImporter.Gateway.Grammar.Core.Results;
 using DictionaryImporter.Gateway.Grammar.Feature;
 
-namespace DictionaryImporter.Gateway.Grammar.Correctors
+namespace DictionaryImporter.Gateway.Grammar.Correctors;
+
+public sealed class GrammarCorrectorChain(
+    IEnumerable<IGrammarCorrector> correctors,
+    ILogger<GrammarCorrectorChain> logger)
+    : IGrammarCorrector
 {
-    public sealed class GrammarCorrectorChain(
-        IEnumerable<IGrammarCorrector> correctors,
-        ILogger<GrammarCorrectorChain> logger)
-        : IGrammarCorrector
+    private readonly List<IGrammarCorrector> _correctors =
+        correctors
+            .Where(x => x is not GrammarFeature) // prevent recursion
+            .ToList();
+
+    public Task<GrammarCheckResult> CheckAsync(
+        string text,
+        string? languageCode = null,
+        CancellationToken ct = default)
     {
-        private readonly List<IGrammarCorrector> _correctors =
-            correctors
-                .Where(x => x is not GrammarFeature) // prevent recursion
-                .ToList();
+        // GrammarFeature handles check via IGrammarEngine(s).
+        return Task.FromResult(new GrammarCheckResult(false, 0, [], TimeSpan.Zero));
+    }
 
-        public Task<GrammarCheckResult> CheckAsync(
-            string text,
-            string? languageCode = null,
-            CancellationToken ct = default)
+    public async Task<GrammarCorrectionResult> AutoCorrectAsync(
+        string text,
+        string? languageCode = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(text))
         {
-            // GrammarFeature handles check via IGrammarEngine(s).
-            return Task.FromResult(new GrammarCheckResult(false, 0, [], TimeSpan.Zero));
-        }
-
-        public async Task<GrammarCorrectionResult> AutoCorrectAsync(
-            string text,
-            string? languageCode = null,
-            CancellationToken ct = default)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                return new GrammarCorrectionResult(
-                    OriginalText: text,
-                    CorrectedText: text,
-                    AppliedCorrections: [],
-                    RemainingIssues: []);
-            }
-
-            var current = text;
-
-            var applied = new List<AppliedCorrection>();
-            var remaining = new List<GrammarIssue>();
-
-            foreach (var corrector in _correctors)
-            {
-                try
-                {
-                    var result = await corrector.AutoCorrectAsync(current, languageCode, ct);
-
-                    // ✅ update current
-                    if (!string.IsNullOrWhiteSpace(result.CorrectedText))
-                        current = result.CorrectedText;
-
-                    // ✅ merge applied corrections
-                    if (result.AppliedCorrections is { Count: > 0 })
-                        applied.AddRange(result.AppliedCorrections);
-
-                    // ✅ merge remaining issues
-                    if (result.RemainingIssues is { Count: > 0 })
-                        remaining.AddRange(result.RemainingIssues);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogDebug(ex, "Corrector failed | Corrector={Corrector}", corrector.GetType().Name);
-                }
-            }
-
             return new GrammarCorrectionResult(
                 OriginalText: text,
-                CorrectedText: current,
-                AppliedCorrections: applied,
-                RemainingIssues: remaining);
+                CorrectedText: text,
+                AppliedCorrections: [],
+                RemainingIssues: []);
         }
 
-        public async Task<IReadOnlyList<GrammarSuggestion>> SuggestImprovementsAsync(
-            string text,
-            string? languageCode = null,
-            CancellationToken ct = default)
+        var current = text;
+
+        var applied = new List<AppliedCorrection>();
+        var remaining = new List<GrammarIssue>();
+
+        foreach (var corrector in _correctors)
         {
-            if (string.IsNullOrWhiteSpace(text))
-                return [];
-
-            var all = new List<GrammarSuggestion>();
-
-            foreach (var corrector in _correctors)
+            try
             {
-                try
-                {
-                    var suggestions = await corrector.SuggestImprovementsAsync(text, languageCode, ct);
-                    if (suggestions is { Count: > 0 })
-                        all.AddRange(suggestions);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogDebug(ex, "Suggest failed | Corrector={Corrector}", corrector.GetType().Name);
-                }
-            }
+                var result = await corrector.AutoCorrectAsync(current, languageCode, ct);
 
-            return all;
+                // ✅ update current
+                if (!string.IsNullOrWhiteSpace(result.CorrectedText))
+                    current = result.CorrectedText;
+
+                // ✅ merge applied corrections
+                if (result.AppliedCorrections is { Count: > 0 })
+                    applied.AddRange(result.AppliedCorrections);
+
+                // ✅ merge remaining issues
+                if (result.RemainingIssues is { Count: > 0 })
+                    remaining.AddRange(result.RemainingIssues);
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(ex, "Corrector failed | Corrector={Corrector}", corrector.GetType().Name);
+            }
         }
+
+        return new GrammarCorrectionResult(
+            OriginalText: text,
+            CorrectedText: current,
+            AppliedCorrections: applied,
+            RemainingIssues: remaining);
+    }
+
+    public async Task<IReadOnlyList<GrammarSuggestion>> SuggestImprovementsAsync(
+        string text,
+        string? languageCode = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return [];
+
+        var all = new List<GrammarSuggestion>();
+
+        foreach (var corrector in _correctors)
+        {
+            try
+            {
+                var suggestions = await corrector.SuggestImprovementsAsync(text, languageCode, ct);
+                if (suggestions is { Count: > 0 })
+                    all.AddRange(suggestions);
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(ex, "Suggest failed | Corrector={Corrector}", corrector.GetType().Name);
+            }
+        }
+
+        return all;
     }
 }

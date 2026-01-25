@@ -1,9 +1,8 @@
-﻿namespace DictionaryImporter.Core.Abstractions
-{
-    public interface IExampleExtractorRegistry
-    {
-        IExampleExtractor GetExtractor(string sourceCode);
+﻿namespace DictionaryImporter.Core.Abstractions;
 
-        void Register(IExampleExtractor extractor);
-    }
+public interface IExampleExtractorRegistry
+{
+    IExampleExtractor GetExtractor(string sourceCode);
+
+    void Register(IExampleExtractor extractor);
 }

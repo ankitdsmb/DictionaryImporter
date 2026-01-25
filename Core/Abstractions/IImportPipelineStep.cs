@@ -1,9 +1,8 @@
-﻿namespace DictionaryImporter.Core.Abstractions
-{
-    public interface IImportPipelineStep
-    {
-        string Name { get; }
+﻿namespace DictionaryImporter.Core.Abstractions;
 
-        Task ExecuteAsync(ImportPipelineContext context);
-    }
+public interface IImportPipelineStep
+{
+    string Name { get; }
+
+    Task ExecuteAsync(ImportPipelineContext context);
 }

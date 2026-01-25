@@ -1,8 +1,7 @@
-﻿namespace DictionaryImporter.Domain.Models
+﻿namespace DictionaryImporter.Domain.Models;
+
+public sealed class PartOfSpeechResult
 {
-    public sealed class PartOfSpeechResult
-    {
-        public string Pos { get; init; } = "unk";
-        public byte Confidence { get; init; }
-    }
+    public string Pos { get; init; } = "unk";
+    public byte Confidence { get; init; }
 }

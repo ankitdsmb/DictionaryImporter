@@ -1,12 +1,11 @@
-﻿namespace DictionaryImporter.Core.Pipeline.Steps
-{
-    public sealed class ParsingPipelineStep(DictionaryParsedDefinitionProcessor processor) : IImportPipelineStep
-    {
-        public string Name => PipelineStepNames.Parsing;
+﻿namespace DictionaryImporter.Core.Pipeline.Steps;
 
-        public async Task ExecuteAsync(ImportPipelineContext context)
-        {
-            await processor.ExecuteAsync(context.SourceCode, context.CancellationToken);
-        }
+public sealed class ParsingPipelineStep(DictionaryParsedDefinitionProcessor processor) : IImportPipelineStep
+{
+    public string Name => PipelineStepNames.Parsing;
+
+    public async Task ExecuteAsync(ImportPipelineContext context)
+    {
+        await processor.ExecuteAsync(context.SourceCode, context.CancellationToken);
     }
 }
