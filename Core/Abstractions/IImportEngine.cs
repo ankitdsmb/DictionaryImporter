@@ -1,7 +1,6 @@
-﻿namespace DictionaryImporter.Core.Abstractions
+﻿namespace DictionaryImporter.Core.Abstractions;
+
+public interface IImportEngine
 {
-    public interface IImportEngine
-    {
-        Task ImportAsync(Stream stream, CancellationToken ct);
-    }
+    Task ImportAsync(Stream stream, CancellationToken ct);
 }

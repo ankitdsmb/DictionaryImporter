@@ -1,36 +1,35 @@
 using DictionaryImporter.Infrastructure;
 
-namespace DictionaryImporter.Bootstrap.Extensions
+namespace DictionaryImporter.Bootstrap.Extensions;
+
+internal static class PersistenceRegistrationExtensions
 {
-    internal static class PersistenceRegistrationExtensions
+    public static IServiceCollection AddPersistenceWithoutSynonymWriter(
+        this IServiceCollection services,
+        string connectionString)
     {
-        public static IServiceCollection AddPersistenceWithoutSynonymWriter(
-            this IServiceCollection services,
-            string connectionString)
-        {
-            services.AddSingleton<IStagingLoader>(sp => new SqlDictionaryEntryStagingLoader(
+        services.AddSingleton<IStagingLoader>(sp => new SqlDictionaryEntryStagingLoader(
+            connectionString,
+            sp.GetRequiredService<ILogger<SqlDictionaryEntryStagingLoader>>()));
+
+        services.AddSingleton<IDataLoader, StagingDataLoaderAdapter>();
+
+        services.AddSingleton<IEntryEtymologyWriter>(sp => new SqlDictionaryEntryEtymologyWriter(
+            sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
+            sp.GetRequiredService<ILogger<SqlDictionaryEntryEtymologyWriter>>()));
+
+        services.AddSingleton<IDataMergeExecutor>(sp =>
+            new SqlDictionaryEntryMergeExecutor(
                 connectionString,
-                sp.GetRequiredService<ILogger<SqlDictionaryEntryStagingLoader>>()));
-
-            services.AddSingleton<IDataLoader, StagingDataLoaderAdapter>();
-
-            services.AddSingleton<IEntryEtymologyWriter>(sp => new SqlDictionaryEntryEtymologyWriter(
                 sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
-                sp.GetRequiredService<ILogger<SqlDictionaryEntryEtymologyWriter>>()));
+                sp.GetRequiredService<ILogger<SqlDictionaryEntryMergeExecutor>>()));
 
-            services.AddSingleton<IDataMergeExecutor>(sp =>
-                new SqlDictionaryEntryMergeExecutor(
-                    connectionString,
-                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
-                    sp.GetRequiredService<ILogger<SqlDictionaryEntryMergeExecutor>>()));
+        services.AddSingleton<IPostMergeVerifier>(sp => new SqlPostMergeVerifier(
+            connectionString,
+            sp.GetRequiredService<ILogger<SqlPostMergeVerifier>>()));
 
-            services.AddSingleton<IPostMergeVerifier>(sp => new SqlPostMergeVerifier(
-                connectionString,
-                sp.GetRequiredService<ILogger<SqlPostMergeVerifier>>()));
+        // SKIP IDictionaryEntrySynonymWriter registration
 
-            // SKIP IDictionaryEntrySynonymWriter registration
-
-            return services;
-        }
+        return services;
     }
 }

@@ -1,11 +1,10 @@
-﻿namespace DictionaryImporter.Core.Abstractions
+﻿namespace DictionaryImporter.Core.Abstractions;
+
+public interface IEtymologyExtractorRegistry
 {
-    public interface IEtymologyExtractorRegistry
-    {
-        IEtymologyExtractor GetExtractor(string sourceCode);
+    IEtymologyExtractor GetExtractor(string sourceCode);
 
-        void Register(IEtymologyExtractor extractor);
+    void Register(IEtymologyExtractor extractor);
 
-        IReadOnlyDictionary<string, IEtymologyExtractor> GetAllExtractors();
-    }
+    IReadOnlyDictionary<string, IEtymologyExtractor> GetAllExtractors();
 }

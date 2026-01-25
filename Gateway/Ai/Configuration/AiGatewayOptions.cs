@@ -1,7 +1,6 @@
-namespace DictionaryImporter.Gateway.Ai.Configuration
+namespace DictionaryImporter.Gateway.Ai.Configuration;
+
+public sealed class AiGatewayOptions
 {
-    public sealed class AiGatewayOptions
-    {
-        public List<AiProviderConfig> Providers { get; init; } = [];
-    }
+    public List<AiProviderConfig> Providers { get; init; } = [];
 }

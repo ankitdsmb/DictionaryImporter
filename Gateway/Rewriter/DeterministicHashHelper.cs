@@ -1,31 +1,30 @@
 ﻿using System.Security.Cryptography;
 
-namespace DictionaryImporter.Gateway.Rewriter
+namespace DictionaryImporter.Gateway.Rewriter;
+
+internal static class DeterministicHashHelper
 {
-    internal static class DeterministicHashHelper
+    public static string Sha256Hex(string? input)
     {
-        public static string Sha256Hex(string? input)
+        if (string.IsNullOrWhiteSpace(input))
+            return string.Empty;
+
+        try
         {
-            if (string.IsNullOrWhiteSpace(input))
-                return string.Empty;
+            var bytes = Encoding.UTF8.GetBytes(input.Trim());
 
-            try
-            {
-                var bytes = Encoding.UTF8.GetBytes(input.Trim());
+            using var sha = SHA256.Create();
+            var hashBytes = sha.ComputeHash(bytes);
 
-                using var sha = SHA256.Create();
-                var hashBytes = sha.ComputeHash(bytes);
+            var sb = new StringBuilder(hashBytes.Length * 2);
+            foreach (var b in hashBytes)
+                sb.Append(b.ToString("x2"));
 
-                var sb = new StringBuilder(hashBytes.Length * 2);
-                foreach (var b in hashBytes)
-                    sb.Append(b.ToString("x2"));
-
-                return sb.ToString();
-            }
-            catch
-            {
-                return string.Empty;
-            }
+            return sb.ToString();
+        }
+        catch
+        {
+            return string.Empty;
         }
     }
 }

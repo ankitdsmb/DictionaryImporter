@@ -2,47 +2,46 @@
 using DictionaryImporter.Core.Rewrite;
 using DictionaryImporter.Gateway.Grammar.Feature;
 
-namespace DictionaryImporter.Core.Pipeline.Steps
+namespace DictionaryImporter.Core.Pipeline.Steps;
+
+public sealed class GrammarCorrectionPipelineStep(
+    IGrammarFeature grammar,
+    IRewriteContextAccessor rewriteContextAccessor) : IImportPipelineStep
 {
-    public sealed class GrammarCorrectionPipelineStep(
-        IGrammarFeature grammar,
-        IRewriteContextAccessor rewriteContextAccessor) : IImportPipelineStep
+    private readonly IGrammarFeature _grammar = grammar;
+    private readonly IRewriteContextAccessor _rewriteContextAccessor = rewriteContextAccessor;
+
+    public string Name => PipelineStepNames.GrammarCorrection;
+
+    public async Task ExecuteAsync(ImportPipelineContext context)
     {
-        private readonly IGrammarFeature _grammar = grammar;
-        private readonly IRewriteContextAccessor _rewriteContextAccessor = rewriteContextAccessor;
+        if (context is null)
+            return;
 
-        public string Name => PipelineStepNames.GrammarCorrection;
+        var source = string.IsNullOrWhiteSpace(context.SourceCode) ? "UNKNOWN" : context.SourceCode.Trim();
 
-        public async Task ExecuteAsync(ImportPipelineContext context)
+        RewriteContext? previous = null;
+
+        try
         {
-            if (context is null)
-                return;
+            previous = _rewriteContextAccessor.Current;
 
-            var source = string.IsNullOrWhiteSpace(context.SourceCode) ? "UNKNOWN" : context.SourceCode.Trim();
-
-            RewriteContext? previous = null;
-
-            try
+            _rewriteContextAccessor.Current = new RewriteContext
             {
-                previous = _rewriteContextAccessor.Current;
+                SourceCode = source,
+                Mode = RewriteTargetMode.Definition
+            };
 
-                _rewriteContextAccessor.Current = new RewriteContext
-                {
-                    SourceCode = source,
-                    Mode = RewriteTargetMode.Definition
-                };
-
-                await _grammar.CorrectSourceAsync(source, context.CancellationToken);
-            }
-            finally
+            await _grammar.CorrectSourceAsync(source, context.CancellationToken);
+        }
+        finally
+        {
+            // Restore previous context (AsyncLocal hygiene)
+            _rewriteContextAccessor.Current = previous ?? new RewriteContext
             {
-                // Restore previous context (AsyncLocal hygiene)
-                _rewriteContextAccessor.Current = previous ?? new RewriteContext
-                {
-                    SourceCode = source,
-                    Mode = RewriteTargetMode.Definition
-                };
-            }
+                SourceCode = source,
+                Mode = RewriteTargetMode.Definition
+            };
         }
     }
 }

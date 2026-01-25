@@ -1,69 +1,68 @@
 ﻿using DictionaryImporter.Common;
 using DictionaryImporter.Common.SourceHelper;
 
-namespace DictionaryImporter.Sources.Kaikki.Parsing
+namespace DictionaryImporter.Sources.Kaikki.Parsing;
+
+internal class KaikkiSynonymExtractor : ISynonymExtractor
 {
-    internal class KaikkiSynonymExtractor : ISynonymExtractor
+    private readonly ILogger<KaikkiSynonymExtractor> _logger;
+
+    public KaikkiSynonymExtractor(ILogger<KaikkiSynonymExtractor> logger)
     {
-        private readonly ILogger<KaikkiSynonymExtractor> _logger;
+        _logger = logger;
+    }
 
-        public KaikkiSynonymExtractor(ILogger<KaikkiSynonymExtractor> logger)
+    public string SourceCode => "KAIKKI";
+
+    public IReadOnlyList<SynonymDetectionResult> Extract(
+        string headword,
+        string definition,
+        string? rawDefinition = null)
+    {
+        var results = new List<SynonymDetectionResult>();
+
+        try
         {
-            _logger = logger;
-        }
+            if (string.IsNullOrWhiteSpace(rawDefinition))
+                return results;
 
-        public string SourceCode => "KAIKKI";
+            if (!ParsingHelperKaikki.TryParseEnglishRoot(rawDefinition, out _))
+                return results;
 
-        public IReadOnlyList<SynonymDetectionResult> Extract(
-            string headword,
-            string definition,
-            string? rawDefinition = null)
-        {
-            var results = new List<SynonymDetectionResult>();
+            var synonyms = ParsingHelperKaikki.ExtractSynonyms(rawDefinition);
 
-            try
+            foreach (var synonym in synonyms.Distinct(StringComparer.OrdinalIgnoreCase))
             {
-                if (string.IsNullOrWhiteSpace(rawDefinition))
-                    return results;
+                if (!ValidateSynonymPair(headword, synonym))
+                    continue;
 
-                if (!ParsingHelperKaikki.TryParseEnglishRoot(rawDefinition, out _))
-                    return results;
+                var normalizedTarget = Helper.NormalizeWord(synonym);
+                if (string.IsNullOrWhiteSpace(normalizedTarget))
+                    continue;
 
-                var synonyms = ParsingHelperKaikki.ExtractSynonyms(rawDefinition);
-
-                foreach (var synonym in synonyms.Distinct(StringComparer.OrdinalIgnoreCase))
+                results.Add(new SynonymDetectionResult
                 {
-                    if (!ValidateSynonymPair(headword, synonym))
-                        continue;
-
-                    var normalizedTarget = Helper.NormalizeWord(synonym);
-                    if (string.IsNullOrWhiteSpace(normalizedTarget))
-                        continue;
-
-                    results.Add(new SynonymDetectionResult
-                    {
-                        TargetHeadword = normalizedTarget,
-                        ConfidenceLevel = "high",
-                        DetectionMethod = "KaikkiStructuredSynonym",
-                        SourceText = $"Kaikki synonym: {synonym}"
-                    });
-                }
+                    TargetHeadword = normalizedTarget,
+                    ConfidenceLevel = "high",
+                    DetectionMethod = "KaikkiStructuredSynonym",
+                    SourceText = $"Kaikki synonym: {synonym}"
+                });
             }
-            catch (Newtonsoft.Json.JsonException ex)
-            {
-                _logger.LogDebug(ex, "Failed to parse Kaikki JSON for synonym extraction | Headword={Headword}", headword);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to extract synonyms for {Headword}", headword);
-            }
-
-            return results;
         }
-
-        public bool ValidateSynonymPair(string headwordA, string headwordB)
+        catch (Newtonsoft.Json.JsonException ex)
         {
-            return ParsingHelperKaikki.ValidateSynonymPair(headwordA, headwordB);
+            _logger.LogDebug(ex, "Failed to parse Kaikki JSON for synonym extraction | Headword={Headword}", headword);
         }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to extract synonyms for {Headword}", headword);
+        }
+
+        return results;
+    }
+
+    public bool ValidateSynonymPair(string headwordA, string headwordB)
+    {
+        return ParsingHelperKaikki.ValidateSynonymPair(headwordA, headwordB);
     }
 }

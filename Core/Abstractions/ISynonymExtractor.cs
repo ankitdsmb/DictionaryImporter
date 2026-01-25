@@ -1,14 +1,13 @@
-﻿namespace DictionaryImporter.Core.Abstractions
+﻿namespace DictionaryImporter.Core.Abstractions;
+
+public interface ISynonymExtractor
 {
-    public interface ISynonymExtractor
-    {
-        string SourceCode { get; }
+    string SourceCode { get; }
 
-        IReadOnlyList<SynonymDetectionResult> Extract(
-            string headword,
-            string definition,
-            string? rawDefinition = null);
+    IReadOnlyList<SynonymDetectionResult> Extract(
+        string headword,
+        string definition,
+        string? rawDefinition = null);
 
-        bool ValidateSynonymPair(string headwordA, string headwordB);
-    }
+    bool ValidateSynonymPair(string headwordA, string headwordB);
 }

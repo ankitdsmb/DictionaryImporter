@@ -1,169 +1,158 @@
 ﻿using DictionaryImporter.Infrastructure.Source;
 using DictionaryImporter.Sources.Common.Helper;
 
-namespace DictionaryImporter.Sources.EnglishChinese.Parsing
+namespace DictionaryImporter.Sources.EnglishChinese.Parsing;
+
+public sealed class EnglishChineseParser(ILogger<EnglishChineseParser> logger = null)
+    : ISourceDictionaryDefinitionParser
 {
-    public sealed class EnglishChineseParser(ILogger<EnglishChineseParser> logger = null)
-        : ISourceDictionaryDefinitionParser
+    public string SourceCode => "ENG_CHN";
+
+    public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
     {
-        public string SourceCode => "ENG_CHN";
+        logger?.LogDebug(
+            "EnglishChineseEnhancedParser.Parse called | Word={Word} | RawFragmentPreview={RawFragmentPreview}",
+            entry?.Word ?? "null",
+            entry?.RawFragment?.Substring(0, Math.Min(50, entry.RawFragment.Length)) ?? "null");
 
-        public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
+        if (entry == null)
         {
-            logger?.LogDebug(
-                "EnglishChineseEnhancedParser.Parse called | Word={Word} | RawFragmentPreview={RawFragmentPreview}",
-                entry?.Word ?? "null",
-                entry?.RawFragment?.Substring(0, Math.Min(50, entry.RawFragment.Length)) ?? "null");
-
-            if (entry == null)
-            {
-                logger?.LogWarning("Parser received null entry");
-                yield return CreateFallbackParsedDefinition(entry);
-                yield break;
-            }
-
-            // Use RawFragment if available
-            var rawLine = !string.IsNullOrWhiteSpace(entry.RawFragment)
-                ? entry.RawFragment
-                : entry.Definition;
-
-            if (string.IsNullOrWhiteSpace(rawLine))
-            {
-                logger?.LogDebug("Empty raw line for entry: {Word}", entry.Word);
-                yield return CreateFallbackParsedDefinition(entry);
-                yield break;
-            }
-
-            // Parse the complete entry using helper
-            var parsedData = ParsingHelperEnglishChinese.ParseEngChnEntry(rawLine);
-
-            // Return main sense
-            yield return CreateParsedDefinition(parsedData, entry, rawLine);
-
-            // Return additional senses if present
-            if (parsedData.AdditionalSenses != null && parsedData.AdditionalSenses.Count > 0)
-            {
-                var senseNumber = entry.SenseNumber + 1;
-                foreach (var additionalSense in parsedData.AdditionalSenses)
-                {
-                    yield return CreateParsedDefinition(additionalSense, entry, rawLine, senseNumber++);
-                }
-            }
+            logger?.LogWarning("Parser received null entry");
+            yield return CreateFallbackParsedDefinition(entry);
+            yield break;
         }
 
-        private ParsedDefinition CreateParsedDefinition(
-            EnglishChineseParsedData data,
-            DictionaryEntry entry,
-            string rawFragment,
-            int senseNumber = 1)
+        // Use RawFragment if available
+        var rawLine = !string.IsNullOrWhiteSpace(entry.RawFragment)
+            ? entry.RawFragment
+            : entry.Definition;
+
+        if (string.IsNullOrWhiteSpace(rawLine))
         {
-            // Build full definition with all metadata
-            var fullDefinition = BuildFullDefinition(data);
-
-            // Extract domain from labels
-            var domain = ParsingHelperEnglishChinese.ExtractDomain(rawFragment);
-
-            // Extract usage label
-            var usageLabel = ParsingHelperEnglishChinese.ExtractUsageLabel(rawFragment);
-
-            var parsed = new ParsedDefinition
-            {
-                MeaningTitle = data.Headword ?? entry.Word ?? "unnamed sense",
-                Definition = fullDefinition,
-                RawFragment = rawFragment,
-                SenseNumber = senseNumber,
-                Domain = domain,
-                UsageLabel = usageLabel,
-                CrossReferences = new List<CrossReference>(),
-                Synonyms = null,
-                Alias = null
-            };
-
-            // Attach examples if available
-            if (data.Examples.Count > 0)
-            {
-                parsed.Examples = data.Examples.ToList();
-            }
-
-            logger?.LogDebug(
-                "Created ParsedDefinition | Word={Word} | Domain={Domain} | POS={POS} | DefLength={Length}",
-                parsed.MeaningTitle, domain, data.PartOfSpeech, parsed.Definition.Length);
-
-            return parsed;
+            logger?.LogDebug("Empty raw line for entry: {Word}", entry.Word);
+            yield return CreateFallbackParsedDefinition(entry);
+            yield break;
         }
 
-        private string BuildFullDefinition(EnglishChineseParsedData data)
+        // Parse the complete entry using helper
+        var parsedData = ParsingHelperEnglishChinese.ParseEngChnEntry(rawLine);
+
+        // Return main sense
+        yield return CreateParsedDefinition(parsedData, entry, rawLine);
+
+        // Return additional senses if present
+        if (parsedData.AdditionalSenses != null && parsedData.AdditionalSenses.Count > 0)
         {
-            var parts = new List<string>();
-
-            // Add syllabification if present
-            if (!string.IsNullOrWhiteSpace(data.Syllabification))
-                parts.Add($"【Syllabification】{data.Syllabification}");
-
-            // Add IPA pronunciation if present
-            if (!string.IsNullOrWhiteSpace(data.IpaPronunciation))
-                parts.Add($"【Pronunciation】/{data.IpaPronunciation}/");
-
-            // Add part of speech if present
-            if (!string.IsNullOrWhiteSpace(data.PartOfSpeech))
-                parts.Add($"【POS】{data.PartOfSpeech}");
-
-            // Add main definition
-            parts.Add(data.MainDefinition);
-
-            // Add domain labels if present
-            if (data.DomainLabels.Count > 0)
-                parts.Add($"【Domains】{string.Join(", ", data.DomainLabels)}");
-
-            // Add register labels if present
-            if (data.RegisterLabels.Count > 0)
-                parts.Add($"【Registers】{string.Join(", ", data.RegisterLabels)}");
-
-            // Add etymology if present
-            if (!string.IsNullOrWhiteSpace(data.Etymology))
-                parts.Add($"【Etymology】{data.Etymology}");
-
-            // Add examples if present
-            if (data.Examples.Count > 0)
+            var senseNumber = entry.SenseNumber + 1;
+            foreach (var additionalSense in parsedData.AdditionalSenses)
             {
-                parts.Add("【Examples】");
-                foreach (var example in data.Examples)
-                {
-                    parts.Add($"• {example}");
-                }
+                yield return CreateParsedDefinition(additionalSense, entry, rawLine, senseNumber++);
             }
-
-            return string.Join("\n", parts).Trim();
-        }
-
-        private ParsedDefinition CreateFallbackParsedDefinition(DictionaryEntry entry)
-        {
-            logger?.LogWarning("Creating fallback ParsedDefinition for: {Word}", entry?.Word);
-            return new ParsedDefinition
-            {
-                MeaningTitle = entry?.Word ?? "unnamed sense",
-                Definition = entry?.Definition ?? string.Empty,
-                RawFragment = entry?.RawFragment ?? entry?.Definition ?? string.Empty,
-                SenseNumber = entry?.SenseNumber ?? 1,
-                Domain = null,
-                UsageLabel = null,
-                CrossReferences = new List<CrossReference>(),
-                Synonyms = null,
-                Alias = null
-            };
         }
     }
+
+    private ParsedDefinition CreateParsedDefinition(
+        EnglishChineseParsedData data,
+        DictionaryEntry entry,
+        string rawFragment,
+        int senseNumber = 1)
+    {
+        // Build full definition with all metadata
+        var fullDefinition = BuildFullDefinition(data);
+
+        // Extract domain from labels
+        var domain = ParsingHelperEnglishChinese.ExtractDomain(rawFragment);
+
+        // Extract usage label
+        var usageLabel = ParsingHelperEnglishChinese.ExtractUsageLabel(rawFragment);
+
+        var parsed = new ParsedDefinition
+        {
+            MeaningTitle = data.Headword ?? entry.Word ?? "unnamed sense",
+            Definition = fullDefinition,
+            RawFragment = rawFragment,
+            SenseNumber = senseNumber,
+            Domain = domain,
+            UsageLabel = usageLabel,
+            CrossReferences = new List<CrossReference>(),
+            Synonyms = null,
+            Alias = null
+        };
+
+        // Attach examples if available
+        if (data.Examples.Count > 0)
+        {
+            parsed.Examples = data.Examples.ToList();
+        }
+
+        logger?.LogDebug(
+            "Created ParsedDefinition | Word={Word} | Domain={Domain} | POS={POS} | DefLength={Length}",
+            parsed.MeaningTitle, domain, data.PartOfSpeech, parsed.Definition.Length);
+
+        return parsed;
+    }
+
+    private string BuildFullDefinition(EnglishChineseParsedData data)
+    {
+        var parts = new List<string>();
+
+        // Add syllabification if present
+        if (!string.IsNullOrWhiteSpace(data.Syllabification))
+            parts.Add($"【Syllabification】{data.Syllabification}");
+
+        // Add IPA pronunciation if present
+        if (!string.IsNullOrWhiteSpace(data.IpaPronunciation))
+            parts.Add($"【Pronunciation】/{data.IpaPronunciation}/");
+
+        // Add part of speech if present
+        if (!string.IsNullOrWhiteSpace(data.PartOfSpeech))
+            parts.Add($"【POS】{data.PartOfSpeech}");
+
+        // Add main definition
+        parts.Add(data.MainDefinition);
+
+        // Add domain labels if present
+        if (data.DomainLabels.Count > 0)
+            parts.Add($"【Domains】{string.Join(", ", data.DomainLabels)}");
+
+        // Add register labels if present
+        if (data.RegisterLabels.Count > 0)
+            parts.Add($"【Registers】{string.Join(", ", data.RegisterLabels)}");
+
+        // Add etymology if present
+        if (!string.IsNullOrWhiteSpace(data.Etymology))
+            parts.Add($"【Etymology】{data.Etymology}");
+
+        // Add examples if present
+        if (data.Examples.Count > 0)
+        {
+            parts.Add("【Examples】");
+            foreach (var example in data.Examples)
+            {
+                parts.Add($"• {example}");
+            }
+        }
+
+        return string.Join("\n", parts).Trim();
+    }
+
+    private ParsedDefinition CreateFallbackParsedDefinition(DictionaryEntry entry)
+    {
+        logger?.LogWarning("Creating fallback ParsedDefinition for: {Word}", entry?.Word);
+        return new ParsedDefinition
+        {
+            MeaningTitle = entry?.Word ?? "unnamed sense",
+            Definition = entry?.Definition ?? string.Empty,
+            RawFragment = entry?.RawFragment ?? entry?.Definition ?? string.Empty,
+            SenseNumber = entry?.SenseNumber ?? 1,
+            Domain = null,
+            UsageLabel = null,
+            CrossReferences = new List<CrossReference>(),
+            Synonyms = null,
+            Alias = null
+        };
+    }
 }
-
-
-
-
-
-
-
-
-
-
 
 
 //namespace DictionaryImporter.Sources.EnglishChinese.Parsing

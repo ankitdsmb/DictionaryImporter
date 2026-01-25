@@ -1,9 +1,8 @@
-﻿namespace DictionaryImporter.Core.Rewrite
+﻿namespace DictionaryImporter.Core.Rewrite;
+
+public enum RewriteTargetMode
 {
-    public enum RewriteTargetMode
-    {
-        Definition = 1,
-        Example = 2,
-        Title = 3
-    }
+    Definition = 1,
+    Example = 2,
+    Title = 3
 }

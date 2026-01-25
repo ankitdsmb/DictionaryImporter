@@ -1,8 +1,7 @@
-﻿namespace DictionaryImporter.Sources.Century21.Models
+﻿namespace DictionaryImporter.Sources.Century21.Models;
+
+public sealed class Country21Example
 {
-    public sealed class Country21Example
-    {
-        public string English { get; init; } = null!;
-        public string? Chinese { get; init; }
-    }
+    public string English { get; init; } = null!;
+    public string? Chinese { get; init; }
 }

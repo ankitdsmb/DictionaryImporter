@@ -1,9 +1,8 @@
-﻿namespace DictionaryImporter.Gateway.Rewriter
+﻿namespace DictionaryImporter.Gateway.Rewriter;
+
+public enum LuceneSuggestionMode
 {
-    public enum LuceneSuggestionMode
-    {
-        Definition = 1,
-        MeaningTitle = 2,
-        Example = 3
-    }
+    Definition = 1,
+    MeaningTitle = 2,
+    Example = 3
 }

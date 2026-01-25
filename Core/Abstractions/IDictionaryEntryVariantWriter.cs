@@ -1,7 +1,6 @@
-﻿namespace DictionaryImporter.Core.Abstractions
+﻿namespace DictionaryImporter.Core.Abstractions;
+
+public interface IDictionaryEntryVariantWriter
 {
-    public interface IDictionaryEntryVariantWriter
-    {
-        Task WriteAsync(long dictionaryEntryId, string variantText, string variantType, string sourceCode, CancellationToken ct);
-    }
+    Task WriteAsync(long dictionaryEntryId, string variantText, string variantType, string sourceCode, CancellationToken ct);
 }

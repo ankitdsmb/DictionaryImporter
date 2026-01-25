@@ -5,84 +5,83 @@ using DictionaryImporter.Common;
 using DictionaryImporter.Sources.Common.Helper;
 using Microsoft.Extensions.Logging;
 
-namespace DictionaryImporter.Sources.Gutenberg
+namespace DictionaryImporter.Sources.Gutenberg;
+
+public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransformer> logger)
+    : IDataTransformer<GutenbergRawEntry>
 {
-    public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransformer> logger)
-        : IDataTransformer<GutenbergRawEntry>
+    private const string SourceCode = "GUT_WEBSTER";
+
+    public IEnumerable<DictionaryEntry> Transform(GutenbergRawEntry raw)
     {
-        private const string SourceCode = "GUT_WEBSTER";
+        if (!Helper.ShouldContinueProcessing(SourceCode, logger))
+            yield break;
 
-        public IEnumerable<DictionaryEntry> Transform(GutenbergRawEntry raw)
+        if (raw == null || string.IsNullOrWhiteSpace(raw.Headword) || raw.Lines == null || raw.Lines.Count == 0)
+            yield break;
+
+        logger.LogDebug("Transforming headword {Word}", raw.Headword);
+
+        foreach (var entry in ProcessGutenbergEntry(raw))
+            yield return entry;
+    }
+
+    private IEnumerable<DictionaryEntry> ProcessGutenbergEntry(GutenbergRawEntry raw)
+    {
+        var entries = new List<DictionaryEntry>();
+
+        try
         {
-            if (!Helper.ShouldContinueProcessing(SourceCode, logger))
-                yield break;
+            var (headerPos, _) = WebsterHeaderPosExtractor.Extract(string.Join(" ", raw.Lines));
+            if (!string.IsNullOrWhiteSpace(headerPos))
+                logger.LogDebug("Header POS resolved | Word={Word} | POS={POS}", raw.Headword, headerPos);
 
-            if (raw == null || string.IsNullOrWhiteSpace(raw.Headword) || raw.Lines == null || raw.Lines.Count == 0)
-                yield break;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var normalizedWord = Helper.NormalizeWord(raw.Headword);
+            var rawFragment = string.Join("\n", raw.Lines);
 
-            logger.LogDebug("Transforming headword {Word}", raw.Headword);
+            var sense = 1;
 
-            foreach (var entry in ProcessGutenbergEntry(raw))
-                yield return entry;
-        }
-
-        private IEnumerable<DictionaryEntry> ProcessGutenbergEntry(GutenbergRawEntry raw)
-        {
-            var entries = new List<DictionaryEntry>();
-
-            try
+            foreach (var def in ParsingHelperGutenberg.ExtractDefinitionsFromRawLines(raw.Lines))
             {
-                var (headerPos, _) = WebsterHeaderPosExtractor.Extract(string.Join(" ", raw.Lines));
-                if (!string.IsNullOrWhiteSpace(headerPos))
-                    logger.LogDebug("Header POS resolved | Word={Word} | POS={POS}", raw.Headword, headerPos);
+                var cleanedDef = ParsingHelperGutenberg.NormalizeGutenbergTransformerDefinition(def);
 
-                var seen = new HashSet<string>(StringComparer.Ordinal);
-                var normalizedWord = Helper.NormalizeWord(raw.Headword);
-                var rawFragment = string.Join("\n", raw.Lines);
+                if (string.IsNullOrWhiteSpace(cleanedDef))
+                    continue;
 
-                var sense = 1;
+                var normalizedDef = Helper.NormalizeDefinition(cleanedDef);
 
-                foreach (var def in ParsingHelperGutenberg.ExtractDefinitionsFromRawLines(raw.Lines))
+                // FIX: Do not include sense in dedup key (sense changes when duplicates are skipped)
+                var dedupKey = $"{normalizedWord}|{normalizedDef}";
+                if (!seen.Add(dedupKey))
                 {
-                    var cleanedDef = ParsingHelperGutenberg.NormalizeGutenbergTransformerDefinition(def);
-
-                    if (string.IsNullOrWhiteSpace(cleanedDef))
-                        continue;
-
-                    var normalizedDef = Helper.NormalizeDefinition(cleanedDef);
-
-                    // FIX: Do not include sense in dedup key (sense changes when duplicates are skipped)
-                    var dedupKey = $"{normalizedWord}|{normalizedDef}";
-                    if (!seen.Add(dedupKey))
-                    {
-                        logger.LogDebug("Skipped duplicate definition for {Word}, sense {Sense}", raw.Headword, sense);
-                        continue;
-                    }
-
-                    entries.Add(new DictionaryEntry
-                    {
-                        Word = raw.Headword,
-                        NormalizedWord = normalizedWord,
-                        Definition = cleanedDef,
-                        RawFragment = rawFragment,
-                        SenseNumber = sense,
-                        SourceCode = SourceCode,
-                        PartOfSpeech = headerPos,
-                        CreatedUtc = DateTime.UtcNow
-                    });
-
-                    sense++;
+                    logger.LogDebug("Skipped duplicate definition for {Word}, sense {Sense}", raw.Headword, sense);
+                    continue;
                 }
 
-                Helper.LogProgress(logger, SourceCode, Helper.GetCurrentCount(SourceCode));
-            }
-            catch (Exception ex)
-            {
-                Helper.HandleError(logger, ex, SourceCode, "transforming");
+                entries.Add(new DictionaryEntry
+                {
+                    Word = raw.Headword,
+                    NormalizedWord = normalizedWord,
+                    Definition = cleanedDef,
+                    RawFragment = rawFragment,
+                    SenseNumber = sense,
+                    SourceCode = SourceCode,
+                    PartOfSpeech = headerPos,
+                    CreatedUtc = DateTime.UtcNow
+                });
+
+                sense++;
             }
 
-            foreach (var entry in entries)
-                yield return entry;
+            Helper.LogProgress(logger, SourceCode, Helper.GetCurrentCount(SourceCode));
         }
+        catch (Exception ex)
+        {
+            Helper.HandleError(logger, ex, SourceCode, "transforming");
+        }
+
+        foreach (var entry in entries)
+            yield return entry;
     }
 }

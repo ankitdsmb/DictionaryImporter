@@ -1,7 +1,6 @@
-﻿namespace DictionaryImporter.Infrastructure.Source
+﻿namespace DictionaryImporter.Infrastructure.Source;
+
+public interface ISourceDictionaryDefinitionParser : IDictionaryDefinitionParser
 {
-    public interface ISourceDictionaryDefinitionParser : IDictionaryDefinitionParser
-    {
-        string SourceCode { get; }
-    }
+    string SourceCode { get; }
 }

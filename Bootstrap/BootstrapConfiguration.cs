@@ -1,13 +1,12 @@
-﻿namespace DictionaryImporter.Bootstrap
+﻿namespace DictionaryImporter.Bootstrap;
+
+public static class BootstrapConfiguration
 {
-    public static class BootstrapConfiguration
+    public static IConfiguration Build()
     {
-        public static IConfiguration Build()
-        {
-            return new ConfigurationBuilder()
-                .AddJsonFile("appsettings.json", false)
-                .AddEnvironmentVariables()
-                .Build();
-        }
+        return new ConfigurationBuilder()
+            .AddJsonFile("appsettings.json", false)
+            .AddEnvironmentVariables()
+            .Build();
     }
 }

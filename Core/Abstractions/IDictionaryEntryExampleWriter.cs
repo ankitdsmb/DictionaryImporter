@@ -1,8 +1,7 @@
 ﻿// File: Core/Persistence/IDictionaryEntryExampleWriter.cs
-namespace DictionaryImporter.Core.Abstractions
+namespace DictionaryImporter.Core.Abstractions;
+
+public interface IDictionaryEntryExampleWriter
 {
-    public interface IDictionaryEntryExampleWriter
-    {
-        Task WriteAsync(long dictionaryEntryParsedId, string exampleText, string sourceCode, CancellationToken ct);
-    }
+    Task WriteAsync(long dictionaryEntryParsedId, string exampleText, string sourceCode, CancellationToken ct);
 }

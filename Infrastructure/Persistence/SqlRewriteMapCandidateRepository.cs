@@ -7,266 +7,265 @@ using DictionaryImporter.Common;
 using DictionaryImporter.Gateway.Rewriter;
 using Microsoft.Extensions.Logging;
 
-namespace DictionaryImporter.Infrastructure.Persistence
+namespace DictionaryImporter.Infrastructure.Persistence;
+
+public sealed class SqlRewriteMapCandidateRepository(
+    ISqlStoredProcedureExecutor sp,
+    ILogger<SqlRewriteMapCandidateRepository> logger)
+    : IRewriteMapCandidateRepository
 {
-    public sealed class SqlRewriteMapCandidateRepository(
-        ISqlStoredProcedureExecutor sp,
-        ILogger<SqlRewriteMapCandidateRepository> logger)
-        : IRewriteMapCandidateRepository
+    private readonly ISqlStoredProcedureExecutor _sp = sp;
+    private readonly ILogger<SqlRewriteMapCandidateRepository> _logger = logger;
+
+    public async Task UpsertCandidatesAsync(
+        IReadOnlyList<RewriteMapCandidateUpsert> candidates,
+        CancellationToken ct)
     {
-        private readonly ISqlStoredProcedureExecutor _sp = sp;
-        private readonly ILogger<SqlRewriteMapCandidateRepository> _logger = logger;
+        if (candidates is null || candidates.Count == 0)
+            return;
 
-        public async Task UpsertCandidatesAsync(
-            IReadOnlyList<RewriteMapCandidateUpsert> candidates,
-            CancellationToken ct)
+        try
         {
-            if (candidates is null || candidates.Count == 0)
+            var aggregated = AggregateCandidates(candidates);
+            if (aggregated.Count == 0)
                 return;
 
-            try
+            foreach (var c in aggregated)
             {
-                var aggregated = AggregateCandidates(candidates);
-                if (aggregated.Count == 0)
-                    return;
-
-                foreach (var c in aggregated)
-                {
-                    ct.ThrowIfCancellationRequested();
-
-                    await _sp.ExecuteAsync(
-                        "sp_RewriteMapCandidate_Upsert",
-                        new
-                        {
-                            c.SourceCode,
-                            c.Mode,
-                            c.FromText,
-                            c.ToText,
-                            c.Confidence
-                        },
-                        ct,
-                        timeoutSeconds: 60);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                _logger.LogWarning("UpsertCandidatesAsync cancelled.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "UpsertCandidatesAsync failed.");
-            }
-        }
-
-        public async Task<IReadOnlyList<RewriteMapCandidateRow>> GetApprovedCandidatesAsync(
-            string sourceCode,
-            int take,
-            CancellationToken ct)
-        {
-            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
-
-            take = take <= 0 ? 200 : take;
-            if (take > 2000) take = 2000;
-
-            try
-            {
-                var rows = await _sp.QueryAsync<RewriteMapCandidateRow>(
-                    "sp_RewriteMapCandidate_GetApproved",
-                    new
-                    {
-                        SourceCode = sourceCode,
-                        Take = take
-                    },
-                    ct,
-                    timeoutSeconds: 60);
-
-                return rows
-                    .OrderBy(x => x.RewriteMapCandidateId)
-                    .ToList();
-            }
-            catch (OperationCanceledException)
-            {
-                return Array.Empty<RewriteMapCandidateRow>();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "GetApprovedCandidatesAsync failed.");
-                return Array.Empty<RewriteMapCandidateRow>();
-            }
-        }
-
-        public async Task MarkPromotedAsync(
-            IReadOnlyList<long> candidateIds,
-            string approvedBy,
-            CancellationToken ct)
-        {
-            if (candidateIds is null || candidateIds.Count == 0)
-                return;
-
-            approvedBy = Helper.SqlRepository.NormalizeString(approvedBy, Helper.SqlRepository.DefaultPromotedBy);
-            approvedBy = Helper.SqlRepository.Truncate(approvedBy, 128);
-
-            var ids = Helper.SqlRepository.NormalizeDistinctIds(candidateIds);
-            if (ids.Length == 0)
-                return;
-
-            try
-            {
-                var tvp = Helper.SqlRepository.ToBigIntIdListTvp(ids);
+                ct.ThrowIfCancellationRequested();
 
                 await _sp.ExecuteAsync(
-                    "sp_RewriteMapCandidate_MarkPromoted",
+                    "sp_RewriteMapCandidate_Upsert",
                     new
                     {
-                        ApprovedBy = approvedBy,
-                        Ids = tvp
+                        c.SourceCode,
+                        c.Mode,
+                        c.FromText,
+                        c.ToText,
+                        c.Confidence
                     },
                     ct,
                     timeoutSeconds: 60);
             }
-            catch (OperationCanceledException)
-            {
-                // ignore
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "MarkPromotedAsync failed.");
-            }
         }
-
-        public async Task<IReadOnlySet<string>> GetExistingRewriteMapKeysAsync(
-            string sourceCode,
-            CancellationToken ct)
+        catch (OperationCanceledException)
         {
-            _ = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
+            _logger.LogWarning("UpsertCandidatesAsync cancelled.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpsertCandidatesAsync failed.");
+        }
+    }
 
-            try
-            {
-                var rows = await _sp.QueryAsync<RewriteMapKeyRow>(
-                    "sp_RewriteRule_GetExistingKeys",
-                    new { },
-                    ct,
-                    timeoutSeconds: 60);
+    public async Task<IReadOnlyList<RewriteMapCandidateRow>> GetApprovedCandidatesAsync(
+        string sourceCode,
+        int take,
+        CancellationToken ct)
+    {
+        sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
-                var set = new HashSet<string>(StringComparer.Ordinal);
+        take = take <= 0 ? 200 : take;
+        if (take > 2000) take = 2000;
 
-                foreach (var r in rows)
+        try
+        {
+            var rows = await _sp.QueryAsync<RewriteMapCandidateRow>(
+                "sp_RewriteMapCandidate_GetApproved",
+                new
                 {
-                    var mode = (r.ModeCode ?? string.Empty).Trim();
-                    var from = (r.FromText ?? string.Empty).Trim();
+                    SourceCode = sourceCode,
+                    Take = take
+                },
+                ct,
+                timeoutSeconds: 60);
 
-                    if (string.IsNullOrWhiteSpace(from))
-                        continue;
-
-                    if (string.IsNullOrWhiteSpace(mode))
-                        mode = "GLOBAL";
-
-                    set.Add($"{mode}|{from}");
-                }
-
-                return set;
-            }
-            catch (OperationCanceledException)
-            {
-                return new HashSet<string>(StringComparer.Ordinal);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "GetExistingRewriteMapKeysAsync failed.");
-                return new HashSet<string>(StringComparer.Ordinal);
-            }
+            return rows
+                .OrderBy(x => x.RewriteMapCandidateId)
+                .ToList();
         }
-
-        private static List<RewriteMapCandidateUpsert> AggregateCandidates(IReadOnlyList<RewriteMapCandidateUpsert> candidates)
+        catch (OperationCanceledException)
         {
-            var map = new Dictionary<string, CandidateAccumulator>(StringComparer.Ordinal);
+            return Array.Empty<RewriteMapCandidateRow>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetApprovedCandidatesAsync failed.");
+            return Array.Empty<RewriteMapCandidateRow>();
+        }
+    }
 
-            foreach (var c in candidates)
+    public async Task MarkPromotedAsync(
+        IReadOnlyList<long> candidateIds,
+        string approvedBy,
+        CancellationToken ct)
+    {
+        if (candidateIds is null || candidateIds.Count == 0)
+            return;
+
+        approvedBy = Helper.SqlRepository.NormalizeString(approvedBy, Helper.SqlRepository.DefaultPromotedBy);
+        approvedBy = Helper.SqlRepository.Truncate(approvedBy, 128);
+
+        var ids = Helper.SqlRepository.NormalizeDistinctIds(candidateIds);
+        if (ids.Length == 0)
+            return;
+
+        try
+        {
+            var tvp = Helper.SqlRepository.ToBigIntIdListTvp(ids);
+
+            await _sp.ExecuteAsync(
+                "sp_RewriteMapCandidate_MarkPromoted",
+                new
+                {
+                    ApprovedBy = approvedBy,
+                    Ids = tvp
+                },
+                ct,
+                timeoutSeconds: 60);
+        }
+        catch (OperationCanceledException)
+        {
+            // ignore
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "MarkPromotedAsync failed.");
+        }
+    }
+
+    public async Task<IReadOnlySet<string>> GetExistingRewriteMapKeysAsync(
+        string sourceCode,
+        CancellationToken ct)
+    {
+        _ = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
+
+        try
+        {
+            var rows = await _sp.QueryAsync<RewriteMapKeyRow>(
+                "sp_RewriteRule_GetExistingKeys",
+                new { },
+                ct,
+                timeoutSeconds: 60);
+
+            var set = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var r in rows)
             {
-                if (c is null)
+                var mode = (r.ModeCode ?? string.Empty).Trim();
+                var from = (r.FromText ?? string.Empty).Trim();
+
+                if (string.IsNullOrWhiteSpace(from))
                     continue;
 
-                var source = Helper.SqlRepository.NormalizeSourceCode(c.SourceCode);
-                var mode = Helper.SqlRepository.NormalizeModeCode(c.Mode);
-                var from = (c.FromText ?? string.Empty).Trim();
-                var to = (c.ToText ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(mode))
+                    mode = "GLOBAL";
 
-                if (string.IsNullOrWhiteSpace(source)) continue;
-                if (string.IsNullOrWhiteSpace(mode)) continue;
-                if (string.IsNullOrWhiteSpace(from)) continue;
-                if (string.IsNullOrWhiteSpace(to)) continue;
-                if (string.Equals(from, to, StringComparison.Ordinal)) continue;
-
-                from = Helper.SqlRepository.Truncate(from, 400);
-                to = Helper.SqlRepository.Truncate(to, 400);
-
-                var confidence = Helper.SqlRepository.NormalizeConfidence01(c.Confidence);
-
-                var key = string.Concat(source, "|", mode, "|", from, "|", to);
-
-                if (map.TryGetValue(key, out var acc))
-                {
-                    if (confidence > acc.MaxConfidence)
-                        acc.MaxConfidence = confidence;
-
-                    map[key] = acc;
-                }
-                else
-                {
-                    map[key] = new CandidateAccumulator
-                    {
-                        SourceCode = source,
-                        Mode = mode,
-                        FromText = from,
-                        ToText = to,
-                        MaxConfidence = confidence
-                    };
-                }
+                set.Add($"{mode}|{from}");
             }
 
-            var result = new List<RewriteMapCandidateUpsert>(map.Count);
+            return set;
+        }
+        catch (OperationCanceledException)
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetExistingRewriteMapKeysAsync failed.");
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+    }
 
-            foreach (var kv in map)
+    private static List<RewriteMapCandidateUpsert> AggregateCandidates(IReadOnlyList<RewriteMapCandidateUpsert> candidates)
+    {
+        var map = new Dictionary<string, CandidateAccumulator>(StringComparer.Ordinal);
+
+        foreach (var c in candidates)
+        {
+            if (c is null)
+                continue;
+
+            var source = Helper.SqlRepository.NormalizeSourceCode(c.SourceCode);
+            var mode = Helper.SqlRepository.NormalizeModeCode(c.Mode);
+            var from = (c.FromText ?? string.Empty).Trim();
+            var to = (c.ToText ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(source)) continue;
+            if (string.IsNullOrWhiteSpace(mode)) continue;
+            if (string.IsNullOrWhiteSpace(from)) continue;
+            if (string.IsNullOrWhiteSpace(to)) continue;
+            if (string.Equals(from, to, StringComparison.Ordinal)) continue;
+
+            from = Helper.SqlRepository.Truncate(from, 400);
+            to = Helper.SqlRepository.Truncate(to, 400);
+
+            var confidence = Helper.SqlRepository.NormalizeConfidence01(c.Confidence);
+
+            var key = string.Concat(source, "|", mode, "|", from, "|", to);
+
+            if (map.TryGetValue(key, out var acc))
             {
-                var acc = kv.Value;
+                if (confidence > acc.MaxConfidence)
+                    acc.MaxConfidence = confidence;
 
-                result.Add(new RewriteMapCandidateUpsert
-                {
-                    SourceCode = acc.SourceCode,
-                    Mode = acc.Mode,
-                    FromText = acc.FromText,
-                    ToText = acc.ToText,
-                    Confidence = acc.MaxConfidence
-                });
+                map[key] = acc;
             }
-
-            result.Sort(static (a, b) =>
+            else
             {
-                var c = string.CompareOrdinal(a.SourceCode, b.SourceCode);
-                if (c != 0) return c;
-                c = string.CompareOrdinal(a.Mode, b.Mode);
-                if (c != 0) return c;
-                c = string.CompareOrdinal(a.FromText, b.FromText);
-                if (c != 0) return c;
-                return string.CompareOrdinal(a.ToText, b.ToText);
+                map[key] = new CandidateAccumulator
+                {
+                    SourceCode = source,
+                    Mode = mode,
+                    FromText = from,
+                    ToText = to,
+                    MaxConfidence = confidence
+                };
+            }
+        }
+
+        var result = new List<RewriteMapCandidateUpsert>(map.Count);
+
+        foreach (var kv in map)
+        {
+            var acc = kv.Value;
+
+            result.Add(new RewriteMapCandidateUpsert
+            {
+                SourceCode = acc.SourceCode,
+                Mode = acc.Mode,
+                FromText = acc.FromText,
+                ToText = acc.ToText,
+                Confidence = acc.MaxConfidence
             });
-
-            return result;
         }
 
-        private struct CandidateAccumulator
+        result.Sort(static (a, b) =>
         {
-            public string SourceCode;
-            public string Mode;
-            public string FromText;
-            public string ToText;
-            public decimal MaxConfidence;
-        }
+            var c = string.CompareOrdinal(a.SourceCode, b.SourceCode);
+            if (c != 0) return c;
+            c = string.CompareOrdinal(a.Mode, b.Mode);
+            if (c != 0) return c;
+            c = string.CompareOrdinal(a.FromText, b.FromText);
+            if (c != 0) return c;
+            return string.CompareOrdinal(a.ToText, b.ToText);
+        });
 
-        private sealed class RewriteMapKeyRow
-        {
-            public string? ModeCode { get; set; }
-            public string? FromText { get; set; }
-        }
+        return result;
+    }
+
+    private struct CandidateAccumulator
+    {
+        public string SourceCode;
+        public string Mode;
+        public string FromText;
+        public string ToText;
+        public decimal MaxConfidence;
+    }
+
+    private sealed class RewriteMapKeyRow
+    {
+        public string? ModeCode { get; set; }
+        public string? FromText { get; set; }
     }
 }

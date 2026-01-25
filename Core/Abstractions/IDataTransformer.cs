@@ -1,7 +1,6 @@
-﻿namespace DictionaryImporter.Core.Abstractions
+﻿namespace DictionaryImporter.Core.Abstractions;
+
+public interface IDataTransformer<TRaw>
 {
-    public interface IDataTransformer<TRaw>
-    {
-        IEnumerable<DictionaryEntry> Transform(TRaw raw);
-    }
+    IEnumerable<DictionaryEntry> Transform(TRaw raw);
 }

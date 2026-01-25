@@ -1,7 +1,6 @@
-﻿namespace DictionaryImporter.Domain.Models
+﻿namespace DictionaryImporter.Domain.Models;
+
+public sealed class SourcePipelineOptions
 {
-    public sealed class SourcePipelineOptions
-    {
-        public List<string> Steps { get; set; } = new();
-    }
+    public List<string> Steps { get; set; } = new();
 }

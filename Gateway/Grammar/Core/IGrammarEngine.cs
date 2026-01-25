@@ -1,16 +1,15 @@
 ﻿using DictionaryImporter.Gateway.Grammar.Core.Results;
 
-namespace DictionaryImporter.Gateway.Grammar.Core
+namespace DictionaryImporter.Gateway.Grammar.Core;
+
+public interface IGrammarEngine
 {
-    public interface IGrammarEngine
-    {
-        string Name { get; }
-        double ConfidenceWeight { get; }
+    string Name { get; }
+    double ConfidenceWeight { get; }
 
-        Task InitializeAsync();
+    Task InitializeAsync();
 
-        Task<GrammarCheckResult> CheckAsync(string text, string languageCode = "en-US", CancellationToken ct = default);
+    Task<GrammarCheckResult> CheckAsync(string text, string languageCode = "en-US", CancellationToken ct = default);
 
-        bool IsSupported(string languageCode);
-    }
+    bool IsSupported(string languageCode);
 }

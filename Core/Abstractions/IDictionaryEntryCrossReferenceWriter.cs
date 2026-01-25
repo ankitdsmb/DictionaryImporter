@@ -1,7 +1,6 @@
-﻿namespace DictionaryImporter.Core.Abstractions
+﻿namespace DictionaryImporter.Core.Abstractions;
+
+public interface IDictionaryEntryCrossReferenceWriter
 {
-    public interface IDictionaryEntryCrossReferenceWriter
-    {
-        Task WriteAsync(long sourceParsedId, CrossReference crossReference, string sourceCode, CancellationToken ct);
-    }
+    Task WriteAsync(long sourceParsedId, CrossReference crossReference, string sourceCode, CancellationToken ct);
 }

@@ -1,7 +1,6 @@
-﻿namespace DictionaryImporter.Infrastructure.Source
+﻿namespace DictionaryImporter.Infrastructure.Source;
+
+public interface IDictionaryDefinitionParserResolver
 {
-    public interface IDictionaryDefinitionParserResolver
-    {
-        IDictionaryDefinitionParser Resolve(string sourceCode);
-    }
+    IDictionaryDefinitionParser Resolve(string sourceCode);
 }

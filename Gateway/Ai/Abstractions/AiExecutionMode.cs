@@ -1,10 +1,9 @@
-namespace DictionaryImporter.Gateway.Ai.Abstractions
+namespace DictionaryImporter.Gateway.Ai.Abstractions;
+
+public enum AiExecutionMode
 {
-    public enum AiExecutionMode
-    {
-        SingleBest,
-        Fallback,
-        Parallel,
-        Consensus
-    }
+    SingleBest,
+    Fallback,
+    Parallel,
+    Consensus
 }

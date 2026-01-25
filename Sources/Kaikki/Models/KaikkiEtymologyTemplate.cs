@@ -1,9 +1,8 @@
-﻿namespace DictionaryImporter.Sources.Kaikki.Models
-{
-    public sealed class KaikkiEtymologyTemplate
-    {
-        public string Name { get; set; } = null!;
+﻿namespace DictionaryImporter.Sources.Kaikki.Models;
 
-        public Dictionary<string, string> Args { get; set; } = new();
-    }
+public sealed class KaikkiEtymologyTemplate
+{
+    public string Name { get; set; } = null!;
+
+    public Dictionary<string, string> Args { get; set; } = new();
 }

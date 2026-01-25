@@ -1,15 +1,14 @@
-﻿namespace DictionaryImporter.Core.Pipeline.Steps
-{
-    public sealed class VerificationPipelineStep(
-        IPostMergeVerifier postMergeVerifier,
-        IpaVerificationReporter ipaVerificationReporter) : IImportPipelineStep
-    {
-        public string Name => PipelineStepNames.Verification;
+﻿namespace DictionaryImporter.Core.Pipeline.Steps;
 
-        public async Task ExecuteAsync(ImportPipelineContext context)
-        {
-            await postMergeVerifier.VerifyAsync(context.SourceCode, context.CancellationToken);
-            await ipaVerificationReporter.ReportAsync(context.CancellationToken);
-        }
+public sealed class VerificationPipelineStep(
+    IPostMergeVerifier postMergeVerifier,
+    IpaVerificationReporter ipaVerificationReporter) : IImportPipelineStep
+{
+    public string Name => PipelineStepNames.Verification;
+
+    public async Task ExecuteAsync(ImportPipelineContext context)
+    {
+        await postMergeVerifier.VerifyAsync(context.SourceCode, context.CancellationToken);
+        await ipaVerificationReporter.ReportAsync(context.CancellationToken);
     }
 }

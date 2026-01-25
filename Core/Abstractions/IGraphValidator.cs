@@ -1,7 +1,6 @@
-﻿namespace DictionaryImporter.Core.Abstractions
+﻿namespace DictionaryImporter.Core.Abstractions;
+
+public interface IGraphValidator
 {
-    public interface IGraphValidator
-    {
-        Task ValidateAsync(string sourceCode, CancellationToken ct);
-    }
+    Task ValidateAsync(string sourceCode, CancellationToken ct);
 }

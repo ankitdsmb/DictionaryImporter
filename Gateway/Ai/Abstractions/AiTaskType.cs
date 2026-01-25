@@ -1,20 +1,19 @@
-namespace DictionaryImporter.Gateway.Ai.Abstractions
+namespace DictionaryImporter.Gateway.Ai.Abstractions;
+
+public enum AiTaskType
 {
-    public enum AiTaskType
-    {
-        Generic,
+    Generic,
 
-        GrammarFix,
-        RewriteDefinition,
-        Summarize,
-        Translate,
-        ExtractKeywords,
-        Classification,
-        GenerateExampleSentences,
-        ValidateMeaning,
+    GrammarFix,
+    RewriteDefinition,
+    Summarize,
+    Translate,
+    ExtractKeywords,
+    Classification,
+    GenerateExampleSentences,
+    ValidateMeaning,
 
-        ImageGenerate,
-        AudioTranscribe,
-        AudioSpeak
-    }
+    ImageGenerate,
+    AudioTranscribe,
+    AudioSpeak
 }

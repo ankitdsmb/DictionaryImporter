@@ -1,7 +1,6 @@
-﻿namespace DictionaryImporter.Core.Linguistics
+﻿namespace DictionaryImporter.Core.Linguistics;
+
+public interface IPartOfSpeechInfererV2
 {
-    public interface IPartOfSpeechInfererV2
-    {
-        PartOfSpeechResult InferWithConfidence(string definition);
-    }
+    PartOfSpeechResult InferWithConfidence(string definition);
 }

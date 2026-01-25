@@ -1,7 +1,6 @@
-﻿namespace DictionaryImporter.Core.Rewrite
+﻿namespace DictionaryImporter.Core.Rewrite;
+
+public interface IRewriteContextAccessor
 {
-    public interface IRewriteContextAccessor
-    {
-        RewriteContext Current { get; set; }
-    }
+    RewriteContext Current { get; set; }
 }

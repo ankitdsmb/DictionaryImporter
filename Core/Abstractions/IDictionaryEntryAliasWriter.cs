@@ -1,7 +1,6 @@
-﻿namespace DictionaryImporter.Core.Abstractions
+﻿namespace DictionaryImporter.Core.Abstractions;
+
+public interface IDictionaryEntryAliasWriter
 {
-    public interface IDictionaryEntryAliasWriter
-    {
-        Task WriteAsync(long parsedDefinitionId, string aliasText, string sourceCode, CancellationToken ct);
-    }
+    Task WriteAsync(long parsedDefinitionId, string aliasText, string sourceCode, CancellationToken ct);
 }

@@ -9,43 +9,42 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using System.Collections.Generic;
 
-namespace DictionaryImporter.Gateway.Ai.Bootstrap
+namespace DictionaryImporter.Gateway.Ai.Bootstrap;
+
+public static class ServiceCollectionExtensions
 {
-    public static class ServiceCollectionExtensions
+    public static IServiceCollection AddDictionaryImporterAiGateway(
+        this IServiceCollection services,
+        IConfiguration configuration)
     {
-        public static IServiceCollection AddDictionaryImporterAiGateway(
-            this IServiceCollection services,
-            IConfiguration configuration)
+        services.Configure<AiGatewayOptions>(configuration.GetSection("AiGateway"));
+
+        services.AddHttpClient("DictionaryImporter.AiGateway");
+
+        services.AddSingleton<IAiProviderSelector, DefaultProviderSelector>();
+        services.AddSingleton<IAiResultMerger, SimpleTextMerger>();
+
+        // ✅ FIX: Correct implementation type
+        services.AddScoped<IAiGateway, AiGateway>();
+
+        // Register provider clients from configuration dynamically
+        services.AddScoped<IEnumerable<IAiProviderClient>>(sp =>
         {
-            services.Configure<AiGatewayOptions>(configuration.GetSection("AiGateway"));
+            var opts = sp.GetRequiredService<IOptions<AiGatewayOptions>>().Value;
+            var httpFactory = sp.GetRequiredService<IHttpClientFactory>();
+            var loggerFactory = sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>();
 
-            services.AddHttpClient("DictionaryImporter.AiGateway");
+            var list = new List<IAiProviderClient>();
 
-            services.AddSingleton<IAiProviderSelector, DefaultProviderSelector>();
-            services.AddSingleton<IAiResultMerger, SimpleTextMerger>();
-
-            // ✅ FIX: Correct implementation type
-            services.AddScoped<IAiGateway, AiGateway>();
-
-            // Register provider clients from configuration dynamically
-            services.AddScoped<IEnumerable<IAiProviderClient>>(sp =>
+            foreach (var p in opts.Providers)
             {
-                var opts = sp.GetRequiredService<IOptions<AiGatewayOptions>>().Value;
-                var httpFactory = sp.GetRequiredService<IHttpClientFactory>();
-                var loggerFactory = sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>();
+                var logger = loggerFactory.CreateLogger<GenericHttpAiProviderClient>();
+                list.Add(new GenericHttpAiProviderClient(p, httpFactory, logger));
+            }
 
-                var list = new List<IAiProviderClient>();
+            return list;
+        });
 
-                foreach (var p in opts.Providers)
-                {
-                    var logger = loggerFactory.CreateLogger<GenericHttpAiProviderClient>();
-                    list.Add(new GenericHttpAiProviderClient(p, httpFactory, logger));
-                }
-
-                return list;
-            });
-
-            return services;
-        }
+        return services;
     }
 }

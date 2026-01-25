@@ -1,18 +1,17 @@
-﻿namespace DictionaryImporter.Infrastructure.PostProcessing.Enrichment
+﻿namespace DictionaryImporter.Infrastructure.PostProcessing.Enrichment;
+
+internal static class IpaNormalizer
 {
-    internal static class IpaNormalizer
+    public static string Normalize(string raw)
     {
-        public static string Normalize(string raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw))
-                return raw;
+        if (string.IsNullOrWhiteSpace(raw))
+            return raw;
 
-            var ipa = raw.Trim();
+        var ipa = raw.Trim();
 
-            if (ipa.StartsWith("/") && ipa.EndsWith("/"))
-                ipa = ipa.Substring(1, ipa.Length - 2);
+        if (ipa.StartsWith("/") && ipa.EndsWith("/"))
+            ipa = ipa.Substring(1, ipa.Length - 2);
 
-            return ipa.Trim();
-        }
+        return ipa.Trim();
     }
 }

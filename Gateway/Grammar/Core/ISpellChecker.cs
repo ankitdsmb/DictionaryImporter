@@ -1,11 +1,10 @@
 ﻿using DictionaryImporter.Gateway.Grammar.Core.Results;
 
-namespace DictionaryImporter.Gateway.Grammar.Core
-{
-    public interface ISpellChecker
-    {
-        bool IsSupported { get; }
+namespace DictionaryImporter.Gateway.Grammar.Core;
 
-        SpellCheckResult Check(string word);
-    }
+public interface ISpellChecker
+{
+    bool IsSupported { get; }
+
+    SpellCheckResult Check(string word);
 }
