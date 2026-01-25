@@ -27,13 +27,13 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (parsedDefinitionId <= 0)
                 return;
 
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
-            var target = SqlRepositoryHelper.NormalizeCrossReferenceTargetOrEmpty(crossRef.TargetWord);
+            var target = Helper.SqlRepository.NormalizeCrossReferenceTargetOrEmpty(crossRef.TargetWord);
             if (string.IsNullOrWhiteSpace(target))
                 return;
 
-            var type = SqlRepositoryHelper.NormalizeCrossReferenceTypeOrEmpty(crossRef.ReferenceType);
+            var type = Helper.SqlRepository.NormalizeCrossReferenceTypeOrEmpty(crossRef.ReferenceType);
             if (string.IsNullOrWhiteSpace(type))
                 type = "related";
 

@@ -23,13 +23,13 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (etymology.DictionaryEntryId <= 0)
                 return;
 
-            var sourceCode = SqlRepositoryHelper.NormalizeSourceCode(etymology.SourceCode);
+            var sourceCode = Helper.SqlRepository.NormalizeSourceCode(etymology.SourceCode);
 
-            var etymologyText = SqlRepositoryHelper.NormalizeEtymologyTextOrEmpty(etymology.EtymologyText);
+            var etymologyText = Helper.SqlRepository.NormalizeEtymologyTextOrEmpty(etymology.EtymologyText);
             if (string.IsNullOrWhiteSpace(etymologyText))
                 return;
 
-            var languageCode = SqlRepositoryHelper.NormalizeNullableString(etymology.LanguageCode, maxLen: 32);
+            var languageCode = Helper.SqlRepository.NormalizeNullableString(etymology.LanguageCode, maxLen: 32);
 
             try
             {

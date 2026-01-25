@@ -1,14 +1,19 @@
 ﻿// File: Infrastructure/Parsing/DefaultDictionaryTextFormatter.cs
 
+using System;
+using System.Net;
+using System.Text.RegularExpressions;
 using DictionaryImporter.Core.Text;
+using DictionaryImporter.Domain.Models;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Parsing
 {
-    public class DefaultDictionaryTextFormatter(ILogger<DefaultDictionaryTextFormatter> logger)
+    public sealed class DefaultDictionaryTextFormatter(ILogger<DefaultDictionaryTextFormatter> logger)
         : IDictionaryTextFormatter
     {
-        private readonly ILogger<DefaultDictionaryTextFormatter> logger = logger;
+        private readonly ILogger<DefaultDictionaryTextFormatter> _logger =
+            logger ?? throw new ArgumentNullException(nameof(logger));
 
         public string FormatDefinition(string definition)
         {
@@ -20,7 +25,8 @@ namespace DictionaryImporter.Infrastructure.Parsing
             if (string.IsNullOrWhiteSpace(example))
                 return string.Empty;
 
-            var formatted = example.Trim();
+            var formatted = NormalizeSpacing(example);
+
             if (!formatted.EndsWith(".") && !formatted.EndsWith("!") && !formatted.EndsWith("?"))
                 formatted += ".";
 
@@ -29,13 +35,18 @@ namespace DictionaryImporter.Infrastructure.Parsing
 
         public string FormatSynonym(string synonym)
         {
-            return synonym?.Trim().ToLowerInvariant() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(synonym))
+                return string.Empty;
+
+            return NormalizeSpacing(synonym).ToLowerInvariant();
         }
 
-        // NEW: Implement missing methods
         public string FormatAntonym(string antonym)
         {
-            return antonym?.Trim().ToLowerInvariant() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(antonym))
+                return string.Empty;
+
+            return NormalizeSpacing(antonym).ToLowerInvariant();
         }
 
         public string FormatEtymology(string etymology)
@@ -63,7 +74,16 @@ namespace DictionaryImporter.Infrastructure.Parsing
             if (crossReference == null)
                 return string.Empty;
 
-            return $"{crossReference.TargetWord} ({crossReference.ReferenceType})";
+            var target = (crossReference.TargetWord ?? string.Empty).Trim();
+            var type = (crossReference.ReferenceType ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(target))
+                return string.Empty;
+
+            if (string.IsNullOrWhiteSpace(type))
+                return target;
+
+            return $"{target} ({type})";
         }
 
         public string CleanHtml(string html)
@@ -71,9 +91,19 @@ namespace DictionaryImporter.Infrastructure.Parsing
             if (string.IsNullOrWhiteSpace(html))
                 return string.Empty;
 
-            // Simple HTML cleaning - remove tags
-            var cleaned = System.Text.RegularExpressions.Regex.Replace(html, "<.*?>", string.Empty);
-            return System.Net.WebUtility.HtmlDecode(cleaned).Trim();
+            try
+            {
+                // Remove tags (simple + safe for DI)
+                var cleaned = Regex.Replace(html, "<.*?>", string.Empty);
+                cleaned = WebUtility.HtmlDecode(cleaned);
+
+                return NormalizeSpacing(cleaned);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "CleanHtml failed.");
+                return html.Trim();
+            }
         }
 
         public string NormalizeSpacing(string text)
@@ -81,8 +111,7 @@ namespace DictionaryImporter.Infrastructure.Parsing
             if (string.IsNullOrWhiteSpace(text))
                 return string.Empty;
 
-            // Replace multiple spaces with single space
-            return System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ").Trim();
+            return Regex.Replace(text.Trim(), @"\s+", " ");
         }
 
         public string EnsureProperPunctuation(string text)
@@ -90,17 +119,17 @@ namespace DictionaryImporter.Infrastructure.Parsing
             if (string.IsNullOrWhiteSpace(text))
                 return string.Empty;
 
-            var trimmed = text.Trim();
+            var trimmed = NormalizeSpacing(text);
 
-            // Ensure it ends with proper punctuation
-            if (!trimmed.EndsWith(".") && !trimmed.EndsWith("!") && !trimmed.EndsWith("?") &&
-                !trimmed.EndsWith(":") && !trimmed.EndsWith(";") && !trimmed.EndsWith(","))
+            if (!trimmed.EndsWith(".") &&
+                !trimmed.EndsWith("!") &&
+                !trimmed.EndsWith("?") &&
+                !trimmed.EndsWith(":") &&
+                !trimmed.EndsWith(";") &&
+                !trimmed.EndsWith(","))
             {
-                // If it's a complete sentence (starts with capital, has multiple words), add period
-                if (trimmed.Length > 0 && char.IsUpper(trimmed[0]) && trimmed.Contains(" "))
-                {
+                if (trimmed.Length > 0 && char.IsLetter(trimmed[0]) && trimmed.Contains(' '))
                     trimmed += ".";
-                }
             }
 
             return trimmed;
@@ -111,17 +140,19 @@ namespace DictionaryImporter.Infrastructure.Parsing
             if (string.IsNullOrWhiteSpace(text))
                 return string.Empty;
 
-            // Remove common formatting markers
-            var markers = new[] { "★", "☆", "●", "○", "▶", "【", "】", "〖", "〗", "《", "》", "〈", "〉" };
             var result = text;
 
-            foreach (var marker in markers)
+            var markers = new[]
             {
-                result = result.Replace(marker, string.Empty);
-            }
+                "★", "☆", "●", "○", "▶",
+                "【", "】", "〖", "〗",
+                "《", "》", "〈", "〉"
+            };
 
-            return result.Trim();
+            foreach (var marker in markers)
+                result = result.Replace(marker, string.Empty);
+
+            return NormalizeSpacing(result);
         }
     }
-
 }

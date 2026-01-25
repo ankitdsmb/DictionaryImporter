@@ -1,197 +1,80 @@
-﻿using System;
-using System.Data;
-using System.Threading;
-using System.Threading.Tasks;
-using Dapper;
-using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Logging;
+﻿using DictionaryImporter.Common;
 
 namespace DictionaryImporter.Infrastructure.Merge
 {
     public sealed class SqlDictionaryEntryMergeExecutor(
         string connectionString,
+        ISqlStoredProcedureExecutor sp,
         ILogger<SqlDictionaryEntryMergeExecutor> logger)
         : IDataMergeExecutor
     {
+        private readonly string _connectionString =
+            connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+
+        private readonly ISqlStoredProcedureExecutor _sp =
+            sp ?? throw new ArgumentNullException(nameof(sp));
+
+        private readonly ILogger<SqlDictionaryEntryMergeExecutor> _logger =
+            logger ?? throw new ArgumentNullException(nameof(logger));
+
         public async Task ExecuteAsync(
             string sourceCode,
             CancellationToken ct)
         {
-            await using var connection = new SqlConnection(connectionString);
-            await connection.OpenAsync(ct);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
-            await using var tx = (SqlTransaction)await connection.BeginTransactionAsync(ct);
+            _logger.LogInformation(
+                "Merge started | SourceCode={SourceCode}",
+                sourceCode);
 
             try
             {
-                const string stagingStatsSql = """
-                                               SELECT
-                                                   COUNT_BIG(*) AS TotalRows,
-                                                   COUNT_BIG(DISTINCT
-                                                       CONCAT(SourceCode, '|', NormalizedWord, '|', SenseNumber)
-                                                   ) AS UniqueKeys
-                                               FROM dbo.DictionaryEntry_Staging
-                                               WHERE SourceCode = @SourceCode;
-                                               """;
+                var statsList =
+                    await _sp.QueryAsync<StagingStatsRow>(
+                        "sp_DictionaryEntryStaging_GetStatsBySource",
+                        new { SourceCode = sourceCode },
+                        ct);
 
-                var stats = await connection.QuerySingleAsync<StagingStats>(
-                    stagingStatsSql,
-                    new { SourceCode = sourceCode },
-                    tx);
+                var stats =
+                    statsList?.FirstOrDefault()
+                    ?? new StagingStatsRow { TotalRows = 0, UniqueKeys = 0 };
 
                 var duplicateCount = stats.TotalRows - stats.UniqueKeys;
 
-                logger.LogInformation(
+                _logger.LogInformation(
                     "Staging analysis | Source={SourceCode} | Total={Total} | Unique={Unique} | Duplicates={Duplicates}",
                     sourceCode,
                     stats.TotalRows,
                     stats.UniqueKeys,
                     duplicateCount);
 
-                const string mergeSql = """
-                                        SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+                var inserted =
+                    await _sp.ExecuteScalarAsync<long>(
+                        "sp_DictionaryEntry_MergeFromStaging_BySource",
+                        new { SourceCode = sourceCode },
+                        ct,
+                        timeoutSeconds: 0);
 
-                                        WITH DedupedSource AS
-                                        (
-                                            SELECT
-                                                Word,
-                                                NormalizedWord,
-                                                PartOfSpeech,
-                                                Definition,
-                                                Etymology,
-                                                RawFragment,
-                                                SenseNumber,
-                                                SourceCode,
-                                                CreatedUtc,
-                                                ROW_NUMBER() OVER
-                                                (
-                                                    PARTITION BY
-                                                        SourceCode,
-                                                        NormalizedWord,
-                                                        SenseNumber
-                                                    ORDER BY
-                                                        CreatedUtc DESC
-                                                ) AS rn
-                                            FROM dbo.DictionaryEntry_Staging
-                                            WHERE SourceCode = @SourceCode
-                                        )
-                                        MERGE dbo.DictionaryEntry AS Target
-                                        USING
-                                        (
-                                            SELECT
-                                                Word,
-                                                NormalizedWord,
-                                                PartOfSpeech,
-                                                Definition,
-                                                Etymology,
-                                                RawFragment,
-                                                SenseNumber,
-                                                SourceCode,
-                                                CreatedUtc
-                                            FROM DedupedSource
-                                            WHERE rn = 1
-                                        ) AS Source
-                                        ON
-                                            Target.SourceCode     = Source.SourceCode AND
-                                            Target.NormalizedWord = Source.NormalizedWord AND
-                                            Target.SenseNumber    = Source.SenseNumber
-
-                                        WHEN NOT MATCHED BY TARGET THEN
-                                            INSERT
-                                            (
-                                                Word,
-                                                NormalizedWord,
-                                                PartOfSpeech,
-                                                Definition,
-                                                Etymology,
-                                                RawFragment,
-                                                SenseNumber,
-                                                SourceCode,
-                                                CreatedUtc
-                                            )
-                                            VALUES
-                                            (
-                                                Source.Word,
-                                                Source.NormalizedWord,
-                                                Source.PartOfSpeech,
-                                                Source.Definition,
-                                                Source.Etymology,
-                                                Source.RawFragment,
-                                                Source.SenseNumber,
-                                                Source.SourceCode,
-                                                Source.CreatedUtc
-                                            );
-                                        """;
-
-                await connection.ExecuteAsync(
-                    mergeSql,
-                    new { SourceCode = sourceCode },
-                    tx,
-                    commandTimeout: 0);
-
-                const string clearStagingSql = """
-                                               DELETE FROM dbo.DictionaryEntry_Staging
-                                               WHERE SourceCode = @SourceCode;
-                                               """;
-
-                var cleared = await connection.ExecuteAsync(
-                    clearStagingSql,
-                    new { SourceCode = sourceCode },
-                    tx);
-
-                logger.LogInformation(
-                    "Cleared {Count} staging rows for source {SourceCode}",
-                    cleared,
-                    sourceCode);
-
-                await tx.CommitAsync(ct);
-
-                logger.LogInformation(
-                    "Merge completed successfully for source {SourceCode}",
-                    sourceCode);
+                _logger.LogInformation(
+                    "Merge completed | SourceCode={SourceCode} | Inserted={Inserted}",
+                    sourceCode,
+                    inserted);
             }
-            catch (Exception ex)
+            catch (OperationCanceledException)
             {
-                await TryRollbackAsync(tx, logger, ct);
-
-                logger.LogError(
-                    ex,
-                    "Merge failed for source {SourceCode}. Staging preserved.",
-                    sourceCode);
-
                 throw;
             }
-        }
-
-        private static async Task TryRollbackAsync(
-            SqlTransaction tx,
-            ILogger logger,
-            CancellationToken ct)
-        {
-            try
-            {
-                var connection = tx.Connection;
-
-                if (connection is null)
-                    return;
-
-                if (connection.State != ConnectionState.Open)
-                    return;
-
-                await tx.RollbackAsync(ct);
-            }
-            catch (InvalidOperationException)
-            {
-                // Transaction already completed -> ignore
-            }
             catch (Exception ex)
             {
-                // Never allow rollback failures to crash merge
-                logger.LogWarning(ex, "Rollback failed (ignored).");
+                // STRICT: Never crash pipeline
+                _logger.LogError(
+                    ex,
+                    "Merge failed (non-fatal) | SourceCode={SourceCode}. Staging preserved.",
+                    sourceCode);
             }
         }
 
-        private sealed class StagingStats
+        private sealed class StagingStatsRow
         {
             public long TotalRows { get; init; }
             public long UniqueKeys { get; init; }

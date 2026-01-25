@@ -63,7 +63,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
 
             try
             {
-                synonym.SourceCode = SqlRepositoryHelper.NormalizeSourceCode(synonym.SourceCode);
+                synonym.SourceCode = Helper.SqlRepository.NormalizeSourceCode(synonym.SourceCode);
 
                 if (synonym.DictionaryEntryParsedId <= 0)
                     return;
@@ -222,7 +222,7 @@ WHERE NOT EXISTS (
             if (parsedDefinitionId <= 0)
                 return;
 
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             var synonymList = synonyms?.ToList() ?? new List<string>();
             if (synonymList.Count == 0)
@@ -315,7 +315,7 @@ WHERE NOT EXISTS (
                 {
                     DictionaryEntryParsedId = s.DictionaryEntryParsedId,
                     SynonymText = Helper.NormalizeSynonymText(s.SynonymText),
-                    SourceCode = SqlRepositoryHelper.NormalizeSourceCode(s.SourceCode)
+                    SourceCode = Helper.SqlRepository.NormalizeSourceCode(s.SourceCode)
                 })
                 .Where(s => s.DictionaryEntryParsedId > 0)
                 .Where(s => !string.IsNullOrWhiteSpace(s.SynonymText))
@@ -348,7 +348,7 @@ WHERE NOT EXISTS (
         {
             try
             {
-                return await SqlRepositoryHelper.StoreNonEnglishTextAsync(
+                return await Helper.SqlRepository.StoreNonEnglishTextAsync(
                     _sp,
                     originalText: originalText,
                     sourceCode: sourceCode,

@@ -18,9 +18,11 @@ namespace DictionaryImporter.Bootstrap.Extensions
                 sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                 sp.GetRequiredService<ILogger<SqlDictionaryEntryEtymologyWriter>>()));
 
-            services.AddSingleton<IDataMergeExecutor>(sp => new SqlDictionaryEntryMergeExecutor(
-                connectionString,
-                sp.GetRequiredService<ILogger<SqlDictionaryEntryMergeExecutor>>()));
+            services.AddSingleton<IDataMergeExecutor>(sp =>
+                new SqlDictionaryEntryMergeExecutor(
+                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
+                    sp.GetRequiredService<ILogger<SqlDictionaryEntryMergeExecutor>>()));
 
             services.AddSingleton<IPostMergeVerifier>(sp => new SqlPostMergeVerifier(
                 connectionString,

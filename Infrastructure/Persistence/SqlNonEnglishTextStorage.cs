@@ -34,15 +34,15 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (string.IsNullOrWhiteSpace(originalText))
                 return null;
 
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
-            fieldType = SqlRepositoryHelper.NormalizeString(fieldType, "Unknown");
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
+            fieldType = Helper.SqlRepository.NormalizeString(fieldType, "Unknown");
 
             if (!Helper.LanguageDetector.ContainsNonEnglishText(originalText))
                 return null;
 
             try
             {
-                var textId = await SqlRepositoryHelper.StoreNonEnglishTextAsync(
+                var textId = await Helper.SqlRepository.StoreNonEnglishTextAsync(
                     _sp,
                     originalText: originalText,
                     sourceCode: sourceCode,
@@ -120,7 +120,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             IEnumerable<long> nonEnglishTextIds,
             CancellationToken ct)
         {
-            var ids = SqlRepositoryHelper.NormalizeDistinctIds(nonEnglishTextIds);
+            var ids = Helper.SqlRepository.NormalizeDistinctIds(nonEnglishTextIds);
             if (ids.Length == 0)
                 return new Dictionary<long, string>();
 
@@ -140,7 +140,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
 
             try
             {
-                var tvp = SqlRepositoryHelper.ToBigIntIdListTvp(missingIds);
+                var tvp = Helper.SqlRepository.ToBigIntIdListTvp(missingIds);
 
                 var rows = await _sp.QueryAsync<NonEnglishTextRow>(
                     "sp_DictionaryNonEnglishText_GetBatch",

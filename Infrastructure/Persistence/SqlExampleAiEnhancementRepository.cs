@@ -26,7 +26,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             bool forceRewrite,
             CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             if (take <= 0) take = DefaultTake;
             if (take > MaxTakeHardLimit) take = MaxTakeHardLimit;
@@ -69,7 +69,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             bool forceRewrite,
             CancellationToken ct)
         {
-            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
             if (enhancements is null || enhancements.Count == 0)
                 return;
@@ -93,8 +93,8 @@ namespace DictionaryImporter.Infrastructure.Persistence
                     if (string.IsNullOrWhiteSpace(rewritten)) continue;
                     if (string.Equals(original, rewritten, StringComparison.Ordinal)) continue;
 
-                    if (SqlRepositoryHelper.ContainsBlockedExamplePlaceholder(original)
-                        || SqlRepositoryHelper.ContainsBlockedExamplePlaceholder(rewritten))
+                    if (Helper.SqlRepository.ContainsBlockedExamplePlaceholder(original)
+                        || Helper.SqlRepository.ContainsBlockedExamplePlaceholder(rewritten))
                         continue;
 
                     var modelApplied = string.IsNullOrWhiteSpace(e.Model)
@@ -104,7 +104,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
                     if (modelApplied.Length > 128)
                         modelApplied = modelApplied.Substring(0, 128);
 
-                    var confidence = SqlRepositoryHelper.NormalizeAiConfidenceOrDefault(e.Confidence, defaultValue: 80);
+                    var confidence = Helper.SqlRepository.NormalizeAiConfidenceOrDefault(e.Confidence, defaultValue: 80);
 
                     if (forceRewrite)
                     {

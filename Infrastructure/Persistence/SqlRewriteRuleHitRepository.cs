@@ -1,21 +1,22 @@
-﻿using System;
+﻿using Dapper;
+using DictionaryImporter.Common;
+using DictionaryImporter.Gateway.Rewriter;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Dapper;
-using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Logging;
 
-namespace DictionaryImporter.Gateway.Rewriter
+namespace DictionaryImporter.Infrastructure.Persistence
 {
     public sealed class SqlRewriteRuleHitRepository(
-        string connectionString,
+        ISqlStoredProcedureExecutor sp,
         ILogger<SqlRewriteRuleHitRepository> logger)
         : IRewriteRuleHitRepository
     {
-        private readonly string _connectionString = connectionString;
+        private readonly ISqlStoredProcedureExecutor _sp = sp;
         private readonly ILogger<SqlRewriteRuleHitRepository> _logger = logger;
 
         public async Task UpsertHitsAsync(
@@ -25,59 +26,19 @@ namespace DictionaryImporter.Gateway.Rewriter
             if (hits is null || hits.Count == 0)
                 return;
 
-            const string sql = @"
-MERGE dbo.RewriteRuleHitLog WITH (HOLDLOCK) AS target
-USING (
-    SELECT
-        @SourceCode AS SourceCode,
-        @Mode AS Mode,
-        @RuleType AS RuleType,
-        @RuleKey AS RuleKey,
-        @HitCount AS HitCount
-) AS source
-ON target.SourceCode = source.SourceCode
-   AND target.Mode = source.Mode
-   AND target.RuleType = source.RuleType
-   AND target.RuleKey = source.RuleKey
-WHEN MATCHED THEN
-    UPDATE SET
-        target.HitCount = target.HitCount + source.HitCount,
-        target.LastHitUtc = SYSUTCDATETIME()
-WHEN NOT MATCHED THEN
-    INSERT (SourceCode, Mode, RuleType, RuleKey, HitCount, FirstHitUtc, LastHitUtc)
-    VALUES (source.SourceCode, source.Mode, source.RuleType, source.RuleKey, source.HitCount, SYSUTCDATETIME(), SYSUTCDATETIME());";
-
             try
             {
                 var aggregated = AggregateHits(hits);
                 if (aggregated.Count == 0)
                     return;
 
-                await using var conn = new SqlConnection(_connectionString);
-                await conn.OpenAsync(ct);
+                var tvp = ToRewriteRuleHitBatchTvp(aggregated);
 
-                using var tx = conn.BeginTransaction(IsolationLevel.ReadCommitted);
-
-                foreach (var h in aggregated)
-                {
-                    ct.ThrowIfCancellationRequested();
-
-                    await conn.ExecuteAsync(new CommandDefinition(
-                        sql,
-                        new
-                        {
-                            SourceCode = h.SourceCode,
-                            Mode = h.Mode,
-                            RuleType = h.RuleType,
-                            RuleKey = h.RuleKey,
-                            HitCount = h.HitCount
-                        },
-                        transaction: tx,
-                        cancellationToken: ct,
-                        commandTimeout: 60));
-                }
-
-                tx.Commit();
+                await _sp.ExecuteAsync(
+                    "sp_RewriteRuleHitLog_UpsertBatch",
+                    new { Rows = tvp },
+                    ct,
+                    timeoutSeconds: 60);
             }
             catch (OperationCanceledException)
             {
@@ -85,8 +46,46 @@ WHEN NOT MATCHED THEN
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "UpsertHitsAsync failed.");
+                _logger.LogError(ex, "UpsertHitsAsync failed (TVP batch).");
             }
+        }
+
+        // NEW METHOD (added)
+        private static object ToRewriteRuleHitBatchTvp(IEnumerable<RewriteRuleHitUpsert> rows)
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("SourceCode", typeof(string));
+            dt.Columns.Add("Mode", typeof(string));
+            dt.Columns.Add("RuleType", typeof(string));
+            dt.Columns.Add("RuleKey", typeof(string));
+            dt.Columns.Add("HitCount", typeof(int));
+
+            foreach (var r in rows)
+            {
+                if (r is null)
+                    continue;
+
+                var sourceCode = Helper.SqlRepository.NormalizeSourceCode(r.SourceCode);
+                var mode = Helper.SqlRepository.NormalizeString(r.Mode, "English");
+                var ruleType = Helper.SqlRepository.NormalizeString(r.RuleType, "RewriteRule");
+                var ruleKey = Helper.SqlRepository.Truncate(r.RuleKey, 400);
+
+                if (string.IsNullOrWhiteSpace(sourceCode)) continue;
+                if (string.IsNullOrWhiteSpace(mode)) continue;
+                if (string.IsNullOrWhiteSpace(ruleType)) continue;
+                if (string.IsNullOrWhiteSpace(ruleKey)) continue;
+
+                var hitCount = r.HitCount <= 0 ? 1 : r.HitCount;
+
+                dt.Rows.Add(
+                    sourceCode,
+                    mode,
+                    ruleType,
+                    ruleKey,
+                    hitCount);
+            }
+
+            return dt.AsTableValuedParameter("dbo.RewriteRuleHitLogBatchType");
         }
 
         private static List<RewriteRuleHitUpsert> AggregateHits(IReadOnlyList<RewriteRuleHitUpsert> hits)

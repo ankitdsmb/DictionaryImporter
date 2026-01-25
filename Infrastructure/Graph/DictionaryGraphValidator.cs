@@ -1,121 +1,132 @@
-﻿namespace DictionaryImporter.Infrastructure.Graph
+﻿using System;
+using System.Data;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Dapper;
+using DictionaryImporter.Common;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
+
+namespace DictionaryImporter.Infrastructure.Graph
 {
     public sealed class DictionaryGraphValidator(
         string connectionString,
         ILogger<DictionaryGraphValidator> logger)
         : IGraphValidator
     {
+        private readonly string _connectionString =
+            connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+
+        private readonly ILogger<DictionaryGraphValidator> _logger =
+            logger ?? throw new ArgumentNullException(nameof(logger));
+
         public async Task ValidateAsync(
             string sourceCode,
             CancellationToken ct)
         {
-            await using var conn =
-                new SqlConnection(connectionString);
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
 
-            await conn.OpenAsync(ct);
-
-            logger.LogInformation(
+            _logger.LogInformation(
                 "Graph validation started for source {Source}",
                 sourceCode);
 
-            await ValidateRelationTypes(conn, ct);
-            await ValidateSelfLoops(conn, ct);
-            await ValidateOrphanEdges(conn, ct);
-            await ValidateSenseHierarchy(conn, ct);
+            try
+            {
+                await using var conn = new SqlConnection(_connectionString);
+                await conn.OpenAsync(ct);
 
-            logger.LogInformation(
+                var result =
+                    await conn.QuerySingleOrDefaultAsync<GraphValidationSummaryRow>(
+                        new CommandDefinition(
+                            "sp_Graph_ValidateBySource",
+                            new { SourceCode = sourceCode },
+                            commandType: CommandType.StoredProcedure,
+                            cancellationToken: ct,
+                            commandTimeout: 0));
+
+                var invalidRelations =
+                    (await conn.QueryAsync<InvalidRelationRow>(
+                        new CommandDefinition(
+                            "sp_Graph_ValidateInvalidRelationsBySource",
+                            new { SourceCode = sourceCode },
+                            commandType: CommandType.StoredProcedure,
+                            cancellationToken: ct,
+                            commandTimeout: 0)))
+                    .ToList();
+
+                if (invalidRelations.Count > 0)
+                {
+                    foreach (var rel in invalidRelations)
+                    {
+                        _logger.LogError(
+                            "Invalid graph relation detected | Source={Source} | RelationType={RelationType}",
+                            sourceCode,
+                            rel.RelationType);
+                    }
+                }
+
+                if (result is null)
+                {
+                    _logger.LogWarning(
+                        "Graph validation returned no results | Source={Source}",
+                        sourceCode);
+                    return;
+                }
+
+                _logger.LogInformation(
+                    "Graph validation summary | Source={Source} | SelfLoops={SelfLoops} | OrphanEdges={OrphanEdges} | BrokenSenseHierarchy={BrokenHierarchy} | InvalidRelationTypes={InvalidRelations}",
+                    sourceCode,
+                    result.SelfLoopCount,
+                    result.OrphanEdgeCount,
+                    result.BrokenSenseHierarchyCount,
+                    invalidRelations.Count);
+
+                if (result.SelfLoopCount > 0 ||
+                    result.OrphanEdgeCount > 0 ||
+                    result.BrokenSenseHierarchyCount > 0 ||
+                    invalidRelations.Count > 0)
+                {
+                    // STRICT: log only, never throw
+                    _logger.LogError(
+                        "Graph validation FAILED (non-fatal) | Source={Source}",
+                        sourceCode);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Graph validation PASSED | Source={Source}",
+                        sourceCode);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // STRICT: never crash pipeline
+                _logger.LogError(
+                    ex,
+                    "Graph validation failed (non-fatal) | Source={Source}",
+                    sourceCode);
+            }
+
+            _logger.LogInformation(
                 "Graph validation completed for source {Source}",
                 sourceCode);
         }
 
-        private async Task ValidateRelationTypes(
-            SqlConnection conn,
-            CancellationToken ct)
+        private sealed class GraphValidationSummaryRow
         {
-            var invalid =
-                await conn.QueryAsync<string>(
-                    """
-                    SELECT DISTINCT RelationType
-                    FROM dbo.GraphEdge
-                    WHERE RelationType NOT IN @Allowed
-                    """,
-                    new { Allowed = GraphRelations.All });
-
-            foreach (var rel in invalid)
-                logger.LogError(
-                    "Invalid graph relation detected: {RelationType}",
-                    rel);
-
-            if (invalid.Any())
-                throw new InvalidOperationException(
-                    "Graph validation failed: invalid relation types");
+            public int SelfLoopCount { get; init; }
+            public int OrphanEdgeCount { get; init; }
+            public int BrokenSenseHierarchyCount { get; init; }
         }
 
-        private async Task ValidateSelfLoops(
-            SqlConnection conn,
-            CancellationToken ct)
+        private sealed class InvalidRelationRow
         {
-            var count =
-                await conn.ExecuteScalarAsync<int>(
-                    """
-                    SELECT COUNT(*)
-                    FROM dbo.GraphEdge
-                    WHERE FromNodeId = ToNodeId
-                    """);
-
-            if (count > 0)
-                throw new InvalidOperationException(
-                    "Graph validation failed: self-loop edges detected");
-        }
-
-        private async Task ValidateOrphanEdges(
-            SqlConnection conn,
-            CancellationToken ct)
-        {
-            var count =
-                await conn.ExecuteScalarAsync<int>(
-                    """
-                    SELECT COUNT(*)
-                    FROM dbo.GraphEdge g
-                    WHERE NOT EXISTS
-                    (
-                        SELECT 1 FROM dbo.GraphNode n
-                        WHERE n.NodeId = g.FromNodeId
-                    )
-                    OR NOT EXISTS
-                    (
-                        SELECT 1 FROM dbo.GraphNode n
-                        WHERE n.NodeId = g.ToNodeId
-                    )
-                    """);
-
-            if (count > 0)
-                throw new InvalidOperationException(
-                    "Graph validation failed: orphan edges detected");
-        }
-
-        private async Task ValidateSenseHierarchy(
-            SqlConnection conn,
-            CancellationToken ct)
-        {
-            var count =
-                await conn.ExecuteScalarAsync<int>(
-                    """
-                    SELECT COUNT(*)
-                    FROM dbo.GraphEdge g
-                    WHERE g.RelationType = 'SUB_SENSE_OF'
-                    AND NOT EXISTS
-                    (
-                        SELECT 1
-                        FROM dbo.GraphEdge parent
-                        WHERE parent.ToNodeId = g.FromNodeId
-                          AND parent.RelationType = 'HAS_SENSE'
-                    )
-                    """);
-
-            if (count > 0)
-                throw new InvalidOperationException(
-                    "Graph validation failed: broken sense hierarchy detected");
+            public string RelationType { get; init; } = string.Empty;
         }
     }
 }

@@ -1,4 +1,12 @@
-﻿using Microsoft.Extensions.Logging;
+﻿// File: Infrastructure/Parsing/GenericSourceProcessor.cs
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using DictionaryImporter.Core.Text;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Parsing
 {
@@ -25,18 +33,18 @@ namespace DictionaryImporter.Infrastructure.Parsing
             ISynonymExtractorRegistry synonymExtractorRegistry,
             IEtymologyExtractorRegistry etymologyExtractorRegistry)
         {
-            _logger = logger;
-            _formatter = formatter;
-            _grammarText = grammarText;
-            _exampleWriter = exampleWriter;
-            _synonymWriter = synonymWriter;
-            _etymologyWriter = etymologyWriter;
-            _exampleExtractorRegistry = exampleExtractorRegistry;
-            _synonymExtractorRegistry = synonymExtractorRegistry;
-            _etymologyExtractorRegistry = etymologyExtractorRegistry;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _formatter = formatter ?? throw new ArgumentNullException(nameof(formatter));
+            _grammarText = grammarText ?? throw new ArgumentNullException(nameof(grammarText));
+            _exampleWriter = exampleWriter ?? throw new ArgumentNullException(nameof(exampleWriter));
+            _synonymWriter = synonymWriter ?? throw new ArgumentNullException(nameof(synonymWriter));
+            _etymologyWriter = etymologyWriter ?? throw new ArgumentNullException(nameof(etymologyWriter));
+            _exampleExtractorRegistry = exampleExtractorRegistry ?? throw new ArgumentNullException(nameof(exampleExtractorRegistry));
+            _synonymExtractorRegistry = synonymExtractorRegistry ?? throw new ArgumentNullException(nameof(synonymExtractorRegistry));
+            _etymologyExtractorRegistry = etymologyExtractorRegistry ?? throw new ArgumentNullException(nameof(etymologyExtractorRegistry));
         }
 
-        public bool CanHandle(string sourceCode) => true; // Default handler
+        public bool CanHandle(string sourceCode) => true;
 
         public async Task<ProcessingResult> ProcessEntryAsync(
             DictionaryEntry entry,
@@ -46,18 +54,24 @@ namespace DictionaryImporter.Infrastructure.Parsing
         {
             var result = new ProcessingResult();
 
+            if (entry is null)
+                return result;
+
+            if (parsed is null)
+                return result;
+
+            if (parsedId <= 0)
+                return result;
+
+            var sourceCode = string.IsNullOrWhiteSpace(entry.SourceCode)
+                ? "UNKNOWN"
+                : entry.SourceCode.Trim();
+
             if (string.IsNullOrWhiteSpace(parsed.Definition))
                 return result;
 
-            var sourceCode = entry.SourceCode;
-
-            // Extract and save examples
             await ExtractAndSaveExamplesAsync(parsed, parsedId, sourceCode, result, ct);
-
-            // Extract and save synonyms
             await ExtractAndSaveSynonymsAsync(entry, parsed, parsedId, sourceCode, result, ct);
-
-            // Extract and save etymology
             await ExtractAndSaveEtymologyAsync(entry, parsed, sourceCode, result, ct);
 
             return result;
@@ -79,23 +93,39 @@ namespace DictionaryImporter.Infrastructure.Parsing
                     return;
                 }
 
-                var examples = exampleExtractor.Extract(parsed);
+                var rawExamples = exampleExtractor.Extract(parsed) ?? new List<string>();
+                if (rawExamples.Count == 0)
+                    return;
+
+                var examples = rawExamples
+                    .Select(x => x?.Trim())
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
                 foreach (var exampleText in examples)
                 {
                     ct.ThrowIfCancellationRequested();
 
-                    var formattedExample = _formatter.FormatExample(exampleText);
-                    var correctedExample = await _grammarText.NormalizeExampleAsync(formattedExample, ct);
+                    var formatted = _formatter.FormatExample(exampleText!);
+                    if (string.IsNullOrWhiteSpace(formatted))
+                        continue;
 
-                    await _exampleWriter.WriteAsync(parsedId, correctedExample, sourceCode, ct);
+                    var corrected = await _grammarText.NormalizeExampleAsync(formatted, ct);
+                    var finalText = string.IsNullOrWhiteSpace(corrected) ? formatted : corrected;
+
+                    await _exampleWriter.WriteAsync(parsedId, finalText, sourceCode, ct);
                     result.ExampleInserted++;
                 }
 
-                if (examples.Count > 0)
-                    _logger.LogDebug(
-                        "Extracted {Count} examples for parsed definition {ParsedId}",
-                        examples.Count, parsedId);
+                _logger.LogDebug(
+                    "Extracted {Count} examples for parsed definition {ParsedId}",
+                    result.ExampleInserted,
+                    parsedId);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -120,44 +150,74 @@ namespace DictionaryImporter.Infrastructure.Parsing
                     return;
                 }
 
-                var synonymResults = synonymExtractor.Extract(
-                    entry.Word, parsed.Definition, parsed.RawFragment);
+                IReadOnlyList<SynonymDetectionResult>? synonymResults =
+                    synonymExtractor.Extract(entry.Word, parsed.Definition, parsed.RawFragment);
 
-                var validSynonyms = new List<string>();
+                if (synonymResults == null || synonymResults.Count == 0)
+                    return;
+
+                var validSynonyms = new List<string>(synonymResults.Count);
+
                 foreach (var synonymResult in synonymResults)
                 {
+                    ct.ThrowIfCancellationRequested();
+
+                    if (synonymResult == null)
+                        continue;
+
                     if (synonymResult.ConfidenceLevel is not ("high" or "medium"))
                         continue;
 
                     if (!synonymExtractor.ValidateSynonymPair(entry.Word, synonymResult.TargetHeadword))
                         continue;
 
-                    var cleanedSynonym = _formatter.FormatSynonym(synonymResult.TargetHeadword);
-                    if (!string.IsNullOrWhiteSpace(cleanedSynonym))
-                        validSynonyms.Add(cleanedSynonym);
+                    var cleanedSynonym = _formatter.FormatSynonym(synonymResult.TargetHeadword ?? string.Empty);
+                    if (string.IsNullOrWhiteSpace(cleanedSynonym))
+                        continue;
+
+                    validSynonyms.Add(cleanedSynonym);
 
                     _logger.LogDebug(
                         "Synonym detected | Headword={Headword} | Synonym={Synonym} | Confidence={Confidence}",
-                        entry.Word, synonymResult.TargetHeadword, synonymResult.ConfidenceLevel);
+                        entry.Word,
+                        synonymResult.TargetHeadword,
+                        synonymResult.ConfidenceLevel);
                 }
 
-                if (validSynonyms.Count > 0)
+                if (validSynonyms.Count == 0)
                 {
-                    _logger.LogInformation(
-                        "Found {Count} synonyms for {Headword}: {Synonyms}",
-                        validSynonyms.Count, entry.Word, string.Join(", ", validSynonyms));
+                    var def = parsed.Definition ?? string.Empty;
 
-                    await _synonymWriter.WriteSynonymsForParsedDefinition(
-                        parsedId, validSynonyms, sourceCode, ct);
-                    result.SynonymInserted += validSynonyms.Count;
-                }
-                else
-                {
                     _logger.LogDebug(
                         "No synonyms found for {Headword} | Definition preview: {Preview}",
                         entry.Word,
-                        parsed.Definition.Substring(0, Math.Min(100, parsed.Definition.Length)));
+                        def.Substring(0, Math.Min(100, def.Length)));
+
+                    return;
                 }
+
+                var deduped = validSynonyms
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                await _synonymWriter.WriteSynonymsForParsedDefinition(
+                    parsedId,
+                    deduped,
+                    sourceCode,
+                    ct);
+
+                result.SynonymInserted += deduped.Count;
+
+                _logger.LogInformation(
+                    "Stored {Count} synonyms for ParsedId={ParsedId} | Headword={Headword}",
+                    deduped.Count,
+                    parsedId,
+                    entry.Word);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -182,17 +242,27 @@ namespace DictionaryImporter.Infrastructure.Parsing
                 }
 
                 var etymologyResult = etymologyExtractor.Extract(
-                    entry.Word, parsed.Definition, parsed.RawFragment);
+                    entry.Word,
+                    parsed.Definition,
+                    parsed.RawFragment);
+
+                if (etymologyResult == null)
+                    return;
 
                 if (string.IsNullOrWhiteSpace(etymologyResult.EtymologyText))
+                    return;
+
+                var formatted = _formatter.FormatEtymology(etymologyResult.EtymologyText);
+                if (string.IsNullOrWhiteSpace(formatted))
                     return;
 
                 await _etymologyWriter.WriteAsync(
                     new DictionaryEntryEtymology
                     {
                         DictionaryEntryId = entry.DictionaryEntryId,
-                        EtymologyText = etymologyResult.EtymologyText,
+                        EtymologyText = formatted,
                         LanguageCode = etymologyResult.LanguageCode,
+                        SourceCode = sourceCode,
                         CreatedUtc = DateTime.UtcNow
                     },
                     ct);
@@ -200,12 +270,21 @@ namespace DictionaryImporter.Infrastructure.Parsing
                 result.EtymologyExtracted++;
 
                 _logger.LogDebug(
-                    "Etymology extracted from definition | Headword={Headword} | Method={Method}",
-                    entry.Word, etymologyResult.DetectionMethod);
+                    "Etymology extracted | Headword={Headword} | Method={Method} | SourceCode={SourceCode}",
+                    entry.Word,
+                    etymologyResult.DetectionMethod,
+                    sourceCode);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to extract etymology for parsed definition {ParsedId}", entry.DictionaryEntryId);
+                _logger.LogError(
+                    ex,
+                    "Failed to extract etymology for DictionaryEntryId={EntryId}",
+                    entry.DictionaryEntryId);
             }
         }
     }

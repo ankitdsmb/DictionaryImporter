@@ -97,8 +97,9 @@ namespace DictionaryImporter.Bootstrap
 
             services.AddSingleton<IRewriteRuleHitRepository>(sp =>
                 new SqlRewriteRuleHitRepository(
-                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlRewriteRuleHitRepository>>()));
+
 
             services.AddScoped<RewriteRuleHitBuffer>();
 
@@ -133,9 +134,11 @@ namespace DictionaryImporter.Bootstrap
 
             services.AddSingleton<Func<IDataMergeExecutor>>(sp => sp.GetRequiredService<IDataMergeExecutor>);
 
-            services.AddSingleton<IDataMergeExecutor>(sp => new SqlDictionaryEntryMergeExecutor(
-                connectionString,
-                sp.GetRequiredService<ILogger<SqlDictionaryEntryMergeExecutor>>()));
+            services.AddSingleton<IDataMergeExecutor>(sp =>
+                new SqlDictionaryEntryMergeExecutor(
+                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
+                    sp.GetRequiredService<ILogger<SqlDictionaryEntryMergeExecutor>>()));
 
             // ------------------------------------------------------------
             // ✅ POS REPOSITORY (ONLY ONCE)

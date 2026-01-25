@@ -1,139 +1,85 @@
-﻿namespace DictionaryImporter.Infrastructure.Canonicalization
+﻿using System;
+using System.Data;
+using System.Threading;
+using System.Threading.Tasks;
+using Dapper;
+using DictionaryImporter.Common;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
+
+namespace DictionaryImporter.Infrastructure.Canonicalization
 {
     public sealed class SqlCanonicalWordResolver(
         string connectionString,
-        ILogger<SqlCanonicalWordResolver> logger) : ICanonicalWordResolver
+        ILogger<SqlCanonicalWordResolver> logger)
+        : ICanonicalWordResolver
     {
-        public async Task ResolveAsync(string sourceCode, CancellationToken ct)
-        {
-            await using var conn = new SqlConnection(connectionString);
-            await conn.OpenAsync(ct);
+        private readonly string _connectionString =
+            connectionString ?? throw new ArgumentNullException(nameof(connectionString));
 
-            logger.LogInformation(
+        private readonly ILogger<SqlCanonicalWordResolver> _logger =
+            logger ?? throw new ArgumentNullException(nameof(logger));
+
+        public async Task ResolveAsync(
+            string sourceCode,
+            CancellationToken ct)
+        {
+            sourceCode = Helper.SqlRepository.NormalizeSourceCode(sourceCode);
+
+            _logger.LogInformation(
                 "CanonicalResolver started | Source={Source}",
                 sourceCode);
 
             try
             {
-                // Step 1: Ensure NormalizedWord is populated for all entries
-                var updated = await conn.ExecuteAsync(
-                    new CommandDefinition(
-                        """
-                        UPDATE dbo.DictionaryEntry
-                        SET NormalizedWord = LOWER(LTRIM(RTRIM(Word)))
-                        WHERE SourceCode = @SourceCode
-                        AND (NormalizedWord IS NULL OR NormalizedWord = '')
-                        """,
-                        new { SourceCode = sourceCode },
-                        cancellationToken: ct));
+                await using var conn = new SqlConnection(_connectionString);
+                await conn.OpenAsync(ct);
 
-                if (updated > 0)
-                {
-                    logger.LogInformation(
-                        "CanonicalResolver | Updated {Count} entries with missing NormalizedWord",
-                        updated);
-                }
-
-                // Step 2: Insert new canonical words
-                var inserted = await conn.ExecuteAsync(
-                    new CommandDefinition(
-                        """
-                        INSERT INTO dbo.CanonicalWord (NormalizedWord)
-                        SELECT DISTINCT e.NormalizedWord
-                        FROM dbo.DictionaryEntry e
-                        LEFT JOIN dbo.CanonicalWord c ON c.NormalizedWord = e.NormalizedWord
-                        WHERE e.SourceCode = @SourceCode
-                        AND e.NormalizedWord IS NOT NULL
-                        AND e.NormalizedWord <> ''
-                        AND c.CanonicalWordId IS NULL
-                        AND NOT EXISTS (
-                            SELECT 1
-                            FROM dbo.CanonicalWord c2
-                            WHERE c2.NormalizedWord = e.NormalizedWord
-                        )
-                        """,
-                        new { SourceCode = sourceCode },
-                        cancellationToken: ct));
-
-                logger.LogInformation(
-                    "CanonicalResolver | Inserted {Count} new canonical words",
-                    inserted);
-
-                // Step 3: Link entries to canonical words
-                var linked = await conn.ExecuteAsync(
-                    new CommandDefinition(
-                        """
-                        UPDATE e
-                        SET e.CanonicalWordId = c.CanonicalWordId
-                        FROM dbo.DictionaryEntry e
-                        INNER JOIN dbo.CanonicalWord c ON c.NormalizedWord = e.NormalizedWord
-                        WHERE e.SourceCode = @SourceCode
-                        AND e.NormalizedWord IS NOT NULL
-                        AND e.NormalizedWord <> ''
-                        AND e.CanonicalWordId IS NULL
-                        """,
-                        new { SourceCode = sourceCode },
-                        cancellationToken: ct));
-
-                logger.LogInformation(
-                    "CanonicalResolver | Linked {Count} entries to canonical words",
-                    linked);
-
-                // Step 4: Report any entries that couldn't be linked
-                var unlinkedCount = await conn.ExecuteScalarAsync<int>(
-                    new CommandDefinition(
-                        """
-                        SELECT COUNT(*)
-                        FROM dbo.DictionaryEntry
-                        WHERE SourceCode = @SourceCode
-                        AND CanonicalWordId IS NULL
-                        AND NormalizedWord IS NOT NULL
-                        AND NormalizedWord <> ''
-                        """,
-                        new { SourceCode = sourceCode },
-                        cancellationToken: ct));
-
-                if (unlinkedCount > 0)
-                {
-                    logger.LogWarning(
-                        "CanonicalResolver | {Count} entries could not be linked to canonical words",
-                        unlinkedCount);
-
-                    // Log some examples of unlinked entries
-                    var unlinkedExamples = await conn.QueryAsync<string>(
+                var result =
+                    await conn.QuerySingleOrDefaultAsync<CanonicalResolverResultRow>(
                         new CommandDefinition(
-                            """
-                            SELECT TOP 5 Word
-                            FROM dbo.DictionaryEntry
-                            WHERE SourceCode = @SourceCode
-                            AND CanonicalWordId IS NULL
-                            AND NormalizedWord IS NOT NULL
-                            ORDER BY Word
-                            """,
+                            "sp_CanonicalWord_ResolveBySource",
                             new { SourceCode = sourceCode },
-                            cancellationToken: ct));
+                            commandType: CommandType.StoredProcedure,
+                            cancellationToken: ct,
+                            commandTimeout: 0));
 
-                    var enumerable = unlinkedExamples as string[] ?? unlinkedExamples.ToArray();
-                    if (enumerable.Any())
-                    {
-                        logger.LogWarning(
-                            "CanonicalResolver | Examples of unlinked entries: {Examples}",
-                            string.Join(", ", enumerable));
-                    }
+                if (result is null)
+                {
+                    _logger.LogWarning(
+                        "CanonicalResolver completed | Source={Source} | NoResultReturned",
+                        sourceCode);
+                    return;
                 }
 
-                logger.LogInformation(
-                    "CanonicalResolver completed successfully | Source={Source}",
-                    sourceCode);
+                _logger.LogInformation(
+                    "CanonicalResolver completed | Source={Source} | UpdatedNormalized={UpdatedNormalized} | InsertedCanonical={InsertedCanonical} | LinkedEntries={LinkedEntries} | Unlinked={Unlinked}",
+                    sourceCode,
+                    result.UpdatedNormalizedWord,
+                    result.InsertedCanonicalWords,
+                    result.LinkedEntries,
+                    result.UnlinkedEntries);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
-                logger.LogError(
+                // STRICT: never crash importer pipeline
+                _logger.LogError(
                     ex,
-                    "CanonicalResolver FAILED | Source={Source}",
+                    "CanonicalResolver FAILED (non-fatal) | Source={Source}",
                     sourceCode);
-                throw;
             }
+        }
+
+        private sealed class CanonicalResolverResultRow
+        {
+            public long UpdatedNormalizedWord { get; init; }
+            public long InsertedCanonicalWords { get; init; }
+            public long LinkedEntries { get; init; }
+            public long UnlinkedEntries { get; init; }
         }
     }
 }

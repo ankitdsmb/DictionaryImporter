@@ -30,17 +30,17 @@ namespace DictionaryImporter.Infrastructure.Persistence
             var sanitized = list
                 .Select(e => new DictionaryEntryStaging
                 {
-                    Word = SqlRepositoryHelper.SafeTruncateOrEmpty(e.Word, 200),
-                    NormalizedWord = SqlRepositoryHelper.SafeTruncateOrEmpty(
+                    Word = Helper.SqlRepository.SafeTruncateOrEmpty(e.Word, 200),
+                    NormalizedWord = Helper.SqlRepository.SafeTruncateOrEmpty(
                         string.IsNullOrWhiteSpace(e.NormalizedWord) ? e.Word : e.NormalizedWord, 200),
-                    PartOfSpeech = SqlRepositoryHelper.SafeTruncateOrNull(e.PartOfSpeech, 50),
-                    Definition = SqlRepositoryHelper.SafeTruncateOrEmpty(e.Definition, 2000),
-                    Etymology = SqlRepositoryHelper.SafeTruncateOrNull(e.Etymology, 4000),
-                    RawFragment = SqlRepositoryHelper.SafeTruncateOrNull(e.RawFragment, 8000),
+                    PartOfSpeech = Helper.SqlRepository.SafeTruncateOrNull(e.PartOfSpeech, 50),
+                    Definition = Helper.SqlRepository.SafeTruncateOrEmpty(e.Definition, 2000),
+                    Etymology = Helper.SqlRepository.SafeTruncateOrNull(e.Etymology, 4000),
+                    RawFragment = Helper.SqlRepository.SafeTruncateOrNull(e.RawFragment, 8000),
                     SenseNumber = e.SenseNumber,
-                    SourceCode = SqlRepositoryHelper.SafeTruncateOrEmpty(
+                    SourceCode = Helper.SqlRepository.SafeTruncateOrEmpty(
                         string.IsNullOrWhiteSpace(e.SourceCode) ? "UNKNOWN" : e.SourceCode, 30),
-                    CreatedUtc = SqlRepositoryHelper.FixSqlMinDateUtc(e.CreatedUtc, now)
+                    CreatedUtc = Helper.SqlRepository.FixSqlMinDateUtc(e.CreatedUtc, now)
                 })
                 .Where(e =>
                     !string.IsNullOrWhiteSpace(e.Word) &&
@@ -229,7 +229,7 @@ SELECT @Inserted;
                 dr["Etymology"] = (object?)r.Etymology ?? DBNull.Value;
                 dr["SenseNumber"] = (object?)r.SenseNumber ?? DBNull.Value;
                 dr["SourceCode"] = r.SourceCode ?? "UNKNOWN";
-                dr["CreatedUtc"] = SqlRepositoryHelper.EnsureUtc(r.CreatedUtc);
+                dr["CreatedUtc"] = Helper.SqlRepository.EnsureUtc(r.CreatedUtc);
                 dr["RawFragment"] = (object?)r.RawFragment ?? DBNull.Value;
 
                 dt.Rows.Add(dr);
