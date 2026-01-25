@@ -1,6 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions.Persistence;
-
-namespace DictionaryImporter.Gateway.Rewriter
+﻿namespace DictionaryImporter.Gateway.Rewriter
 {
     public sealed class LuceneMemorySuggestionsPipelineStep(
         IAiAnnotationRepository repository,

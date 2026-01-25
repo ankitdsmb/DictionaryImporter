@@ -1,5 +1,4 @@
-﻿using DictionaryImporter.Core.Persistence;
-using DictionaryImporter.Core.Text;
+﻿using DictionaryImporter.Core.Text;
 using DictionaryImporter.Infrastructure.Parsing; // Needed for DictionaryParsedDefinitionProcessor
 using DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
 using DictionaryImporter.Infrastructure.Persistence;

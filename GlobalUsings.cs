@@ -8,7 +8,6 @@ global using System.Net.Http;
 global using Dapper;
 global using DictionaryImporter.Core.Abstractions;
 global using DictionaryImporter.Core.Linguistics;
-global using DictionaryImporter.Core.Persistence;
 global using DictionaryImporter.Core.PreProcessing;
 global using DictionaryImporter.Domain.Models;
 global using DictionaryImporter.Infrastructure.Graph;

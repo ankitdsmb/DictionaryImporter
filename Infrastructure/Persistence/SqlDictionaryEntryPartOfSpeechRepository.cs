@@ -1,11 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using DictionaryImporter.Common;
-using DictionaryImporter.Core.Abstractions.Persistence;
-using Microsoft.Extensions.Logging;
+﻿using DictionaryImporter.Common;
 
 namespace DictionaryImporter.Infrastructure.Persistence
 {

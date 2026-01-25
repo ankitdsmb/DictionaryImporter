@@ -1,4 +1,4 @@
-﻿namespace DictionaryImporter.Core.Abstractions.Persistence
+﻿namespace DictionaryImporter.Core.Abstractions
 {
     public sealed class AiDefinitionCandidate
     {

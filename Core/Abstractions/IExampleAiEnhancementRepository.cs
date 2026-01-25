@@ -2,7 +2,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace DictionaryImporter.Core.Abstractions.Persistence
+namespace DictionaryImporter.Core.Abstractions
 {
     public interface IExampleAiEnhancementRepository
     {

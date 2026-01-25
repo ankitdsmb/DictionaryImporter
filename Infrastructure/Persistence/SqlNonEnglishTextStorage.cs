@@ -1,28 +1,15 @@
-﻿using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using DictionaryImporter.Common;
-using DictionaryImporter.Core.Abstractions.Persistence;
-using Microsoft.Extensions.Logging;
+﻿using DictionaryImporter.Common;
 
 namespace DictionaryImporter.Infrastructure.Persistence
 {
-    public sealed class SqlNonEnglishTextStorage : INonEnglishTextStorage
+    public sealed class SqlNonEnglishTextStorage(
+        ISqlStoredProcedureExecutor sp,
+        ILogger<SqlNonEnglishTextStorage> logger)
+        : INonEnglishTextStorage
     {
-        private readonly ISqlStoredProcedureExecutor _sp;
-        private readonly ILogger<SqlNonEnglishTextStorage> _logger;
+        private readonly ISqlStoredProcedureExecutor _sp = sp ?? throw new ArgumentNullException(nameof(sp));
+        private readonly ILogger<SqlNonEnglishTextStorage> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         private readonly ConcurrentDictionary<long, string> _cache = new();
-
-        public SqlNonEnglishTextStorage(
-            ISqlStoredProcedureExecutor sp,
-            ILogger<SqlNonEnglishTextStorage> logger)
-        {
-            _sp = sp ?? throw new ArgumentNullException(nameof(sp));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        }
 
         public async Task<long?> StoreNonEnglishTextAsync(
             string originalText,

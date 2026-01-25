@@ -1,5 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions.Persistence;
-using DictionaryImporter.Core.Pipeline.Steps;
+﻿using DictionaryImporter.Core.Pipeline.Steps;
 using DictionaryImporter.Core.Rewrite;
 using DictionaryImporter.Domain.Rewrite;
 using DictionaryImporter.Gateway.Rewriter;

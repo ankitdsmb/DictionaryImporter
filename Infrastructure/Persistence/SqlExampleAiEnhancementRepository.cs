@@ -4,7 +4,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DictionaryImporter.Common;
-using DictionaryImporter.Core.Abstractions.Persistence;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Persistence

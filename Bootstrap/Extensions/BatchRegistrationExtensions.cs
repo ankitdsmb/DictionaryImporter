@@ -1,8 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions.Persistence;
-using DictionaryImporter.Infrastructure.Persistence;
-using Microsoft.Extensions.DependencyInjection;
-
-namespace DictionaryImporter.Bootstrap.Extensions
+﻿namespace DictionaryImporter.Bootstrap.Extensions
 {
     internal static class BatchRegistrationExtensions
     {

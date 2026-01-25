@@ -1,5 +1,4 @@
-﻿using DictionaryImporter.Core.Abstractions.Persistence;
-using DictionaryImporter.Core.Rewrite;
+﻿using DictionaryImporter.Core.Rewrite;
 using DictionaryImporter.Gateway.Grammar.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
