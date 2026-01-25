@@ -36,6 +36,13 @@ namespace DictionaryImporter.Bootstrap
                     sp.GetRequiredService<ILogger<GenericSqlBatcher>>()));
 
             // ------------------------------------------------------------
+            // ✅ REQUIRED: Stored Procedure Executor
+            // ------------------------------------------------------------
+
+            services.AddSingleton<ISqlStoredProcedureExecutor>(_ =>
+                new SqlStoredProcedureExecutor(connectionString));
+
+            // ------------------------------------------------------------
             // ✅ Options Bindings
             // ------------------------------------------------------------
 
@@ -54,7 +61,7 @@ namespace DictionaryImporter.Bootstrap
 
             services.AddSingleton<ILuceneSuggestionIndexRepository>(sp =>
                 new SqlLuceneSuggestionIndexRepository(
-                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlLuceneSuggestionIndexRepository>>()));
 
             services.AddSingleton<ILuceneSuggestionEngine>(sp =>
@@ -78,13 +85,14 @@ namespace DictionaryImporter.Bootstrap
 
             services.AddSingleton<IRewriteMapCandidateRepository>(sp =>
                 new SqlRewriteMapCandidateRepository(
-                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlRewriteMapCandidateRepository>>()));
 
             services.AddSingleton<RewriteMapPromotionService>(sp =>
                 new RewriteMapPromotionService(
                     connectionString,
                     sp.GetRequiredService<IRewriteMapCandidateRepository>(),
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<RewriteMapPromotionService>>()));
 
             services.AddSingleton<IRewriteRuleHitRepository>(sp =>
@@ -135,7 +143,7 @@ namespace DictionaryImporter.Bootstrap
 
             services.AddSingleton<IDictionaryEntryPartOfSpeechRepository>(sp =>
                 new SqlDictionaryEntryPartOfSpeechRepository(
-                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlDictionaryEntryPartOfSpeechRepository>>()));
 
             services.AddSingleton<CanonicalWordIpaEnricher>(sp => new CanonicalWordIpaEnricher(
@@ -172,7 +180,6 @@ namespace DictionaryImporter.Bootstrap
             services.AddSingleton<ISourceDictionaryDefinitionParser, OxfordDefinitionParser>();
             services.AddSingleton<ISourceDictionaryDefinitionParser, StructuredJsonDefinitionParser>();
 
-            // ✅ RESOLVER REGISTRATION (keep this)
             services.AddSingleton<IDictionaryDefinitionParserResolver, DictionaryDefinitionParserResolver>();
 
             services.AddSingleton<OneTimeTaskRunner>();
@@ -183,7 +190,7 @@ namespace DictionaryImporter.Bootstrap
 
             services.AddSingleton<IAiAnnotationRepository>(sp =>
                 new SqlAiAnnotationRepository(
-                    sp.GetRequiredService<IConfiguration>().GetConnectionString("DictionaryImporter")!,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlAiAnnotationRepository>>()));
 
             services.AddScoped<AiEnhancementStep>();
@@ -202,9 +209,10 @@ namespace DictionaryImporter.Bootstrap
             // Correct rewrite order (deterministic):
             // GrammarCorrection -> RuleBasedRewrite -> LuceneSuggestions -> ExampleRewrite -> AiEnhancement
             // ------------------------------------------------------------
+
             services.AddSingleton<IRewriteMapRepository>(sp =>
                 new SqlRewriteMapRepository(
-                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlRewriteMapRepository>>()));
 
             services.Configure<RewriteMapEngineOptions>(
@@ -216,32 +224,27 @@ namespace DictionaryImporter.Bootstrap
                     sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RewriteMapEngineOptions>>(),
                     sp.GetRequiredService<ILogger<RewriteMapEngine>>(),
                     sp.GetRequiredService<IRewriteRuleHitRepository>()));
- 
+
             services.AddScoped<IImportPipelineStep, CanonicalizationPipelineStep>();
             services.AddScoped<IImportPipelineStep, ParsingPipelineStep>();
             services.AddScoped<IImportPipelineStep, LinguisticsPipelineStep>();
             services.AddScoped<IImportPipelineStep, GrammarCorrectionPipelineStep>();
 
-            // ✅ RuleBased rewrite services (step registered ONCE)
             services.TryAddScoped<RuleBasedDefinitionEnhancementStep>();
             services.TryAddScoped<RuleBasedRewritePipelineStep>();
             services.AddScoped<IImportPipelineStep>(sp => sp.GetRequiredService<RuleBasedRewritePipelineStep>());
 
-            // ✅ Lucene suggestions step (scoped + added ONCE)
             services.TryAddScoped<LuceneMemorySuggestionsPipelineStep>();
             services.AddScoped<IImportPipelineStep>(sp => sp.GetRequiredService<LuceneMemorySuggestionsPipelineStep>());
 
-            // ✅ Example rewrite repository
             services.AddSingleton<IExampleAiEnhancementRepository>(sp =>
                 new SqlExampleAiEnhancementRepository(
-                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlExampleAiEnhancementRepository>>()));
 
-            // ✅ Example rewrite step (scoped + added ONCE)
             services.TryAddScoped<RuleBasedExampleRewritePipelineStep>();
             services.AddScoped<IImportPipelineStep>(sp => sp.GetRequiredService<RuleBasedExampleRewritePipelineStep>());
 
-            // ✅ AI Enhancement step should run AFTER RuleBased rewrite
             services.AddScoped<IImportPipelineStep, AiEnhancementPipelineStep>();
 
             services.AddScoped<IImportPipelineStep, OrthographicSyllablesPipelineStep>();
@@ -253,15 +256,12 @@ namespace DictionaryImporter.Bootstrap
             services.AddScoped<IImportPipelineStep, IpaSyllablesPipelineStep>();
             services.AddScoped<IImportPipelineStep, VerificationPipelineStep>();
 
-            // ✅ FIX: DictionaryParsedDefinitionProcessor requires connectionString (string), DI can't resolve string automatically
             services.AddScoped<DictionaryParsedDefinitionProcessor>(sp =>
                 ActivatorUtilities.CreateInstance<DictionaryParsedDefinitionProcessor>(sp, connectionString));
 
-            // ✅ Register processor via interface (ONLY ONCE)
             services.AddScoped<IParsedDefinitionProcessor>(sp =>
                 sp.GetRequiredService<DictionaryParsedDefinitionProcessor>());
 
-            // ✅ FIX: Required by ExampleExtractorRegistry
             services.AddTransient<DictionaryImporter.Sources.Generic.GenericExampleExtractor>();
 
             foreach (var qa in KnownQaChecks.CreateAll(connectionString))
@@ -278,7 +278,9 @@ namespace DictionaryImporter.Bootstrap
             {
                 var log = sp.GetRequiredService<ILogger<SqlDictionaryEntryExampleWriter>>();
                 var batcher = sp.GetRequiredService<GenericSqlBatcher>();
-                return new SqlDictionaryEntryExampleWriter(connectionString, batcher, log);
+                var exec = sp.GetRequiredService<ISqlStoredProcedureExecutor>();
+
+                return new SqlDictionaryEntryExampleWriter(connectionString, batcher, exec, log);
             });
 
             services.AddTransient<SqlParsedDefinitionWriter>(sp =>
@@ -288,22 +290,31 @@ namespace DictionaryImporter.Bootstrap
                 return new SqlParsedDefinitionWriter(connectionString, batcher, log);
             });
 
-            // ✅ Etymology writer
             services.AddSingleton<IEntryEtymologyWriter>(sp =>
                 new SqlDictionaryEntryEtymologyWriter(
-                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlDictionaryEntryEtymologyWriter>>()));
-
-            // ✅ Variant writer
-            services.AddSingleton<IDictionaryEntryVariantWriter>(sp =>
-                new SqlDictionaryEntryVariantWriter(
-                    connectionString,
-                    sp.GetRequiredService<ILogger<SqlDictionaryEntryVariantWriter>>()));
 
             services.AddSingleton<SqlDictionaryEntryVariantWriter>(sp =>
                 new SqlDictionaryEntryVariantWriter(
-                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlDictionaryEntryVariantWriter>>()));
+
+            services.AddSingleton<IDictionaryEntryVariantWriter>(sp =>
+                sp.GetRequiredService<SqlDictionaryEntryVariantWriter>());
+
+            // ------------------------------------------------------------
+            // ✅ Synonym Writer (MISSING earlier)
+            // ------------------------------------------------------------
+
+            services.AddTransient<IDictionaryEntrySynonymWriter>(sp =>
+            {
+                var log = sp.GetRequiredService<ILogger<SqlDictionaryEntrySynonymWriter>>();
+                var batcher = sp.GetRequiredService<GenericSqlBatcher>();
+                var exec = sp.GetRequiredService<ISqlStoredProcedureExecutor>();
+
+                return new SqlDictionaryEntrySynonymWriter(connectionString, log, batcher, exec);
+            });
         }
 
         public static PipelineMode ResolvePipelineMode(IConfiguration configuration)

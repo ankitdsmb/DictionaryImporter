@@ -1,9 +1,19 @@
-﻿namespace DictionaryImporter.Infrastructure.Persistence
+﻿using System;
+using System.Threading;
+using System.Threading.Tasks;
+using DictionaryImporter.Common;
+using Microsoft.Extensions.Logging;
+
+namespace DictionaryImporter.Infrastructure.Persistence
 {
     public sealed class SqlDictionaryEntryVariantWriter(
-        string cs,
-        ILogger<SqlDictionaryEntryVariantWriter> logger) : IDictionaryEntryVariantWriter
+        ISqlStoredProcedureExecutor sp,
+        ILogger<SqlDictionaryEntryVariantWriter> logger)
+        : IDictionaryEntryVariantWriter
     {
+        private readonly ISqlStoredProcedureExecutor _sp = sp;
+        private readonly ILogger<SqlDictionaryEntryVariantWriter> _logger = logger;
+
         public async Task WriteAsync(
             long entryId,
             string variant,
@@ -11,33 +21,24 @@
             string sourceCode,
             CancellationToken ct)
         {
-            sourceCode = string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode;
-            variant = variant?.Trim() ?? string.Empty;
-            type = type?.Trim() ?? string.Empty;
+            if (entryId <= 0)
+                return;
+
+            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+
+            variant = (variant ?? string.Empty).Trim();
+            type = (type ?? string.Empty).Trim();
 
             if (string.IsNullOrWhiteSpace(variant) || string.IsNullOrWhiteSpace(type))
                 return;
 
-            const string sql = """
-                               INSERT INTO dbo.DictionaryEntryVariant
-                               (DictionaryEntryId, VariantText, VariantType, SourceCode)
-                               SELECT @EntryId, @Variant, @Type, @SourceCode
-                               WHERE NOT EXISTS
-                               (
-                                   SELECT 1
-                                   FROM dbo.DictionaryEntryVariant
-                                   WHERE DictionaryEntryId = @EntryId
-                                     AND VariantText = @Variant
-                                     AND VariantType = @Type
-                                     AND SourceCode = @SourceCode
-                               );
-                               """;
+            variant = SqlRepositoryHelper.Truncate(variant, 200);
+            type = SqlRepositoryHelper.Truncate(type, 50);
 
-            await using var conn = new SqlConnection(cs);
-
-            await conn.ExecuteAsync(
-                new CommandDefinition(
-                    sql,
+            try
+            {
+                await _sp.ExecuteAsync(
+                    "sp_DictionaryEntryVariant_InsertIfMissing",
                     new
                     {
                         EntryId = entryId,
@@ -45,7 +46,19 @@
                         Type = type,
                         SourceCode = sourceCode
                     },
-                    cancellationToken: ct));
+                    ct,
+                    timeoutSeconds: 30);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(
+                    ex,
+                    "Failed to insert variant | EntryId={EntryId} | Type={Type} | Variant={Variant} | SourceCode={SourceCode}",
+                    entryId,
+                    type,
+                    variant,
+                    sourceCode);
+            }
         }
     }
 }

@@ -1,7 +1,5 @@
-﻿using Dapper;
-using DictionaryImporter.Common;
+﻿using DictionaryImporter.Common;
 using DictionaryImporter.Gateway.Rewriter;
-using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -19,16 +17,19 @@ namespace DictionaryImporter.Infrastructure.Persistence
         private readonly string _connectionString;
         private readonly ILogger<SqlDictionaryEntrySynonymWriter> _logger;
         private readonly GenericSqlBatcher _batcher;
+        private readonly ISqlStoredProcedureExecutor _sp;
         private readonly bool _ownsBatcher;
 
         public SqlDictionaryEntrySynonymWriter(
             string connectionString,
             ILogger<SqlDictionaryEntrySynonymWriter> logger,
-            GenericSqlBatcher batcher)
+            GenericSqlBatcher batcher,
+            ISqlStoredProcedureExecutor sp)
         {
             _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _batcher = batcher ?? throw new ArgumentNullException(nameof(batcher));
+            _sp = sp ?? throw new ArgumentNullException(nameof(sp));
             _ownsBatcher = false;
 
             _logger.LogInformation("SqlDictionaryEntrySynonymWriter initialized with injected batcher");
@@ -36,10 +37,12 @@ namespace DictionaryImporter.Infrastructure.Persistence
 
         public SqlDictionaryEntrySynonymWriter(
             string connectionString,
-            ILogger<SqlDictionaryEntrySynonymWriter> logger)
+            ILogger<SqlDictionaryEntrySynonymWriter> logger,
+            ISqlStoredProcedureExecutor sp)
         {
             _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _sp = sp ?? throw new ArgumentNullException(nameof(sp));
 
             _batcher = CreateInternalBatcher();
             _ownsBatcher = true;
@@ -49,26 +52,18 @@ namespace DictionaryImporter.Infrastructure.Persistence
 
         private GenericSqlBatcher CreateInternalBatcher()
         {
-            try
-            {
-                var nullLogger = Microsoft.Extensions.Logging.Abstractions.NullLogger<GenericSqlBatcher>.Instance;
-                return new GenericSqlBatcher(_connectionString, nullLogger);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to create internal batcher");
-                throw;
-            }
+            var nullLogger = Microsoft.Extensions.Logging.Abstractions.NullLogger<GenericSqlBatcher>.Instance;
+            return new GenericSqlBatcher(_connectionString, nullLogger);
         }
 
         public async Task WriteAsync(DictionaryEntrySynonym synonym, CancellationToken ct)
         {
             if (synonym == null)
-                return; // NEVER throw in import pipeline
+                return;
 
             try
             {
-                synonym.SourceCode = NormalizeSourceCode(synonym.SourceCode);
+                synonym.SourceCode = SqlRepositoryHelper.NormalizeSourceCode(synonym.SourceCode);
 
                 if (synonym.DictionaryEntryParsedId <= 0)
                     return;
@@ -77,9 +72,6 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 if (string.IsNullOrWhiteSpace(rawSynonymText))
                     return;
 
-                // IMPORTANT:
-                // We MUST decide on non-English BEFORE normalization.
-                // Normalization might remove/alter characters and break language detection.
                 var hasNonEnglishText = Helper.LanguageDetector.ContainsNonEnglishText(rawSynonymText);
                 long? nonEnglishTextId = null;
 
@@ -93,7 +85,6 @@ namespace DictionaryImporter.Infrastructure.Persistence
                         fieldType: "Synonym",
                         ct: ct);
 
-                    // SynonymText is NOT NULL in dbo.DictionaryEntrySynonym
                     synonymToStore = NonEnglishSynonymPlaceholder;
                 }
                 else
@@ -102,7 +93,6 @@ namespace DictionaryImporter.Infrastructure.Persistence
                     if (string.IsNullOrWhiteSpace(normalized))
                         return;
 
-                    // Extra guard: never insert placeholder accidentally
                     if (string.Equals(normalized, NonEnglishSynonymPlaceholder, StringComparison.Ordinal))
                         return;
 
@@ -112,7 +102,6 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 if (string.IsNullOrWhiteSpace(synonymToStore))
                     return;
 
-                // Guard against schema truncation
                 if (synonymToStore.Length > 400)
                     synonymToStore = synonymToStore.Substring(0, 400);
 
@@ -177,7 +166,6 @@ END
             IEnumerable<DictionaryEntrySynonym> synonyms,
             CancellationToken ct)
         {
-            // Keep bulk write ONLY for English normalized synonyms
             if (synonyms == null)
                 return;
 
@@ -234,7 +222,7 @@ WHERE NOT EXISTS (
             if (parsedDefinitionId <= 0)
                 return;
 
-            sourceCode = NormalizeSourceCode(sourceCode);
+            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
 
             var synonymList = synonyms?.ToList() ?? new List<string>();
             if (synonymList.Count == 0)
@@ -255,7 +243,6 @@ WHERE NOT EXISTS (
                     englishSynonyms.Add(raw);
             }
 
-            // 1) English: bulk insert path
             var uniqueEnglish = englishSynonyms
                 .Select(Helper.NormalizeSynonymText)
                 .Where(s => !string.IsNullOrWhiteSpace(s))
@@ -282,7 +269,6 @@ WHERE NOT EXISTS (
                 await BulkWriteAsync(synonymObjects, ct);
             }
 
-            // 2) Non-English: insert individually (needs NonEnglishTextId)
             var uniqueNonEnglish = nonEnglishSynonyms
                 .Where(s => !string.IsNullOrWhiteSpace(s))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -323,16 +309,13 @@ WHERE NOT EXISTS (
             if (synonyms == null)
                 return table;
 
-            // IMPORTANT:
-            // Bulk path must ONLY include English normalized synonyms.
-            // If any non-English slips here, it will pollute SynonymText.
             var uniqueSynonyms = synonyms
                 .Where(s => s != null)
                 .Select(s => new DictionaryEntrySynonym
                 {
                     DictionaryEntryParsedId = s.DictionaryEntryParsedId,
                     SynonymText = Helper.NormalizeSynonymText(s.SynonymText),
-                    SourceCode = NormalizeSourceCode(s.SourceCode)
+                    SourceCode = SqlRepositoryHelper.NormalizeSourceCode(s.SourceCode)
                 })
                 .Where(s => s.DictionaryEntryParsedId > 0)
                 .Where(s => !string.IsNullOrWhiteSpace(s.SynonymText))
@@ -344,7 +327,6 @@ WHERE NOT EXISTS (
 
             foreach (var synonym in uniqueSynonyms)
             {
-                // Guard schema constraints (if SynonymText is limited)
                 var text = synonym.SynonymText ?? string.Empty;
                 if (text.Length > 400)
                     text = text.Substring(0, 400);
@@ -358,144 +340,42 @@ WHERE NOT EXISTS (
             return table;
         }
 
-        // NEW METHOD (added)
         private async Task<long?> StoreNonEnglishTextDedupedAsync(
             string originalText,
             string sourceCode,
             string fieldType,
             CancellationToken ct)
         {
-            originalText = (originalText ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(originalText))
-                return null;
-
-            sourceCode = NormalizeSourceCode(sourceCode);
-            fieldType = string.IsNullOrWhiteSpace(fieldType) ? "Unknown" : fieldType.Trim();
-
-            // Deterministic hash for de-dupe
-            var textHash = DeterministicHashHelper.Sha256Hex(originalText);
-            if (string.IsNullOrWhiteSpace(textHash))
-                return null;
-
-            // Preferred path: schema with OriginalTextHash for de-dupe
-            const string sqlWithHash = """
-DECLARE @ExistingId BIGINT;
-
-SELECT TOP (1)
-    @ExistingId = NonEnglishTextId
-FROM dbo.DictionaryNonEnglishText WITH (NOLOCK)
-WHERE SourceCode = @SourceCode
-  AND FieldType = @FieldType
-  AND OriginalTextHash = @OriginalTextHash
-ORDER BY NonEnglishTextId ASC;
-
-IF @ExistingId IS NOT NULL
-BEGIN
-    SELECT @ExistingId;
-    RETURN;
-END
-
-INSERT INTO dbo.DictionaryNonEnglishText (
-    OriginalText,
-    OriginalTextHash,
-    DetectedLanguage,
-    CharacterCount,
-    SourceCode,
-    FieldType,
-    CreatedUtc
-)
-OUTPUT INSERTED.NonEnglishTextId
-VALUES (
-    @OriginalText,
-    @OriginalTextHash,
-    @DetectedLanguage,
-    @CharacterCount,
-    @SourceCode,
-    @FieldType,
-    SYSUTCDATETIME()
-);
-""";
-
-            // Fallback path: schema without OriginalTextHash
-            const string sqlNoHashFallback = """
-INSERT INTO dbo.DictionaryNonEnglishText (
-    OriginalText,
-    DetectedLanguage,
-    CharacterCount,
-    SourceCode,
-    FieldType,
-    CreatedUtc
-)
-OUTPUT INSERTED.NonEnglishTextId
-VALUES (
-    @OriginalText,
-    @DetectedLanguage,
-    @CharacterCount,
-    @SourceCode,
-    @FieldType,
-    SYSUTCDATETIME()
-);
-""";
-
-            var languageCode = Helper.LanguageDetector.DetectLanguageCode(originalText);
-
-            var parameters = new
-            {
-                OriginalText = originalText,
-                OriginalTextHash = textHash,
-                DetectedLanguage = languageCode,
-                CharacterCount = originalText.Length,
-                SourceCode = sourceCode,
-                FieldType = fieldType
-            };
-
             try
             {
-                await using var connection = new SqlConnection(_connectionString);
-                await connection.OpenAsync(ct);
-
-                return await connection.ExecuteScalarAsync<long?>(
-                    new CommandDefinition(sqlWithHash, parameters, cancellationToken: ct));
+                return await SqlRepositoryHelper.StoreNonEnglishTextAsync(
+                    _sp,
+                    originalText: originalText,
+                    sourceCode: sourceCode,
+                    fieldType: fieldType,
+                    ct: ct,
+                    timeoutSeconds: 60);
             }
             catch (OperationCanceledException)
             {
                 throw;
             }
-            catch
+            catch (Exception ex)
             {
-                // fallback: schema doesn't have OriginalTextHash (or other issue)
-                try
-                {
-                    await using var connection = new SqlConnection(_connectionString);
-                    await connection.OpenAsync(ct);
+                _logger.LogError(
+                    ex,
+                    "StoreNonEnglishTextDedupedAsync failed. SourceCode={SourceCode}, FieldType={FieldType}",
+                    sourceCode,
+                    fieldType);
 
-                    return await connection.ExecuteScalarAsync<long?>(
-                        new CommandDefinition(sqlNoHashFallback, parameters, cancellationToken: ct));
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "StoreNonEnglishTextDedupedAsync failed (both paths). SourceCode={SourceCode}", sourceCode);
-                    return null;
-                }
+                return null;
             }
-        }
-
-        // NEW METHOD (added)
-        private static string NormalizeSourceCode(string? sourceCode)
-        {
-            return string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode.Trim();
         }
 
         public void Dispose()
         {
             if (_ownsBatcher)
-            {
                 _batcher?.Dispose();
-            }
         }
     }
 }

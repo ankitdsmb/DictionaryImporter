@@ -3,77 +3,58 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Dapper;
-using Microsoft.Data.SqlClient;
+using DictionaryImporter.Common;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Gateway.Rewriter
 {
-    using DictionaryImporter.Infrastructure.Persistence;
-
     public sealed class SqlLuceneSuggestionIndexRepository(
-        string connectionString,
+        ISqlStoredProcedureExecutor sp,
         ILogger<SqlLuceneSuggestionIndexRepository> logger)
-        : SqlRepo(connectionString, logger), ILuceneSuggestionIndexRepository
+        : ILuceneSuggestionIndexRepository
     {
+        private readonly ISqlStoredProcedureExecutor _sp = sp;
+        private readonly ILogger<SqlLuceneSuggestionIndexRepository> _logger = logger;
+
         public async Task<IReadOnlyList<LuceneSuggestionIndexRow>> GetRewritePairsAsync(
             string? sourceCode,
             int take,
             int skip,
             CancellationToken cancellationToken)
         {
-            take = Clamp(take, 1, 5000);
+            take = SqlRepositoryHelper.Clamp(take, 1, 5000);
             skip = Math.Max(0, skip);
 
-            const string sql = @"
-;WITH X AS
-(
-    SELECT
-        a.SourceCode,
-        a.ParsedDefinitionId,
-        a.AiEnhancedDefinition,
-        a.AiNotesJson
-    FROM dbo.DictionaryEntryAiAnnotation a WITH (NOLOCK)
-    WHERE (@SourceCode IS NULL OR a.SourceCode = @SourceCode)
-      AND a.AiEnhancedDefinition IS NOT NULL
-      AND LTRIM(RTRIM(a.AiEnhancedDefinition)) <> ''
-)
-SELECT
-    x.SourceCode,
-    x.ParsedDefinitionId,
-    x.AiEnhancedDefinition,
-    x.AiNotesJson,
-    p.Definition,
-    p.DefinitionHash,
-    p.MeaningTitle,
-    p.MeaningTitleHash
-FROM X x
-JOIN dbo.DictionaryEntryParsed p WITH (NOLOCK)
-    ON p.DictionaryEntryParsedId = x.ParsedDefinitionId
-WHERE p.SourceCode = x.SourceCode
-ORDER BY x.ParsedDefinitionId ASC
-OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY;
-";
-
-            return await WithConn(async conn =>
+            try
             {
-                var cmd = new CommandDefinition(
-                    sql,
+                var rows = await _sp.QueryAsync<RowDto>(
+                    "sp_LuceneSuggestionIndex_GetRewritePairs",
                     new
                     {
                         SourceCode = string.IsNullOrWhiteSpace(sourceCode) ? null : sourceCode.Trim(),
                         Take = take,
                         Skip = skip
                     },
-                    cancellationToken: cancellationToken,
-                    commandTimeout: 60);
+                    cancellationToken,
+                    timeoutSeconds: 60);
 
-                var rows = (await conn.QueryAsync<RowDto>(cmd)).AsList();
                 if (rows.Count == 0)
                     return Array.Empty<LuceneSuggestionIndexRow>();
 
-                return TransformRowsToLucenePairs(rows, cancellationToken);
-            }, cancellationToken, fallback: Array.Empty<LuceneSuggestionIndexRow>());
+                return TransformRowsToLucenePairs(rows.ToList(), cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return Array.Empty<LuceneSuggestionIndexRow>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "GetRewritePairsAsync failed. SourceCode={SourceCode}, Take={Take}, Skip={Skip}",
+                    sourceCode, take, skip);
+
+                return Array.Empty<LuceneSuggestionIndexRow>();
+            }
         }
 
         public async Task<IReadOnlyList<LuceneSuggestionIndexRow>> GetRewritePairsAfterIdAsync(
@@ -85,60 +66,40 @@ OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY;
             if (string.IsNullOrWhiteSpace(sourceCode))
                 return Array.Empty<LuceneSuggestionIndexRow>();
 
-            take = Clamp(take, 1, 5000);
+            take = SqlRepositoryHelper.Clamp(take, 1, 5000);
 
-            const string sql = @"
-;WITH X AS
-(
-    SELECT
-        a.SourceCode,
-        a.ParsedDefinitionId,
-        a.AiEnhancedDefinition,
-        a.AiNotesJson
-    FROM dbo.DictionaryEntryAiAnnotation a WITH (NOLOCK)
-    WHERE a.SourceCode = @SourceCode
-      AND a.ParsedDefinitionId > @LastId
-      AND a.AiEnhancedDefinition IS NOT NULL
-      AND LTRIM(RTRIM(a.AiEnhancedDefinition)) <> ''
-)
-SELECT TOP (@Take)
-    x.SourceCode,
-    x.ParsedDefinitionId,
-    x.AiEnhancedDefinition,
-    x.AiNotesJson,
-    p.Definition,
-    p.DefinitionHash,
-    p.MeaningTitle,
-    p.MeaningTitleHash
-FROM X x
-JOIN dbo.DictionaryEntryParsed p WITH (NOLOCK)
-    ON p.DictionaryEntryParsedId = x.ParsedDefinitionId
-WHERE p.SourceCode = x.SourceCode
-ORDER BY x.ParsedDefinitionId ASC;
-";
-
-            return await WithConn(async conn =>
+            try
             {
-                var cmd = new CommandDefinition(
-                    sql,
+                var rows = await _sp.QueryAsync<RowDto>(
+                    "sp_LuceneSuggestionIndex_GetRewritePairsAfterId",
                     new
                     {
                         SourceCode = sourceCode.Trim(),
                         LastId = lastParsedDefinitionId,
                         Take = take
                     },
-                    cancellationToken: cancellationToken,
-                    commandTimeout: 60);
+                    cancellationToken,
+                    timeoutSeconds: 60);
 
-                var rows = (await conn.QueryAsync<RowDto>(cmd)).AsList();
                 if (rows.Count == 0)
                     return Array.Empty<LuceneSuggestionIndexRow>();
 
-                return TransformRowsToLucenePairs(rows, cancellationToken);
-            }, cancellationToken, fallback: Array.Empty<LuceneSuggestionIndexRow>());
+                return TransformRowsToLucenePairs(rows.ToList(), cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return Array.Empty<LuceneSuggestionIndexRow>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "GetRewritePairsAfterIdAsync failed. SourceCode={SourceCode}, LastId={LastId}, Take={Take}",
+                    sourceCode, lastParsedDefinitionId, take);
+
+                return Array.Empty<LuceneSuggestionIndexRow>();
+            }
         }
 
-        // NEW METHOD (added)
         private static IReadOnlyList<LuceneSuggestionIndexRow> TransformRowsToLucenePairs(
             List<RowDto> rows,
             CancellationToken cancellationToken)
@@ -174,7 +135,6 @@ ORDER BY x.ParsedDefinitionId ASC;
                 .ToList();
         }
 
-        // NEW METHOD (added)
         private static void AddDefinitionPair(List<LuceneSuggestionIndexRow> result, string src, RowDto r)
         {
             var original = (r.Definition ?? string.Empty).Trim();
@@ -196,7 +156,6 @@ ORDER BY x.ParsedDefinitionId ASC;
             });
         }
 
-        // NEW METHOD (added)
         private static void AddMeaningTitlePair(List<LuceneSuggestionIndexRow> result, string src, RowDto r)
         {
             var parsedTitleOriginal = (r.MeaningTitle ?? string.Empty).Trim();
@@ -230,7 +189,6 @@ ORDER BY x.ParsedDefinitionId ASC;
             });
         }
 
-        // NEW METHOD (added)
         private static void AddExamplePairs(List<LuceneSuggestionIndexRow> result, string src, RowDto r)
         {
             var examples = AiNotesJsonReader.TryReadExamples(r.AiNotesJson, maxExamples: 20);

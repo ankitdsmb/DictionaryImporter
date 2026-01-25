@@ -34,7 +34,7 @@ namespace DictionaryImporter.Gateway.Grammar.Extensions
             // RewriteMap services
             services.TryAddSingleton<IRewriteMapRepository>(sp =>
                 new SqlRewriteMapRepository(
-                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlRewriteMapRepository>>()));
 
             services.TryAddSingleton<RewriteMapEngine>();

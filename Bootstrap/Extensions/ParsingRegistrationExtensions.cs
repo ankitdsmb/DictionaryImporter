@@ -2,6 +2,7 @@
 using DictionaryImporter.Core.Text;
 using DictionaryImporter.Infrastructure.Parsing; // Needed for DictionaryParsedDefinitionProcessor
 using DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
+using DictionaryImporter.Infrastructure.Persistence;
 using DictionaryImporter.Sources.Collins.Extractor;
 using DictionaryImporter.Sources.EnglishChinese.Extractor;
 using DictionaryImporter.Sources.Generic;
@@ -18,12 +19,17 @@ namespace DictionaryImporter.Bootstrap.Extensions
     {
         public static IServiceCollection AddParsing(this IServiceCollection services, string connectionString)
         {
+            // ✅ REQUIRED: Stored Procedure Executor
+            // NOTE: If already registered elsewhere, multiple registrations are not fatal,
+            // but recommended is to keep it registered only once globally.
+            services.AddSingleton<ISqlStoredProcedureExecutor>(_ =>
+                new SqlStoredProcedureExecutor(connectionString));
+
             // 1. Core Text Processing Services (New dependencies)
             services.AddSingleton<IOcrArtifactNormalizer, OcrArtifactNormalizer>();
             services.AddSingleton<IDefinitionNormalizer, DefinitionNormalizer>();
 
             // 2. Text Formatter (Uses OCR & Definition normalizers)
-            // Note: We register DictionaryTextFormatter as the implementation for IDictionaryTextFormatter
             services.AddSingleton<IDictionaryTextFormatter, DictionaryTextFormatter>();
 
             // 3. Parsers
@@ -34,7 +40,8 @@ namespace DictionaryImporter.Bootstrap.Extensions
             {
                 var logger = sp.GetRequiredService<ILogger<SqlDictionaryEntryExampleWriter>>();
                 var batcher = sp.GetRequiredService<GenericSqlBatcher>();
-                return new SqlDictionaryEntryExampleWriter(connectionString, batcher, logger);
+                var exec = sp.GetRequiredService<ISqlStoredProcedureExecutor>();
+                return new SqlDictionaryEntryExampleWriter(connectionString, batcher,exec, logger);
             });
 
             services.AddTransient<SqlParsedDefinitionWriter>(sp =>
@@ -48,21 +55,22 @@ namespace DictionaryImporter.Bootstrap.Extensions
                 new SqlDictionaryEntrySynonymWriter(
                     connectionString,
                     sp.GetRequiredService<ILogger<SqlDictionaryEntrySynonymWriter>>(),
-                    sp.GetRequiredService<GenericSqlBatcher>()));
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>()));
 
             services.AddSingleton<SqlDictionaryEntryCrossReferenceWriter>(sp =>
                 new SqlDictionaryEntryCrossReferenceWriter(
-                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlDictionaryEntryCrossReferenceWriter>>()));
 
+            // ✅ FIX: SqlDictionaryAliasWriter now requires ISqlStoredProcedureExecutor
             services.AddSingleton<SqlDictionaryAliasWriter>(sp =>
                 new SqlDictionaryAliasWriter(
-                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlDictionaryAliasWriter>>()));
 
             services.AddSingleton<SqlDictionaryEntryVariantWriter>(sp =>
                 new SqlDictionaryEntryVariantWriter(
-                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlDictionaryEntryVariantWriter>>()));
 
             // Forwarding implementations
@@ -77,7 +85,7 @@ namespace DictionaryImporter.Bootstrap.Extensions
 
             services.AddSingleton<IEntryEtymologyWriter>(sp =>
                 new SqlDictionaryEntryEtymologyWriter(
-                    connectionString,
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlDictionaryEntryEtymologyWriter>>()));
 
             // 5. Text Services
@@ -88,7 +96,7 @@ namespace DictionaryImporter.Bootstrap.Extensions
             // 6. Extractors
             // Examples
             services.AddSingleton<IExampleExtractor, GutenbergExampleExtractor>();
-            services.AddSingleton<GenericExampleExtractor>(); // Required by Registry
+            services.AddSingleton<GenericExampleExtractor>();
 
             services.AddSingleton<IExampleExtractorRegistry>(sp =>
                 new ExampleExtractorRegistry(
@@ -139,8 +147,8 @@ namespace DictionaryImporter.Bootstrap.Extensions
                     sp.GetRequiredService<IGrammarEnrichedTextService>(),
                     sp.GetRequiredService<ILanguageDetectionService>(),
                     sp.GetRequiredService<INonEnglishTextStorage>(),
-                    sp.GetRequiredService<IOcrArtifactNormalizer>(), // Added
-                    sp.GetRequiredService<IDefinitionNormalizer>(),  // Added
+                    sp.GetRequiredService<IOcrArtifactNormalizer>(),
+                    sp.GetRequiredService<IDefinitionNormalizer>(),
                     sp.GetRequiredService<ILogger<DictionaryParsedDefinitionProcessor>>()
                 );
             });

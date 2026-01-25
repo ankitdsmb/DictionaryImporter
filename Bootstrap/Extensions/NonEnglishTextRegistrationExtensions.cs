@@ -13,8 +13,7 @@ namespace DictionaryImporter.Bootstrap.Extensions
             // Register the non-English text storage service
             services.AddSingleton<INonEnglishTextStorage>(sp =>
                 new SqlNonEnglishTextStorage(
-                    connectionString,
-                    sp.GetRequiredService<GenericSqlBatcher>(),
+                    sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                     sp.GetRequiredService<ILogger<SqlNonEnglishTextStorage>>()));
 
             // Register the language detection service

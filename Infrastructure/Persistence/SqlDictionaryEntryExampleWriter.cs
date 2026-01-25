@@ -1,4 +1,10 @@
-﻿using DictionaryImporter.Common;
+﻿using System;
+using System.Data;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using DictionaryImporter.Common;
+using Microsoft.Extensions.Logging;
 using static DictionaryImporter.Common.Helper;
 
 namespace DictionaryImporter.Infrastructure.Persistence
@@ -6,16 +12,19 @@ namespace DictionaryImporter.Infrastructure.Persistence
     public sealed class SqlDictionaryEntryExampleWriter(
         string connectionString,
         GenericSqlBatcher batcher,
+        ISqlStoredProcedureExecutor sp,
         ILogger<SqlDictionaryEntryExampleWriter> logger)
         : IDictionaryEntryExampleWriter
     {
+        private readonly ISqlStoredProcedureExecutor _sp = sp;
+
         public async Task WriteAsync(
             long dictionaryEntryParsedId,
             string exampleText,
             string sourceCode,
             CancellationToken ct)
         {
-            sourceCode = string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode;
+            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
 
             if (dictionaryEntryParsedId <= 0)
                 return;
@@ -26,8 +35,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             if (string.IsNullOrWhiteSpace(exampleText))
                 return;
 
-            // Do not store placeholders
-            if (IsPlaceholderExample(exampleText))
+            if (SqlRepositoryHelper.IsPlaceholderExample(exampleText))
                 return;
 
             bool hasNonEnglishText = Helper.LanguageDetector.ContainsNonEnglishText(exampleText);
@@ -36,13 +44,14 @@ namespace DictionaryImporter.Infrastructure.Persistence
 
             if (hasNonEnglishText)
             {
-                nonEnglishTextId = await StoreNonEnglishTextAsync(
+                nonEnglishTextId = await SqlRepositoryHelper.StoreNonEnglishTextAsync(
+                    _sp,
                     originalText: exampleText,
                     sourceCode: sourceCode,
                     fieldType: "Example",
-                    ct);
+                    ct: ct,
+                    timeoutSeconds: 30);
 
-                // Non-English example stored via NonEnglishTextId, do not store ExampleText
                 exampleToStore = null;
 
                 logger.LogDebug(
@@ -51,17 +60,11 @@ namespace DictionaryImporter.Infrastructure.Persistence
             }
             else
             {
-                exampleToStore = NormalizeExampleForDedupe(exampleToStore ?? string.Empty);
+                exampleToStore = SqlRepositoryHelper.NormalizeExampleForDedupeOrEmpty(exampleToStore ?? string.Empty);
                 if (string.IsNullOrWhiteSpace(exampleToStore))
                     return;
             }
 
-            // ✅ IMPORTANT:
-            // ExampleHash is COMPUTED => never insert/update it.
-
-            // FIX:
-            // Deduplicate at DictionaryEntryId (word-level), not only ParsedId-level.
-            // This prevents the same example being inserted multiple times for multiple senses.
             const string sql = """
                 DECLARE @DictionaryEntryId BIGINT;
 
@@ -114,7 +117,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
             var parameters = new
             {
                 DictionaryEntryParsedId = dictionaryEntryParsedId,
-                ExampleText = exampleToStore, // null for non-English
+                ExampleText = exampleToStore,
                 SourceCode = sourceCode,
                 HasNonEnglishText = hasNonEnglishText,
                 NonEnglishTextId = nonEnglishTextId
@@ -127,77 +130,6 @@ namespace DictionaryImporter.Infrastructure.Persistence
                 CommandType.Text,
                 30,
                 ct);
-        }
-
-        private static bool IsPlaceholderExample(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return false;
-
-            var t = text.Trim();
-
-            return t.Equals("[NON_ENGLISH]", StringComparison.OrdinalIgnoreCase)
-                || t.Equals("[BILINGUAL_EXAMPLE]", StringComparison.OrdinalIgnoreCase)
-                || t.Equals("NON_ENGLISH", StringComparison.OrdinalIgnoreCase)
-                || t.Equals("BILINGUAL_EXAMPLE", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private async Task<long> StoreNonEnglishTextAsync(
-            string originalText,
-            string sourceCode,
-            string fieldType,
-            CancellationToken ct)
-        {
-            const string sql = """
-                INSERT INTO dbo.DictionaryNonEnglishText (
-                    OriginalText,
-                    DetectedLanguage,
-                    CharacterCount,
-                    SourceCode,
-                    FieldType,
-                    CreatedUtc
-                ) OUTPUT INSERTED.NonEnglishTextId
-                VALUES (
-                    @OriginalText,
-                    @DetectedLanguage,
-                    @CharacterCount,
-                    @SourceCode,
-                    @FieldType,
-                    SYSUTCDATETIME()
-                );
-                """;
-
-            var languageCode = LanguageDetector.DetectLanguageCode(originalText);
-
-            var parameters = new
-            {
-                OriginalText = originalText,
-                DetectedLanguage = languageCode,
-                CharacterCount = originalText.Length,
-                SourceCode = string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode,
-                FieldType = fieldType
-            };
-
-            await using var connection = new SqlConnection(connectionString);
-            await connection.OpenAsync(ct);
-
-            return await connection.ExecuteScalarAsync<long>(
-                new CommandDefinition(sql, parameters, cancellationToken: ct));
-        }
-
-        private static string NormalizeExampleForDedupe(string example)
-        {
-            if (string.IsNullOrWhiteSpace(example))
-                return string.Empty;
-
-            var t = example.Trim();
-
-            t = Regex.Replace(t, @"\s+", " ").Trim();
-
-            if (t.Length > 800)
-                t = t.Substring(0, 800).Trim();
-
-            return t;
         }
     }
 }

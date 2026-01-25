@@ -3,15 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Dapper;
+using DictionaryImporter.Common;
 using DictionaryImporter.Core.Abstractions.Persistence;
-using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Persistence
 {
     public sealed class SqlAiAnnotationRepository(
-        string connectionString,
+        ISqlStoredProcedureExecutor sp,
         ILogger<SqlAiAnnotationRepository> logger)
         : IAiAnnotationRepository
     {
@@ -19,10 +18,7 @@ namespace DictionaryImporter.Infrastructure.Persistence
         private const int MaxExamplesPerParsedIdHardLimit = 50;
         private const int MaxEnhancementBatchSize = 500;
 
-        private const string DefaultProvider = "RuleBased";
-        private const string DefaultModel = "DictionaryRewriteV1";
-
-        private readonly string _connectionString = connectionString;
+        private readonly ISqlStoredProcedureExecutor _sp = sp;
         private readonly ILogger<SqlAiAnnotationRepository> _logger = logger;
 
         public async Task<IReadOnlyList<AiDefinitionCandidate>> GetDefinitionCandidatesAsync(
@@ -30,37 +26,16 @@ namespace DictionaryImporter.Infrastructure.Persistence
             int take,
             CancellationToken ct)
         {
-            sourceCode = Normalize(sourceCode, "UNKNOWN");
-            take = Clamp(take <= 0 ? DefaultTake : take, 1, 5000);
-
-            const string sql = """
-SELECT TOP (@Take)
-    dep.DictionaryEntryParsedId AS ParsedDefinitionId,
-    ISNULL(dep.Definition, '') AS DefinitionText,
-    ISNULL(dep.MeaningTitle, '') AS MeaningTitle,
-    '' AS ExampleText
-FROM dbo.DictionaryEntryParsed dep WITH (NOLOCK)
-WHERE
-    dep.SourceCode = @SourceCode
-    AND dep.Definition IS NOT NULL
-    AND LTRIM(RTRIM(dep.Definition)) <> ''
-ORDER BY
-    dep.DictionaryEntryParsedId ASC;
-""";
+            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
+            take = SqlRepositoryHelper.Clamp(take <= 0 ? DefaultTake : take, 1, 5000);
 
             try
             {
-                await using var conn = new SqlConnection(_connectionString);
-                await conn.OpenAsync(ct);
-
-                var rows = await conn.QueryAsync<AiDefinitionCandidate>(
-                    new CommandDefinition(
-                        sql,
-                        new { SourceCode = sourceCode, Take = take },
-                        cancellationToken: ct,
-                        commandTimeout: 60));
-
-                return rows.AsList();
+                return await _sp.QueryAsync<AiDefinitionCandidate>(
+                    "sp_AiAnnotation_GetDefinitionCandidates",
+                    new { SourceCode = sourceCode, Take = take },
+                    ct,
+                    timeoutSeconds: 60);
             }
             catch (OperationCanceledException)
             {
@@ -79,71 +54,32 @@ ORDER BY
             int maxExamplesPerParsedId,
             CancellationToken ct)
         {
-            sourceCode = Normalize(sourceCode, "UNKNOWN");
+            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
 
             if (parsedDefinitionIds is null || parsedDefinitionIds.Count == 0)
                 return new Dictionary<long, IReadOnlyList<string>>();
 
             maxExamplesPerParsedId = maxExamplesPerParsedId <= 0 ? 10 : maxExamplesPerParsedId;
-            maxExamplesPerParsedId = Clamp(maxExamplesPerParsedId, 1, MaxExamplesPerParsedIdHardLimit);
+            maxExamplesPerParsedId = SqlRepositoryHelper.Clamp(maxExamplesPerParsedId, 1, MaxExamplesPerParsedIdHardLimit);
 
-            var ids = parsedDefinitionIds
-                .Where(x => x > 0)
-                .Distinct()
-                .OrderBy(x => x)
-                .ToArray();
-
+            var ids = SqlRepositoryHelper.NormalizeDistinctIds(parsedDefinitionIds);
             if (ids.Length == 0)
                 return new Dictionary<long, IReadOnlyList<string>>();
 
-            const string sql = """
-WITH ex AS
-(
-    SELECT
-        e.DictionaryEntryParsedId AS ParsedDefinitionId,
-        e.DictionaryEntryExampleId AS ExampleId,
-        e.ExampleText AS ExampleText,
-        ROW_NUMBER() OVER (
-            PARTITION BY e.DictionaryEntryParsedId
-            ORDER BY e.DictionaryEntryExampleId ASC
-        ) AS rn
-    FROM dbo.DictionaryEntryExample e WITH (NOLOCK)
-    WHERE
-        e.SourceCode = @SourceCode
-        AND e.DictionaryEntryParsedId IN @Ids
-        AND e.ExampleText IS NOT NULL
-        AND LTRIM(RTRIM(e.ExampleText)) <> ''
-
-        AND ISNULL(e.HasNonEnglishText, 0) = 0
-        AND e.NonEnglishTextId IS NULL
-        AND e.ExampleText <> '[NON_ENGLISH]'
-        AND e.ExampleText <> '[BILINGUAL_EXAMPLE]'
-)
-SELECT
-    ParsedDefinitionId,
-    ExampleId,
-    ExampleText
-FROM ex
-WHERE rn <= @MaxPerId
-ORDER BY ParsedDefinitionId ASC, ExampleId ASC;
-""";
-
             try
             {
-                await using var conn = new SqlConnection(_connectionString);
-                await conn.OpenAsync(ct);
+                var tvp = SqlRepositoryHelper.ToBigIntIdListTvp(ids);
 
-                var rows = (await conn.QueryAsync<ExampleRow>(
-                    new CommandDefinition(
-                        sql,
-                        new
-                        {
-                            SourceCode = sourceCode,
-                            Ids = ids,
-                            MaxPerId = maxExamplesPerParsedId
-                        },
-                        cancellationToken: ct,
-                        commandTimeout: 60))).AsList();
+                var rows = await _sp.QueryAsync<ExampleRow>(
+                    "sp_AiAnnotation_GetExamplesByParsedIds",
+                    new
+                    {
+                        SourceCode = sourceCode,
+                        Ids = tvp,
+                        MaxPerId = maxExamplesPerParsedId
+                    },
+                    ct,
+                    timeoutSeconds: 60);
 
                 if (rows.Count == 0)
                     return new Dictionary<long, IReadOnlyList<string>>();
@@ -176,54 +112,36 @@ ORDER BY ParsedDefinitionId ASC, ExampleId ASC;
             string model,
             CancellationToken ct)
         {
-            sourceCode = Normalize(sourceCode, "UNKNOWN");
+            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
 
             if (parsedDefinitionIds is null || parsedDefinitionIds.Count == 0)
                 return new HashSet<long>();
 
-            var ids = parsedDefinitionIds
-                .Where(x => x > 0)
-                .Distinct()
-                .OrderBy(x => x)
-                .ToArray();
-
+            var ids = SqlRepositoryHelper.NormalizeDistinctIds(parsedDefinitionIds);
             if (ids.Length == 0)
                 return new HashSet<long>();
 
-            provider = Normalize(provider, DefaultProvider);
-            model = Normalize(model, DefaultModel);
+            provider = SqlRepositoryHelper.NormalizeString(provider, SqlRepositoryHelper.DefaultProvider);
+            model = SqlRepositoryHelper.NormalizeString(model, SqlRepositoryHelper.DefaultModel);
 
             if (provider.Length > 64) provider = provider.Substring(0, 64);
             if (model.Length > 128) model = model.Substring(0, 128);
 
-            const string sql = """
-SELECT
-    a.ParsedDefinitionId
-FROM dbo.DictionaryEntryAiAnnotation a WITH (NOLOCK)
-WHERE
-    a.SourceCode = @SourceCode
-    AND a.Provider = @Provider
-    AND a.Model = @Model
-    AND a.ParsedDefinitionId IN @Ids;
-""";
-
             try
             {
-                await using var conn = new SqlConnection(_connectionString);
-                await conn.OpenAsync(ct);
+                var tvp = SqlRepositoryHelper.ToBigIntIdListTvp(ids);
 
-                var found = await conn.QueryAsync<long>(
-                    new CommandDefinition(
-                        sql,
-                        new
-                        {
-                            SourceCode = sourceCode,
-                            Provider = provider,
-                            Model = model,
-                            Ids = ids
-                        },
-                        cancellationToken: ct,
-                        commandTimeout: 60));
+                var found = await _sp.QueryAsync<long>(
+                    "sp_AiAnnotation_GetAlreadyEnhancedParsedIds",
+                    new
+                    {
+                        SourceCode = sourceCode,
+                        Provider = provider,
+                        Model = model,
+                        Ids = tvp
+                    },
+                    ct,
+                    timeoutSeconds: 60);
 
                 return new HashSet<long>(found);
             }
@@ -243,46 +161,13 @@ WHERE
             IReadOnlyList<AiDefinitionEnhancement> enhancements,
             CancellationToken ct)
         {
-            sourceCode = Normalize(sourceCode, "UNKNOWN");
+            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
 
             if (enhancements is null || enhancements.Count == 0)
                 return;
 
-            const string sql = """
-MERGE dbo.DictionaryEntryAiAnnotation WITH (HOLDLOCK) AS target
-USING (
-    SELECT
-        @SourceCode AS SourceCode,
-        @ParsedDefinitionId AS ParsedDefinitionId,
-        @Provider AS Provider,
-        @Model AS Model,
-        @OriginalDefinition AS OriginalDefinition,
-        @AiEnhancedDefinition AS AiEnhancedDefinition,
-        @AiNotesJson AS AiNotesJson
-) AS source
-ON
-    target.SourceCode = source.SourceCode
-    AND target.ParsedDefinitionId = source.ParsedDefinitionId
-    AND target.Provider = source.Provider
-    AND target.Model = source.Model
-WHEN MATCHED THEN
-    UPDATE SET
-        target.OriginalDefinition = source.OriginalDefinition,
-        target.AiEnhancedDefinition = source.AiEnhancedDefinition,
-        target.AiNotesJson = source.AiNotesJson,
-        target.UpdatedUtc = SYSUTCDATETIME()
-WHEN NOT MATCHED THEN
-    INSERT (SourceCode, ParsedDefinitionId, Provider, Model, OriginalDefinition, AiEnhancedDefinition, AiNotesJson, CreatedUtc, UpdatedUtc)
-    VALUES (source.SourceCode, source.ParsedDefinitionId, source.Provider, source.Model, source.OriginalDefinition, source.AiEnhancedDefinition, source.AiNotesJson, SYSUTCDATETIME(), SYSUTCDATETIME());
-""";
-
             try
             {
-                await using var conn = new SqlConnection(_connectionString);
-                await conn.OpenAsync(ct);
-
-                using var tx = conn.BeginTransaction();
-
                 var ordered = enhancements
                     .Where(x => x is not null)
                     .Where(x => x.ParsedDefinitionId > 0)
@@ -290,22 +175,25 @@ WHEN NOT MATCHED THEN
                     .Take(MaxEnhancementBatchSize)
                     .ToList();
 
+                if (ordered.Count == 0)
+                    return;
+
                 foreach (var e in ordered)
                 {
                     ct.ThrowIfCancellationRequested();
 
-                    var provider = Normalize(e.Provider, DefaultProvider);
-                    var model = Normalize(e.Model, DefaultModel);
+                    var provider = SqlRepositoryHelper.NormalizeString(e.Provider, SqlRepositoryHelper.DefaultProvider);
+                    var model = SqlRepositoryHelper.NormalizeString(e.Model, SqlRepositoryHelper.DefaultModel);
 
                     if (provider.Length > 64) provider = provider.Substring(0, 64);
                     if (model.Length > 128) model = model.Substring(0, 128);
 
-                    var original = Trunc(e.OriginalDefinition, 4000);
-                    var enhanced = Trunc(e.AiEnhancedDefinition, 4000);
+                    var original = SqlRepositoryHelper.Truncate(e.OriginalDefinition, 4000);
+                    var enhanced = SqlRepositoryHelper.Truncate(e.AiEnhancedDefinition, 4000);
                     var notesJson = string.IsNullOrWhiteSpace(e.AiNotesJson) ? "{}" : e.AiNotesJson.Trim();
 
-                    await conn.ExecuteAsync(new CommandDefinition(
-                        sql,
+                    await _sp.ExecuteAsync(
+                        "sp_AiAnnotation_SaveEnhancement",
                         new
                         {
                             SourceCode = sourceCode,
@@ -316,12 +204,9 @@ WHEN NOT MATCHED THEN
                             AiEnhancedDefinition = enhanced,
                             AiNotesJson = notesJson
                         },
-                        transaction: tx,
-                        cancellationToken: ct,
-                        commandTimeout: 60));
+                        ct,
+                        timeoutSeconds: 60);
                 }
-
-                tx.Commit();
             }
             catch (OperationCanceledException)
             {
@@ -340,30 +225,19 @@ WHEN NOT MATCHED THEN
             string model,
             CancellationToken cancellationToken)
         {
-            sourceCode = Normalize(sourceCode, "UNKNOWN");
+            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
             if (parsedDefinitionId <= 0) return null;
 
-            provider = Normalize(provider, DefaultProvider);
-            model = Normalize(model, DefaultModel);
+            provider = SqlRepositoryHelper.NormalizeString(provider, SqlRepositoryHelper.DefaultProvider);
+            model = SqlRepositoryHelper.NormalizeString(model, SqlRepositoryHelper.DefaultModel);
 
             if (provider.Length > 64) provider = provider.Substring(0, 64);
             if (model.Length > 128) model = model.Substring(0, 128);
 
-            const string sql = @"
-SELECT a.AiNotesJson
-FROM dbo.DictionaryEntryAiAnnotation a WITH (NOLOCK)
-WHERE a.SourceCode = @SourceCode
-  AND a.ParsedDefinitionId = @ParsedDefinitionId
-  AND a.Provider = @Provider
-  AND a.Model = @Model;";
-
             try
             {
-                await using var conn = new SqlConnection(_connectionString);
-                await conn.OpenAsync(cancellationToken);
-
-                return await conn.ExecuteScalarAsync<string?>(new CommandDefinition(
-                    sql,
+                return await _sp.ExecuteScalarAsync<string?>(
+                    "sp_AiAnnotation_GetAiNotesJson",
                     new
                     {
                         SourceCode = sourceCode,
@@ -371,8 +245,8 @@ WHERE a.SourceCode = @SourceCode
                         Provider = provider,
                         Model = model
                     },
-                    cancellationToken: cancellationToken,
-                    commandTimeout: 30));
+                    cancellationToken,
+                    timeoutSeconds: 30);
             }
             catch (OperationCanceledException)
             {
@@ -393,33 +267,21 @@ WHERE a.SourceCode = @SourceCode
             string aiNotesJson,
             CancellationToken cancellationToken)
         {
-            sourceCode = Normalize(sourceCode, "UNKNOWN");
+            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
             if (parsedDefinitionId <= 0) return;
 
-            provider = Normalize(provider, DefaultProvider);
-            model = Normalize(model, DefaultModel);
+            provider = SqlRepositoryHelper.NormalizeString(provider, SqlRepositoryHelper.DefaultProvider);
+            model = SqlRepositoryHelper.NormalizeString(model, SqlRepositoryHelper.DefaultModel);
 
             if (provider.Length > 64) provider = provider.Substring(0, 64);
             if (model.Length > 128) model = model.Substring(0, 128);
 
             var json = string.IsNullOrWhiteSpace(aiNotesJson) ? "{}" : aiNotesJson.Trim();
 
-            const string sql = @"
-UPDATE dbo.DictionaryEntryAiAnnotation
-SET AiNotesJson = @AiNotesJson,
-    UpdatedUtc = SYSUTCDATETIME()
-WHERE SourceCode = @SourceCode
-  AND ParsedDefinitionId = @ParsedDefinitionId
-  AND Provider = @Provider
-  AND Model = @Model;";
-
             try
             {
-                await using var conn = new SqlConnection(_connectionString);
-                await conn.OpenAsync(cancellationToken);
-
-                await conn.ExecuteAsync(new CommandDefinition(
-                    sql,
+                await _sp.ExecuteAsync(
+                    "sp_AiAnnotation_UpdateAiNotesJson",
                     new
                     {
                         SourceCode = sourceCode,
@@ -428,8 +290,8 @@ WHERE SourceCode = @SourceCode
                         Model = model,
                         AiNotesJson = json
                     },
-                    cancellationToken: cancellationToken,
-                    commandTimeout: 30));
+                    cancellationToken,
+                    timeoutSeconds: 30);
             }
             catch (OperationCanceledException)
             {
@@ -446,29 +308,20 @@ WHERE SourceCode = @SourceCode
             long parsedDefinitionId,
             CancellationToken cancellationToken)
         {
-            sourceCode = Normalize(sourceCode, "UNKNOWN");
+            sourceCode = SqlRepositoryHelper.NormalizeSourceCode(sourceCode);
             if (parsedDefinitionId <= 0) return null;
-
-            const string sql = @"
-SELECT p.Definition
-FROM dbo.DictionaryEntryParsed p WITH (NOLOCK)
-WHERE p.DictionaryEntryParsedId = @ParsedDefinitionId
-  AND p.SourceCode = @SourceCode;";
 
             try
             {
-                await using var conn = new SqlConnection(_connectionString);
-                await conn.OpenAsync(cancellationToken);
-
-                return await conn.ExecuteScalarAsync<string?>(new CommandDefinition(
-                    sql,
+                return await _sp.ExecuteScalarAsync<string?>(
+                    "sp_AiAnnotation_GetOriginalDefinition",
                     new
                     {
                         SourceCode = sourceCode,
                         ParsedDefinitionId = parsedDefinitionId
                     },
-                    cancellationToken: cancellationToken,
-                    commandTimeout: 30));
+                    cancellationToken,
+                    timeoutSeconds: 30);
             }
             catch (OperationCanceledException)
             {
@@ -486,26 +339,6 @@ WHERE p.DictionaryEntryParsedId = @ParsedDefinitionId
             public long ParsedDefinitionId { get; set; }
             public long ExampleId { get; set; }
             public string? ExampleText { get; set; }
-        }
-
-        private static string Normalize(string? v, string fallback)
-        {
-            v = string.IsNullOrWhiteSpace(v) ? fallback : v.Trim();
-            return v;
-        }
-
-        private static int Clamp(int v, int min, int max)
-        {
-            if (v < min) return min;
-            if (v > max) return max;
-            return v;
-        }
-
-        private static string Trunc(string? v, int maxLen)
-        {
-            var t = (v ?? string.Empty).Trim();
-            if (maxLen <= 0) return t;
-            return t.Length > maxLen ? t.Substring(0, maxLen) : t;
         }
     }
 }

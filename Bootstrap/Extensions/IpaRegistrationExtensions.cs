@@ -6,8 +6,8 @@ namespace DictionaryImporter.Bootstrap.Extensions
             this IServiceCollection services,
             string connectionString)
         {
-            services.AddSingleton(_ =>
-                new SqlCanonicalWordPronunciationWriter(connectionString));
+            services.AddSingleton(sp =>
+                new SqlCanonicalWordPronunciationWriter(sp.GetRequiredService<ISqlStoredProcedureExecutor>()));
 
             services.AddSingleton(sp =>
                 new CanonicalWordIpaEnricher(

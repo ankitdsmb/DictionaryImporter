@@ -18,7 +18,7 @@ namespace DictionaryImporter.Common
 {
     public static class Helper
     {
-        public const int MAX_RECORDS_PER_SOURCE = 100;
+        public const int MAX_RECORDS_PER_SOURCE = 10;
 
         // =====================================================================
         // 1) REGEX (ALL AT TOP)
