@@ -99,7 +99,6 @@ public static class BootstrapPipeline
                 sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                 sp.GetRequiredService<ILogger<SqlRewriteRuleHitRepository>>()));
 
-
         services.AddScoped<RewriteRuleHitBuffer>();
 
         // ------------------------------------------------------------
