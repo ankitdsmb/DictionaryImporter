@@ -38,4 +38,7 @@ public class ParsedDefinition
     public double? PartOfSpeechConfidence { get; internal set; }
     public string Pronunciation { get; internal set; }
     public string DedupKey { get; internal set; }
+    public string IPA { get; internal set; }
+    public string GrammarInfo { get; internal set; }
+    public string UsageNote { get; internal set; }
 }
