@@ -88,20 +88,22 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
         var currentSense = new CollinsSenseRaw();
         var senseLines = new List<string>();
         bool collectingSense = false;
+        int currentSenseNumber = 1;
 
         // Process all lines to find senses
         for (int i = 0; i < lines.Count; i++)
         {
             var line = lines[i];
 
-            // Check if this is a new sense (e.g., "1.DETERMINER", "2.NOUN")
+            // Check if this is a new sense (e.g., "1.PREFIX", "2.VERB", "3.DET")
             if (IsSenseStart(line, out var senseNumber, out var pos))
             {
                 // Save previous sense if exists
-                if (currentSense.SenseNumber > 0)
+                if (collectingSense && (currentSense.SenseNumber > 0 || senseLines.Count > 0))
                 {
                     ProcessSenseContent(senseLines, currentSense);
                     entry.Senses.Add(currentSense);
+                    senseLines.Clear();
                 }
 
                 // Start new sense
@@ -112,22 +114,34 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
                 };
                 senseLines.Clear();
                 collectingSense = true;
+                currentSenseNumber = senseNumber;
 
                 // Add the sense header line
                 senseLines.Add(line);
                 continue;
             }
 
-            // If we're not collecting a sense yet, skip non-sense lines
-            if (!collectingSense)
-                continue;
+            // If we're in a multi-sense entry but haven't found sense yet, look for content
+            if (!collectingSense && !IsHeadwordLine(line))
+            {
+                // Start collecting for first sense
+                currentSense = new CollinsSenseRaw
+                {
+                    SenseNumber = currentSenseNumber,
+                    PartOfSpeech = "unk"
+                };
+                collectingSense = true;
+            }
 
             // Add line to current sense
-            senseLines.Add(line);
+            if (collectingSense)
+            {
+                senseLines.Add(line);
+            }
         }
 
         // Process the last sense
-        if (currentSense.SenseNumber > 0 && senseLines.Count > 0)
+        if (collectingSense && senseLines.Count > 0)
         {
             ProcessSenseContent(senseLines, currentSense);
             entry.Senses.Add(currentSense);
@@ -144,20 +158,16 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
         var definitionParts = new List<string>();
         var examples = new List<string>();
 
-        // Track if we're currently in examples section
-        bool inExamples = false;
-
         foreach (var line in senseLines)
         {
             // Skip if this is just the sense header (already processed)
             if (IsSenseStart(line, out _, out _))
                 continue;
 
-            // Check for examples - this is CRITICAL
+            // Check for examples - Lines starting with ... or •
             if (line.StartsWith("..."))
             {
-                inExamples = true;
-                var example = CleanExample(line.Substring(3));
+                var example = ExtractEnglishExample(line.Substring(3));
                 if (!string.IsNullOrWhiteSpace(example) && example.Length > 10)
                 {
                     examples.Add(example);
@@ -165,11 +175,9 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
                 continue;
             }
 
-            // Check for bullet point examples
             if (line.StartsWith("•"))
             {
-                inExamples = true;
-                var example = CleanExample(line.Substring(1));
+                var example = ExtractEnglishExample(line.Substring(1));
                 if (!string.IsNullOrWhiteSpace(example) && example.Length > 10)
                 {
                     examples.Add(example);
@@ -181,7 +189,6 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
             if (line.StartsWith("【"))
             {
                 ProcessNoteLine(line, sense);
-                inExamples = false;
                 continue;
             }
 
@@ -189,23 +196,10 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
             if (line.Contains("→see:"))
             {
                 ProcessCrossReference(line, sense);
-                inExamples = false;
-                continue;
-            }
-
-            // If we're in examples and this looks like a continuation
-            if (inExamples && IsEnglishSentence(line))
-            {
-                var example = CleanExample(line);
-                if (!string.IsNullOrWhiteSpace(example) && example.Length > 10)
-                {
-                    examples.Add(example);
-                }
                 continue;
             }
 
             // This is part of the definition
-            inExamples = false;
             var cleanedLine = CleanDefinitionLine(line);
             if (!string.IsNullOrWhiteSpace(cleanedLine))
             {
@@ -225,6 +219,37 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
 
         // Store raw text for parsing
         sense.RawText = string.Join("\n", senseLines);
+    }
+
+    private string ExtractEnglishExample(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return string.Empty;
+
+        // Extract English part before Chinese characters
+        var result = new System.Text.StringBuilder();
+        foreach (char c in line)
+        {
+            if (c >= '\u4E00' && c <= '\u9FFF')
+                break;
+            result.Append(c);
+        }
+
+        var englishPart = result.ToString().Trim();
+
+        // Clean up
+        englishPart = englishPart.Replace("  ", " ").Trim();
+
+        // Ensure proper ending
+        if (!string.IsNullOrEmpty(englishPart) &&
+            !englishPart.EndsWith(".") &&
+            !englishPart.EndsWith("!") &&
+            !englishPart.EndsWith("?"))
+        {
+            englishPart += ".";
+        }
+
+        return englishPart;
     }
 
     private void ProcessNoteLine(string line, CollinsSenseRaw sense)
@@ -292,8 +317,16 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
         if (line.StartsWith("...") || line.StartsWith("•") || line.StartsWith("【"))
             return string.Empty;
 
-        // Remove Chinese characters
-        var cleaned = RemoveChineseCharacters(line);
+        // Extract English part before Chinese characters
+        var result = new System.Text.StringBuilder();
+        foreach (char c in line)
+        {
+            if (c >= '\u4E00' && c <= '\u9FFF')
+                break;
+            result.Append(c);
+        }
+
+        var cleaned = result.ToString();
 
         // Clean up formatting
         cleaned = cleaned.Replace(" ; ; ", " ")
@@ -312,9 +345,6 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
         // Remove Chinese characters
         var cleaned = RemoveChineseCharacters(text);
 
-        // Remove any leftover Chinese punctuation patterns
-        cleaned = Regex.Replace(cleaned, @"^[,\s()""]+|[,\s()""]+$", "");
-
         // Clean up formatting
         cleaned = cleaned.Replace(" ; ; ", " ")
                         .Replace(" ; ", " ")
@@ -326,30 +356,6 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
             !cleaned.EndsWith(".") &&
             !cleaned.EndsWith("!") &&
             !cleaned.EndsWith("?"))
-        {
-            cleaned += ".";
-        }
-
-        return cleaned;
-    }
-
-    private string CleanExample(string example)
-    {
-        if (string.IsNullOrWhiteSpace(example))
-            return example;
-
-        // Remove Chinese characters
-        var cleaned = RemoveChineseCharacters(example);
-
-        // Clean up
-        cleaned = cleaned.Replace("  ", " ").Trim();
-
-        // Ensure proper ending
-        if (!string.IsNullOrEmpty(cleaned) &&
-            !cleaned.EndsWith(".") &&
-            !cleaned.EndsWith("!") &&
-            !cleaned.EndsWith("?") &&
-            !cleaned.EndsWith("..."))
         {
             cleaned += ".";
         }
@@ -371,7 +377,10 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
     {
         // Extract English labels like "BRIT", "US", "FORMAL", etc.
         var match = Regex.Match(text, @"([A-Z][A-Z\s]+)");
-        return match.Success ? match.Groups[1].Value.Trim() : text;
+        if (match.Success)
+            return match.Groups[1].Value.Trim();
+
+        return text;
     }
 
     // Helper methods
@@ -388,8 +397,10 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
         return !IsSenseStart(line, out _, out _) &&
                !line.StartsWith("【") &&
                !line.StartsWith("...") &&
+               !line.StartsWith("•") &&
                ContainsEnglishLetters(line) &&
-               line.Length > 1;
+               line.Length > 1 &&
+               !line.Contains("→see:");
     }
 
     private static string ExtractHeadword(string line)
@@ -397,8 +408,8 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
         // Remove formatting symbols
         var cleaned = Regex.Replace(line, @"[★☆●○]+", " ").Trim();
 
-        // Extract just the word part
-        var match = Regex.Match(cleaned, @"([A-Za-z0-9\-']+)");
+        // Extract just the word part (before any IPA or other markers)
+        var match = Regex.Match(cleaned, @"^([A-Za-z0-9\-']+)(?:\s+|$)");
         return match.Success ? match.Groups[1].Value.Trim() : cleaned;
     }
 
@@ -409,35 +420,18 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
 
         line = line.Trim();
 
-        // Pattern: 1.DETERMINER, 2.NOUN, 3.VERB, etc.
+        // Pattern: 1.PREFIX, 2.VERB, 3.DET, etc.
         var match = Regex.Match(line, @"^(?<num>\d+)\.(?<pos>[A-Z][A-Z\-]+)");
         if (match.Success)
         {
-            senseNumber = int.Parse(match.Groups["num"].Value);
+            if (int.TryParse(match.Groups["num"].Value, out int num))
+                senseNumber = num;
+
             partOfSpeech = match.Groups["pos"].Value;
             return true;
         }
 
         return false;
-    }
-
-    private static bool IsEnglishSentence(string line)
-    {
-        if (string.IsNullOrWhiteSpace(line) || line.Length < 10)
-            return false;
-
-        // Check if starts with capital and ends with punctuation
-        return char.IsUpper(line[0]) &&
-               (line.EndsWith(".") || line.EndsWith("!") || line.EndsWith("?") || line.EndsWith("...")) &&
-               ContainsEnglishLetters(line) &&
-               !line.StartsWith("【") &&
-               !line.StartsWith("If ") &&
-               !line.StartsWith("To ") &&
-               !line.StartsWith("When ") &&
-               !line.StartsWith("A ") &&
-               !line.StartsWith("An ") &&
-               !line.StartsWith("The ") &&
-               !line.StartsWith("You ");
     }
 
     private static bool ContainsEnglishLetters(string text)
@@ -475,15 +469,7 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
             .Replace("〈", "<")
             .Replace("〉", ">")
             .Replace("《", "<")
-            .Replace("》", ">")
-            .Replace("﹁", "\"")
-            .Replace("﹂", "\"")
-            .Replace("﹃", "\"")
-            .Replace("﹄", "\"")
-            .Replace("‘", "'")
-            .Replace("'", "'")
-            .Replace("\"", "\"")
-            .Replace("·", ".");
+            .Replace("》", ">");
 
         // Remove multiple spaces and trim
         cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
@@ -508,15 +494,21 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
                 "V" or "VERB" or "V-ERG" or "V-PASSIVE" or "V-LINK" => "verb",
                 "ADJ" or "ADJ-GRADED" or "ADJ-CLASSIF" => "adj",
                 "ADV" or "ADV-GRADED" => "adv",
+                "PREP" => "preposition",
+                "CONJ" => "conjunction",
+                "PRON" => "pronoun",
+                "DET" => "determiner",
+                "PHR" or "PHRASE" => "phrase",
+                "ABBR" => "abbreviation",
                 _ => basePos.ToLower()
             };
         }
 
         return upperPos switch
         {
-            "N" or "NOUN" => "noun",
+            "N" or "NOUN" or "N-COUNT" or "N-UNCOUNT" or "N-VAR" => "noun",
             "V" or "VERB" => "verb",
-            "ADJ" or "ADJECTIVE" => "adj",
+            "ADJ" or "ADJECTIVE" or "ADJ-GRADED" => "adj",
             "ADV" or "ADVERB" => "adv",
             "PHRASE" or "PHR" => "phrase",
             "DETERMINER" or "DET" => "determiner",
@@ -532,7 +524,7 @@ public sealed class CollinsExtractor : IDataExtractor<CollinsRawEntry>
             "PHRASAL VERB" => "phrasal verb",
             "MODAL VERB" => "modal verb",
             "AUXILIARY VERB" => "auxiliary verb",
-            _ => pos.ToLower()
+            _ => "unk"
         };
     }
 }

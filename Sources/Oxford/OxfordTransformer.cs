@@ -37,22 +37,27 @@ public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger)
                 // 1. POS resolution (Oxford-correct)
                 var resolvedPos = ResolvePartOfSpeech(raw, sense);
 
-                // 2. Build full definition with proper section ordering
-                // DO NOT clean structured sections - let the parser handle them
-                var fullDefinition = BuildFullDefinition(raw, sense);
+                // 2. Extract etymology text if present
+                var etymology = ExtractEtymology(sense);
 
-                // 3. Extract etymology text if present
-                var etymology = ExtractEtymology(fullDefinition);
+                // 3. Build clean definition (English only)
+                var cleanDefinition = BuildCleanDefinition(sense);
 
-                // 4. Create entry - keep structured sections in definition
+                // 4. Build structured definition with sections
+                var structuredDefinition = BuildStructuredDefinition(raw, sense, cleanDefinition);
+
+                // 5. Clean the RawFragment (remove Chinese, keep English)
+                var cleanRawFragment = CleanRawFragment(sense.Definition);
+
+                // 6. Create entry
                 entries.Add(new DictionaryEntry
                 {
                     Word = raw.Headword,
                     NormalizedWord = normalizedWord,
                     PartOfSpeech = resolvedPos,
-                    Definition = fullDefinition, // Keep structured sections for parser
+                    Definition = structuredDefinition,
                     Etymology = etymology,
-                    RawFragment = sense.Definition, // Keep sense-level raw fragment
+                    RawFragment = cleanRawFragment,
                     SenseNumber = sense.SenseNumber,
                     SourceCode = SourceCode,
                     CreatedUtc = DateTime.UtcNow
@@ -133,71 +138,80 @@ public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger)
         return "unk";
     }
 
-    private static string BuildFullDefinition(OxfordRawEntry entry, OxfordSenseRaw sense)
+    private static string BuildCleanDefinition(OxfordSenseRaw sense)
+    {
+        if (string.IsNullOrWhiteSpace(sense.Definition))
+            return string.Empty;
+
+        var definition = sense.Definition;
+
+        // 1. Remove Chinese text and translations
+        definition = RemoveChineseText(definition);
+
+        // 2. Remove bullet markers and Chinese markers
+        definition = Regex.Replace(definition, @"•\s*\[.*?\]", ""); // Remove • [text]
+        definition = Regex.Replace(definition, @"•", ""); // Remove remaining bullets
+
+        // 3. Remove formatting artifacts
+        definition = Regex.Replace(definition, @"▶", "");
+        definition = Regex.Replace(definition, @"◘", "");
+        definition = Regex.Replace(definition, @"--›", "");
+        definition = Regex.Replace(definition, @"»", "");
+        definition = Regex.Replace(definition, @"♦", "");
+
+        // 4. Remove section markers that might be in the middle of text
+        definition = Regex.Replace(definition, @"【[^】]*】", "");
+
+        // 5. Clean up whitespace
+        definition = Regex.Replace(definition, @"\s+", " ").Trim();
+
+        // 6. Remove trailing punctuation without content
+        definition = definition.TrimEnd('.', ',', ';', ':', '!', '?', '•');
+
+        return definition;
+    }
+
+    private static string RemoveChineseText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
+
+        // Remove Chinese characters
+        text = Regex.Replace(text, @"[\u4e00-\u9fff]", "");
+
+        // Remove Chinese punctuation
+        text = Regex.Replace(text, @"[，。、；：！？【】（）《》〈〉「」『』]", "");
+
+        return text;
+    }
+
+    private static string BuildStructuredDefinition(OxfordRawEntry entry, OxfordSenseRaw sense, string cleanDefinition)
     {
         var parts = new List<string>();
 
-        // Pronunciation (if available at entry level)
-        if (!string.IsNullOrWhiteSpace(entry.Pronunciation))
-        {
-            var cleanPron = entry.Pronunciation.Trim();
-            // Remove any Chinese text from pronunciation
-            cleanPron = Regex.Replace(cleanPron, @"[\u4e00-\u9fff].*$", "").Trim();
-            if (!string.IsNullOrWhiteSpace(cleanPron))
-                parts.Add($"【Pronunciation】{cleanPron}");
-        }
-
-        // Variants (if available at entry level)
-        if (!string.IsNullOrWhiteSpace(entry.VariantForms))
-        {
-            var cleanVariants = entry.VariantForms.Trim();
-            // Remove Chinese text
-            cleanVariants = Regex.Replace(cleanVariants, @"[\u4e00-\u9fff].*$", "").Trim();
-            if (!string.IsNullOrWhiteSpace(cleanVariants))
-                parts.Add($"【Variants】{cleanVariants}");
-        }
-
-        // Sense label (domain/register information)
+        // Add Label section if we have sense label info
         if (!string.IsNullOrWhiteSpace(sense.SenseLabel))
         {
-            var cleanLabel = sense.SenseLabel;
-            // Remove Chinese text
-            cleanLabel = Regex.Replace(cleanLabel, @"[\u4e00-\u9fff].*$", "").Trim();
-            // Remove POS markers that we've already extracted
+            var cleanLabel = RemoveChineseText(sense.SenseLabel);
             cleanLabel = Regex.Replace(cleanLabel, @"▶\s*(noun|verb|adjective|adverb|exclamation|interjection|preposition|conjunction|pronoun|determiner|numeral|prefix|suffix|abbreviation|symbol)\b", "", RegexOptions.IgnoreCase).Trim();
 
-            if (!string.IsNullOrWhiteSpace(cleanLabel))
+            if (!string.IsNullOrWhiteSpace(cleanLabel) && cleanLabel != "unk")
                 parts.Add($"【Label】{cleanLabel}");
         }
 
-        // Main definition - Extract English only (before Chinese bullet)
-        var mainDefinition = sense.Definition ?? string.Empty;
+        // Add the clean definition
+        if (!string.IsNullOrWhiteSpace(cleanDefinition))
+            parts.Add(cleanDefinition);
 
-        // Remove Chinese translation (text after • that contains Chinese characters)
-        mainDefinition = Regex.Replace(mainDefinition, @"•\s*[\u4e00-\u9fff].*$", "").Trim();
-
-        // Remove any remaining Chinese text
-        mainDefinition = Regex.Replace(mainDefinition, @"[\u4e00-\u9fff]", "").Trim();
-
-        // Clean up formatting artifacts but KEEP structured section markers
-        mainDefinition = Regex.Replace(mainDefinition, @"\s+", " ").Trim();
-
-        if (!string.IsNullOrWhiteSpace(mainDefinition))
-            parts.Add(mainDefinition);
-
-        // Examples - Only English examples
+        // Add Examples section if we have English examples
         if (sense.Examples != null && sense.Examples.Count > 0)
         {
             var englishExamples = new List<string>();
             foreach (var example in sense.Examples)
             {
-                var cleanExample = example;
-                // Remove Chinese text from examples
-                cleanExample = Regex.Replace(cleanExample, @"[\u4e00-\u9fff].*$", "").Trim();
-                // Remove any remaining Chinese characters
-                cleanExample = Regex.Replace(cleanExample, @"[\u4e00-\u9fff]", "").Trim();
-                // Remove example markers
+                var cleanExample = RemoveChineseText(example);
                 cleanExample = cleanExample.TrimStart('»', ' ').Trim();
+                cleanExample = Regex.Replace(cleanExample, @"\s+", " ").Trim();
 
                 if (!string.IsNullOrWhiteSpace(cleanExample) && cleanExample.Length > 5)
                     englishExamples.Add(cleanExample);
@@ -211,92 +225,42 @@ public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger)
             }
         }
 
-        // Usage note - Clean Chinese text
-        if (!string.IsNullOrWhiteSpace(sense.UsageNote))
-        {
-            var cleanUsage = sense.UsageNote;
-            // Remove Chinese text
-            cleanUsage = Regex.Replace(cleanUsage, @"[\u4e00-\u9fff].*$", "").Trim();
-            cleanUsage = Regex.Replace(cleanUsage, @"[\u4e00-\u9fff]", "").Trim();
-
-            if (!string.IsNullOrWhiteSpace(cleanUsage))
-            {
-                if (cleanUsage.StartsWith("Usage:", StringComparison.OrdinalIgnoreCase))
-                    parts.Add($"【Usage】{cleanUsage.Substring(6).Trim()}");
-                else if (cleanUsage.StartsWith("Grammar:", StringComparison.OrdinalIgnoreCase))
-                    parts.Add($"【Grammar】{cleanUsage.Substring(8).Trim()}");
-                else if (cleanUsage.StartsWith("Note:", StringComparison.OrdinalIgnoreCase))
-                    parts.Add($"【Note】{cleanUsage.Substring(5).Trim()}");
-                else
-                    parts.Add($"【Usage】{cleanUsage}");
-            }
-        }
-
-        // Cross-references - Extract from definition
-        if (!string.IsNullOrWhiteSpace(sense.Definition))
-        {
-            var crossRefs = ExtractCrossReferences(sense.Definition);
-            if (crossRefs.Count > 0)
-            {
-                parts.Add($"【SeeAlso】{string.Join("; ", crossRefs)}");
-            }
-        }
-
         return string.Join("\n", parts);
     }
 
-    private static List<string> ExtractCrossReferences(string definition)
+    private static string? ExtractEtymology(OxfordSenseRaw sense)
     {
-        var crossRefs = new List<string>();
-
-        if (string.IsNullOrWhiteSpace(definition))
-            return crossRefs;
-
-        // Pattern 1: --› see word
-        var seeMatches = Regex.Matches(definition, @"--›\s*(?:see|cf\.?|compare)\s+([A-Za-z\-']+)");
-        foreach (Match match in seeMatches)
-        {
-            if (match.Groups[1].Success)
-                crossRefs.Add(match.Groups[1].Value.Trim());
-        }
-
-        // Pattern 2: variant of word
-        var variantMatches = Regex.Matches(definition, @"(?:variant of|another term for|同)\s+([A-Za-z\-']+)");
-        foreach (Match match in variantMatches)
-        {
-            if (match.Groups[1].Success)
-                crossRefs.Add(match.Groups[1].Value.Trim());
-        }
-
-        // Pattern 3: (also word)
-        var alsoMatches = Regex.Matches(definition, @"\(also\s+([A-Za-z\-']+)\)");
-        foreach (Match match in alsoMatches)
-        {
-            if (match.Groups[1].Success)
-                crossRefs.Add(match.Groups[1].Value.Trim());
-        }
-
-        return crossRefs.Distinct().ToList();
-    }
-
-    private static string? ExtractEtymology(string definition)
-    {
-        if (string.IsNullOrWhiteSpace(definition))
+        if (string.IsNullOrWhiteSpace(sense.Definition))
             return null;
 
-        // Look for etymology section
-        var etymologyMatch = Regex.Match(definition, @"【语源】\s*(.+?)(?:\n【|$)");
+        // Look for etymology section in the definition
+        var etymologyMatch = Regex.Match(sense.Definition, @"【语源】\s*(.+?)(?:\n【|$)");
         if (etymologyMatch.Success)
         {
             var etymology = etymologyMatch.Groups[1].Value.Trim();
             // Clean Chinese text from etymology
-            etymology = Regex.Replace(etymology, @"[\u4e00-\u9fff]", "").Trim();
+            etymology = RemoveChineseText(etymology);
             return !string.IsNullOrWhiteSpace(etymology) ? etymology : null;
         }
 
         return null;
     }
 
-    // This method was removed from OxfordTransformer because it shouldn't clean the definition here
-    // The cleaning should happen in the parser (OxfordDefinitionParser)
+    private static string CleanRawFragment(string? rawFragment)
+    {
+        if (string.IsNullOrWhiteSpace(rawFragment))
+            return string.Empty;
+
+        // Remove Chinese text from raw fragment
+        var cleanFragment = RemoveChineseText(rawFragment);
+
+        // Remove Chinese bullet markers
+        cleanFragment = Regex.Replace(cleanFragment, @"•\s*\[.*?\]", "");
+        cleanFragment = Regex.Replace(cleanFragment, @"•", "");
+
+        // Clean up whitespace
+        cleanFragment = Regex.Replace(cleanFragment, @"\s+", " ").Trim();
+
+        return cleanFragment;
+    }
 }

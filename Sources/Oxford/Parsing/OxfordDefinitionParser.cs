@@ -1,128 +1,181 @@
-﻿using DictionaryImporter.Common;
-using DictionaryImporter.Common.SourceHelper;
+﻿using System.Text.RegularExpressions;
 using DictionaryImporter.Infrastructure.Source;
 
 namespace DictionaryImporter.Sources.Oxford.Parsing;
 
 public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logger)
-: ISourceDictionaryDefinitionParser
+    : ISourceDictionaryDefinitionParser
 {
     private readonly ILogger<OxfordDefinitionParser> _logger = logger;
+
     public string SourceCode => "ENG_OXFORD";
 
     public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
     {
         // must always return exactly 1 parsed definition
-        if (string.IsNullOrWhiteSpace(entry.Definition))
+        ParsedDefinition result;
+
+        if (string.IsNullOrWhiteSpace(entry?.Definition))
         {
-            yield return Helper.CreateFallbackParsedDefinition(entry);
-            yield break;
+            result = CreateFallbackParsedDefinition(entry);
+            return new[] { result };
         }
 
-        var definition = entry.Definition;
-
-        // FIXED: Handle broken section markers in current data
-        definition = FixBrokenSectionMarkers(definition);
-
-        // Parse all Oxford data at once
-        var oxfordData = ParsingHelperOxford.ParseOxfordEntry(definition);
-        var examples = ParsingHelperOxford.ExtractExamples(definition);
-        var crossRefs = ParsingHelperOxford.ExtractCrossReferences(definition) ?? new List<CrossReference>();
-        var synonyms = ParsingHelperOxford.ExtractSynonymsFromExamples(examples);
-
-        // Clean the definition using the extracted domain
-        var cleanDefinition = ParsingHelperOxford.CleanOxfordDefinition(
-            definition,
-            oxfordData.Domain);
-
-        // Build definition with IPA if available
-        var fullDefinition = cleanDefinition;
-        if (!string.IsNullOrWhiteSpace(oxfordData.IpaPronunciation))
+        try
         {
-            fullDefinition = $"【Pronunciation】/{oxfordData.IpaPronunciation}/\n{fullDefinition}";
+            var definition = entry.Definition;
+
+            var parsedData = ExtractParsedData(definition);
+            var mainDefinition = ExtractMainDefinition(definition);
+            var cleanDefinition = CleanDefinitionForOutput(mainDefinition);
+
+            result = new ParsedDefinition
+            {
+                MeaningTitle = entry.Word ?? "unnamed sense",
+                Definition = cleanDefinition,
+                RawFragment = entry.RawFragment,
+                SenseNumber = entry.SenseNumber,
+                Domain = parsedData.Domain,
+                UsageLabel = parsedData.UsageLabel ?? entry.PartOfSpeech,
+                CrossReferences = parsedData.CrossReferences ?? new List<CrossReference>(),
+                Synonyms = parsedData.Synonyms ?? new List<string>(),
+                Alias = parsedData.Alias,
+                SourceCode = entry.SourceCode
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error parsing Oxford definition for {Word}", entry?.Word);
+            result = CreateFallbackParsedDefinition(entry);
         }
 
-        // Add variants if available
-        if (oxfordData.Variants.Count > 0)
+        return new[] { result };
+    }
+
+    private static ParsedData ExtractParsedData(string definition)
+    {
+        var data = new ParsedData();
+
+        if (string.IsNullOrWhiteSpace(definition))
+            return data;
+
+        var labelMatch = Regex.Match(definition, @"【Label】(.+?)(?:\n|$)");
+        if (labelMatch.Success)
         {
-            // Only add if not already in the cleaned definition
-            if (!fullDefinition.Contains("【Variants】"))
-                fullDefinition += $"\n【Variants】{string.Join(", ", oxfordData.Variants)}";
+            data.Domain = labelMatch.Groups[1].Value.Trim();
         }
 
-        // Add usage label if available
-        if (!string.IsNullOrWhiteSpace(oxfordData.UsageLabel))
+        var usageMatch = Regex.Match(definition, @"\[([^\]]+)\]");
+        if (usageMatch.Success)
         {
-            if (!fullDefinition.Contains("【Usage】") && !fullDefinition.Contains("【Grammar】"))
-                fullDefinition += $"\n【Usage】{oxfordData.UsageLabel}";
+            data.UsageLabel = usageMatch.Groups[1].Value.Trim();
         }
 
-        // Determine usage label for ParsedDefinition
-        var usageLabelForOutput = oxfordData.UsageLabel;
-        if (string.IsNullOrWhiteSpace(usageLabelForOutput))
-            usageLabelForOutput = entry.PartOfSpeech;
+        data.CrossReferences = ExtractCrossReferences(definition);
 
-        yield return new ParsedDefinition
+        return data;
+    }
+
+    private static string ExtractMainDefinition(string definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition))
+            return string.Empty;
+
+        var examplesIndex = definition.IndexOf("【Examples】", StringComparison.Ordinal);
+
+        if (examplesIndex >= 0)
+            return definition[..examplesIndex].Trim();
+
+        return definition.Trim();
+    }
+
+    private static string CleanDefinitionForOutput(string definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition))
+            return string.Empty;
+
+        var text = definition;
+
+        text = Regex.Replace(text, @"【Label】", "");
+        text = Regex.Replace(text, @"【[^】]*】", "");
+        text = Regex.Replace(text, @"\s+", " ").Trim();
+        text = text.TrimEnd('.', ',', ';', ':');
+
+        return text;
+    }
+
+    private static IReadOnlyList<CrossReference> ExtractCrossReferences(string definition)
+    {
+        var crossRefs = new List<CrossReference>();
+
+        if (string.IsNullOrWhiteSpace(definition))
+            return crossRefs;
+
+        var seeMatches = Regex.Matches(definition, @"--›\s*(?:see|cf\.?|compare)\s+([A-Za-z\-']+)");
+        foreach (Match match in seeMatches)
         {
-            MeaningTitle = entry.Word ?? "unnamed sense",
-            Definition = fullDefinition.Trim(),
-            RawFragment = entry.RawFragment,
-            SenseNumber = entry.SenseNumber,
-            Domain = oxfordData.Domain,
-            UsageLabel = usageLabelForOutput,
-            CrossReferences = crossRefs,
-            Synonyms = synonyms,
-            Alias = oxfordData.Variants.FirstOrDefault(),
-            SourceCode = entry.SourceCode
+            if (match.Groups[1].Success)
+            {
+                crossRefs.Add(new CrossReference
+                {
+                    TargetWord = match.Groups[1].Value.Trim(),
+                    ReferenceType = "SeeAlso"
+                });
+            }
+        }
+
+        var variantMatches = Regex.Matches(definition, @"(?:variant of|another term for|同)\s+([A-Za-z\-']+)");
+        foreach (Match match in variantMatches)
+        {
+            if (match.Groups[1].Success)
+            {
+                crossRefs.Add(new CrossReference
+                {
+                    TargetWord = match.Groups[1].Value.Trim(),
+                    ReferenceType = "Variant"
+                });
+            }
+        }
+
+        var alsoMatches = Regex.Matches(definition, @"\(also\s+([A-Za-z\-']+)\)");
+        foreach (Match match in alsoMatches)
+        {
+            if (match.Groups[1].Success)
+            {
+                crossRefs.Add(new CrossReference
+                {
+                    TargetWord = match.Groups[1].Value.Trim(),
+                    ReferenceType = "Also"
+                });
+            }
+        }
+
+        return crossRefs;
+    }
+
+    private ParsedDefinition CreateFallbackParsedDefinition(DictionaryEntry entry)
+    {
+        return new ParsedDefinition
+        {
+            MeaningTitle = entry?.Word ?? "unnamed sense",
+            Definition = entry?.Definition ?? string.Empty,
+            RawFragment = entry?.RawFragment ?? string.Empty,
+            SenseNumber = entry?.SenseNumber ?? 1,
+            Domain = null,
+            UsageLabel = entry?.PartOfSpeech,
+            CrossReferences = new List<CrossReference>(),
+            Synonyms = new List<string>(),
+            Alias = null,
+            SourceCode = entry?.SourceCode
         };
     }
 
-    private static string FixBrokenSectionMarkers(string definition)
+    private sealed class ParsedData
     {
-        if (string.IsNullOrWhiteSpace(definition))
-            return definition;
-
-        var lines = definition.Split('\n');
-        var fixedLines = new List<string>();
-
-        foreach (var line in lines)
-        {
-            var trimmed = line.Trim();
-
-            // Fix broken 【Examples】 section
-            if (trimmed.StartsWith("【Examples】") && trimmed.Length > "【Examples】".Length)
-            {
-                // Already has content on same line, leave as is
-                fixedLines.Add(trimmed);
-            }
-            else if (trimmed.StartsWith("【Examples】"))
-            {
-                // Empty examples section, keep it
-                fixedLines.Add("【Examples】");
-            }
-            // Fix broken 【Label】 section
-            else if (trimmed.StartsWith("【Label】") && !trimmed.EndsWith("】"))
-            {
-                // Fix incomplete label marker
-                fixedLines.Add(trimmed + "】");
-            }
-            else if (trimmed.Contains("【") && !trimmed.Contains("】"))
-            {
-                // Add missing closing marker
-                fixedLines.Add(trimmed + "】");
-            }
-            // Fix Chinese text markers
-            else if (trimmed.Contains("• [") && !trimmed.Contains("]"))
-            {
-                // Add missing closing bracket
-                fixedLines.Add(trimmed + "]");
-            }
-            else
-            {
-                fixedLines.Add(trimmed);
-            }
-        }
-
-        return string.Join("\n", fixedLines);
+        public string? Domain { get; set; }
+        public string? UsageLabel { get; set; }
+        public IReadOnlyList<CrossReference>? CrossReferences { get; set; }
+        public IReadOnlyList<string>? Synonyms { get; set; }
+        public string? Alias { get; set; }
     }
 }

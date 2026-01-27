@@ -1,6 +1,4 @@
-﻿using System.Text.RegularExpressions;
-
-namespace DictionaryImporter.Sources.Collins.Extractor;
+﻿namespace DictionaryImporter.Sources.Collins.Extractor;
 
 internal class CollinsSynonymExtractor(ILogger<CollinsSynonymExtractor> logger) : ISynonymExtractor
 {
@@ -62,6 +60,7 @@ internal class CollinsSynonymExtractor(ILogger<CollinsSynonymExtractor> logger) 
         if (string.IsNullOrWhiteSpace(definition) || string.IsNullOrWhiteSpace(headword))
             return results;
 
+        // First clean the text to remove Chinese characters
         var cleanedHeadword = CleanHeadword(headword);
         var cleanedDefinition = PreprocessDefinition(definition);
 
@@ -215,6 +214,26 @@ internal class CollinsSynonymExtractor(ILogger<CollinsSynonymExtractor> logger) 
                 }
             }
         }
+
+        // Check for "same as" patterns
+        if (definition.Contains("same as", StringComparison.OrdinalIgnoreCase))
+        {
+            var match = Regex.Match(definition, @"same as\s+(?<word>\w+)", RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                var target = match.Groups["word"].Value.ToLowerInvariant();
+                if (target != headword && IsValidHeadword(target))
+                {
+                    results.Add(new SynonymDetectionResult
+                    {
+                        TargetHeadword = target,
+                        ConfidenceLevel = "high",
+                        DetectionMethod = "SameAs",
+                        SourceText = match.Value
+                    });
+                }
+            }
+        }
     }
 
     public bool ValidateSynonymPair(string headwordA, string headwordB)
@@ -259,7 +278,11 @@ internal class CollinsSynonymExtractor(ILogger<CollinsSynonymExtractor> logger) 
         if (string.IsNullOrWhiteSpace(definition))
             return string.Empty;
 
-        var cleaned = definition
+        // Remove Chinese characters first
+        var cleaned = CollinsExtractor.RemoveChineseCharacters(definition);
+
+        // Clean up formatting
+        cleaned = cleaned
             .Replace("\r", " ")
             .Replace("\n", " ")
             .Replace("\t", " ")
@@ -268,6 +291,9 @@ internal class CollinsSynonymExtractor(ILogger<CollinsSynonymExtractor> logger) 
         // Remove Collins-specific markers
         cleaned = Regex.Replace(cleaned, @"●+○+\s*", " ");
         cleaned = Regex.Replace(cleaned, @"★+☆+\s*", " ");
+
+        // Remove bracket content
+        cleaned = Regex.Replace(cleaned, @"【[^】]*】", " ");
 
         // Normalize whitespace
         cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();

@@ -1,5 +1,4 @@
 ﻿using DictionaryImporter.Common;
-using System.Text.RegularExpressions;
 
 namespace DictionaryImporter.Sources.Collins;
 
@@ -36,14 +35,19 @@ public sealed class CollinsTransformer(ILogger<CollinsTransformer> logger)
                 // Build raw fragment (preserve original for parsing)
                 var rawFragment = BuildRawFragment(sense);
 
-                // Normalize POS
-                var pos = CollinsExtractor.NormalizePos(sense.PartOfSpeech);
+                // Normalize POS - FIXED: Use CollinsExtractor.NormalizePos
+                var pos = !string.IsNullOrWhiteSpace(sense.PartOfSpeech) && sense.PartOfSpeech != "unk"
+                    ? CollinsExtractor.NormalizePos(sense.PartOfSpeech)
+                    : "unk";
 
-                // Clean examples
+                // Clean examples - ensure we preserve them
                 var examples = CleanExamples(sense.Examples?.ToList() ?? new List<string>());
 
                 // Extract IPA if present in headword
                 var ipa = ExtractIPA(raw.Headword);
+
+                // Extract domain label
+                var domainLabel = CleanDomainLabel(sense.DomainLabel);
 
                 entries.Add(new DictionaryEntry
                 {
@@ -57,7 +61,7 @@ public sealed class CollinsTransformer(ILogger<CollinsTransformer> logger)
                     CreatedUtc = DateTime.UtcNow,
                     Examples = examples, // Store examples
                     UsageNote = CleanUsageNote(sense.UsageNote),
-                    DomainLabel = CleanDomainLabel(sense.DomainLabel),
+                    DomainLabel = domainLabel,
                     GrammarInfo = CleanGrammarInfo(sense.GrammarInfo),
                     CrossReference = sense.CrossReference,
                     IPA = ipa
@@ -83,7 +87,7 @@ public sealed class CollinsTransformer(ILogger<CollinsTransformer> logger)
         // Remove Chinese characters
         var cleaned = CollinsExtractor.RemoveChineseCharacters(definition);
 
-        // Remove leftover Chinese punctuation patterns
+        // Remove any leftover Chinese punctuation patterns
         cleaned = Regex.Replace(cleaned, @"^[,\s()""]+|[,\s()""]+$", "");
 
         // Remove random artifacts
@@ -93,13 +97,11 @@ public sealed class CollinsTransformer(ILogger<CollinsTransformer> logger)
                         .Replace(" ; ", " ")
                         .Trim();
 
-        // Remove any remaining marker patterns
-        cleaned = Regex.Replace(cleaned, @"\.{2,}", ".");
-        cleaned = cleaned.Replace(".,.", ".")
-                        .Replace(", ,", ",")
-                        .Replace("·", ".")
-                        .Replace("•", "")
-                        .Replace("...", ".");
+        // Remove any remaining example markers
+        cleaned = cleaned.Replace("...", "").Replace("•", "");
+
+        // Remove bracket markers and their content
+        cleaned = Regex.Replace(cleaned, @"【[^】]*】", " ");
 
         // Ensure proper ending
         if (!string.IsNullOrEmpty(cleaned) &&
@@ -137,6 +139,9 @@ public sealed class CollinsTransformer(ILogger<CollinsTransformer> logger)
                         .Replace("·", "")
                         .Trim();
 
+        // Remove any bracket content
+        cleaned = Regex.Replace(cleaned, @"【[^】]*】", "");
+
         // Ensure proper ending
         if (!string.IsNullOrEmpty(cleaned) &&
             !cleaned.EndsWith(".") &&
@@ -170,7 +175,13 @@ public sealed class CollinsTransformer(ILogger<CollinsTransformer> logger)
             parts.Add(sense.Definition);
         }
 
-        return string.Join(" ", parts).Trim();
+        // Add examples if any
+        if (sense.Examples?.Any() == true)
+        {
+            parts.AddRange(sense.Examples.Select(e => $"• {e}"));
+        }
+
+        return string.Join("\n", parts).Trim();
     }
 
     private static string CleanUsageNote(string usageNote)
@@ -197,6 +208,14 @@ public sealed class CollinsTransformer(ILogger<CollinsTransformer> logger)
             return "UK";
         if (cleaned.Equals("AM", StringComparison.OrdinalIgnoreCase))
             return "US";
+        if (cleaned.Contains("主英") || cleaned.Contains("英式"))
+            return "UK";
+        if (cleaned.Contains("主美") || cleaned.Contains("美式"))
+            return "US";
+        if (cleaned.Contains("正式"))
+            return "FORMAL";
+        if (cleaned.Contains("非正式"))
+            return "INFORMAL";
 
         return cleaned;
     }
