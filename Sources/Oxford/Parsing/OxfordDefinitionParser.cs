@@ -28,10 +28,22 @@ public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logge
             var crossRefs = ExtractCrossReferences(cleanDefinition);
             var synonyms = ExtractSynonymsFromExamples(examples);
 
+            // CRITICAL FIX: If cleanDefinition is empty, try to extract from RawFragment
+            if (string.IsNullOrWhiteSpace(cleanDefinition) && !string.IsNullOrWhiteSpace(entry.RawFragment))
+            {
+                cleanDefinition = ExtractMainDefinitionFromRawFragment(entry.RawFragment);
+            }
+
+            // If still empty, use a fallback
+            if (string.IsNullOrWhiteSpace(cleanDefinition))
+            {
+                cleanDefinition = ExtractAnyEnglishText(entry.Definition);
+            }
+
             result = new ParsedDefinition
             {
                 MeaningTitle = entry.Word ?? "unnamed sense",
-                Definition = cleanDefinition,
+                Definition = cleanDefinition ?? string.Empty,
                 RawFragment = entry.RawFragment,
                 SenseNumber = entry.SenseNumber,
                 Domain = domain,
@@ -59,6 +71,7 @@ public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logge
 
         string? domain = null;
         string? usageLabel = null;
+        string? extractedDomain = null;
 
         var lines = definition.Split('\n');
         var definitionLines = new List<string>();
@@ -71,10 +84,11 @@ public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logge
             {
                 var labelContent = trimmed["【Label】".Length..].Trim();
 
+                // Extract domain and usage from label
                 var commaIndex = labelContent.IndexOf(',');
                 if (commaIndex > 0)
                 {
-                    domain = labelContent[..commaIndex].Trim();
+                    extractedDomain = labelContent[..commaIndex].Trim();
 
                     var rest = labelContent[(commaIndex + 1)..].Trim();
                     var usageMatch = Regex.Match(rest, @"\[([^\]]+)\]");
@@ -83,24 +97,127 @@ public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logge
                 }
                 else
                 {
-                    domain = labelContent;
+                    extractedDomain = labelContent;
+                }
+
+                // Clean domain text
+                if (!string.IsNullOrWhiteSpace(extractedDomain))
+                {
+                    extractedDomain = Regex.Replace(extractedDomain, @"▶\s*", "").Trim();
+                    domain = extractedDomain;
                 }
             }
             else if (trimmed.StartsWith("【Examples】"))
             {
+                // Stop collecting definition lines at Examples section
                 break;
             }
             else if (!string.IsNullOrWhiteSpace(trimmed) && !trimmed.StartsWith("»"))
             {
+                // This is part of the definition
                 definitionLines.Add(trimmed);
             }
         }
 
         var cleanDefinition = string.Join(" ", definitionLines).Trim();
+
+        // Clean up any remaining section markers
         cleanDefinition = Regex.Replace(cleanDefinition, @"【[^】]*】", "");
         cleanDefinition = Regex.Replace(cleanDefinition, @"\s+", " ").Trim();
 
+        // If domain wasn't extracted from Label, try to extract from definition text
+        if (string.IsNullOrWhiteSpace(domain))
+        {
+            domain = ExtractDomainFromDefinitionText(cleanDefinition);
+        }
+
         return (cleanDefinition, domain, usageLabel);
+    }
+
+    private static string? ExtractDomainFromDefinitionText(string definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition))
+            return null;
+
+        // Look for common domain/usage labels in brackets
+        var bracketMatch = Regex.Match(definition, @"\[([^\]]+)\]");
+        if (bracketMatch.Success)
+        {
+            var label = bracketMatch.Groups[1].Value.Trim().ToLowerInvariant();
+
+            // Common Oxford usage labels
+            if (label.Contains("informal")) return "informal";
+            if (label.Contains("formal")) return "formal";
+            if (label.Contains("dated")) return "dated";
+            if (label.Contains("archaic")) return "archaic";
+            if (label.Contains("slang")) return "slang";
+            if (label.Contains("technical")) return "technical";
+            if (label.Contains("literary")) return "literary";
+            if (label.Contains("humorous")) return "humorous";
+            if (label.Contains("n. amer.") || label.Contains("north american")) return "N. Amer.";
+            if (label.Contains("british")) return "British";
+            if (label.Contains("chiefly")) return "chiefly";
+            if (label.Contains("especially")) return "especially";
+        }
+
+        return null;
+    }
+
+    private static string ExtractMainDefinitionFromRawFragment(string rawFragment)
+    {
+        if (string.IsNullOrWhiteSpace(rawFragment))
+            return string.Empty;
+
+        var lines = rawFragment.Split('\n');
+        var definitionLines = new List<string>();
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+
+            // Skip lines that are clearly not definition text
+            if (trimmed.StartsWith("【") || trimmed.StartsWith("»") ||
+                string.IsNullOrWhiteSpace(trimmed) ||
+                trimmed.Contains("•") && Regex.IsMatch(trimmed, @"•\s*[\u4e00-\u9fff]"))
+            {
+                continue;
+            }
+
+            // Remove any remaining Chinese characters
+            var cleanedLine = Regex.Replace(trimmed, @"[\u4e00-\u9fff]", "");
+            cleanedLine = Regex.Replace(cleanedLine, @"•.*", "").Trim();
+
+            if (!string.IsNullOrWhiteSpace(cleanedLine))
+            {
+                definitionLines.Add(cleanedLine);
+            }
+        }
+
+        return string.Join(" ", definitionLines).Trim();
+    }
+
+    private static string ExtractAnyEnglishText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        // Extract any English text by removing markers and non-English content
+        var cleaned = text;
+
+        // Remove section markers
+        cleaned = Regex.Replace(cleaned, @"【[^】]*】", " ");
+
+        // Remove example markers
+        cleaned = Regex.Replace(cleaned, @"^»\s*", "", RegexOptions.Multiline);
+
+        // Remove Chinese characters and their markers
+        cleaned = Regex.Replace(cleaned, @"[\u4e00-\u9fff]", "");
+        cleaned = Regex.Replace(cleaned, @"•.*", "");
+
+        // Clean up
+        cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
+
+        return cleaned;
     }
 
     private static IReadOnlyList<string> ExtractExamples(string definition)
@@ -210,10 +327,22 @@ public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logge
 
     private ParsedDefinition CreateFallbackParsedDefinition(DictionaryEntry entry)
     {
+        // Try to extract some definition even in fallback
+        string definition = string.Empty;
+        if (!string.IsNullOrWhiteSpace(entry?.Definition))
+        {
+            definition = ExtractAnyEnglishText(entry.Definition);
+        }
+
+        if (string.IsNullOrWhiteSpace(definition) && !string.IsNullOrWhiteSpace(entry?.RawFragment))
+        {
+            definition = ExtractMainDefinitionFromRawFragment(entry.RawFragment);
+        }
+
         return new ParsedDefinition
         {
             MeaningTitle = entry?.Word ?? "unnamed sense",
-            Definition = entry?.Definition ?? string.Empty,
+            Definition = definition ?? string.Empty,
             RawFragment = entry?.RawFragment ?? string.Empty,
             SenseNumber = entry?.SenseNumber ?? 1,
             Domain = null,

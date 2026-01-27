@@ -116,7 +116,7 @@ public static class OxfordSourceDataHelper
             rest = rest[..translationMatch.Index].Trim();
         }
 
-        // Clean the definition
+        // Clean the definition - BUT PRESERVE ENGLISH TEXT
         definition = CleanDefinitionText(rest);
 
         return true;
@@ -134,10 +134,9 @@ public static class OxfordSourceDataHelper
         text = Regex.Replace(text, @"[，。、；：！？【】（）《》〈〉「」『』]", "");
 
         // Remove Chinese translation markers like [of], [have]
-        text = Regex.Replace(text, @"\[([A-Za-z]+)\]", "$1");
-
-        // Remove empty brackets
-        text = Regex.Replace(text, @"\[\s*\]", "");
+        // But be careful not to remove content that's part of English definition
+        text = Regex.Replace(text, @"•\s*$", ""); // Remove trailing bullet
+        text = Regex.Replace(text, @"•\s+", " "); // Replace bullet with space
 
         // Clean up whitespace
         text = Regex.Replace(text, @"\s+", " ").Trim();
@@ -207,26 +206,41 @@ public static class OxfordSourceDataHelper
             ["countable noun"] = "noun",
             ["plural noun"] = "noun",
             ["proper noun"] = "noun",
+            ["common noun"] = "noun",
+            ["abstract noun"] = "noun",
+            ["concrete noun"] = "noun",
+            ["collective noun"] = "noun",
 
             ["verb"] = "verb",
             ["v"] = "verb",
             ["v."] = "verb",
+            ["vi"] = "verb",
+            ["vi."] = "verb",
+            ["vt"] = "verb",
+            ["vt."] = "verb",
             ["intransitive verb"] = "verb",
             ["transitive verb"] = "verb",
             ["linking verb"] = "verb",
             ["modal verb"] = "verb",
             ["phrasal verb"] = "verb",
+            ["auxiliary verb"] = "verb",
 
             ["adjective"] = "adj",
             ["adj"] = "adj",
             ["adj."] = "adj",
+            ["a"] = "adj",
+            ["a."] = "adj",
 
             ["adverb"] = "adv",
             ["adv"] = "adv",
             ["adv."] = "adv",
+            ["ad"] = "adv",
+            ["ad."] = "adv",
 
             ["exclamation"] = "exclamation",
             ["interjection"] = "exclamation",
+            ["int"] = "exclamation",
+            ["int."] = "exclamation",
 
             ["for abbreviation"] = "abbreviation",
             ["abbreviation"] = "abbreviation",
@@ -236,8 +250,15 @@ public static class OxfordSourceDataHelper
             ["acronym"] = "abbreviation",
 
             ["prefix"] = "prefix",
+            ["pref"] = "prefix",
+            ["pref."] = "prefix",
+
             ["suffix"] = "suffix",
+            ["suf"] = "suffix",
+            ["suf."] = "suffix",
+
             ["combining form"] = "combining form",
+            ["comb form"] = "combining form",
 
             ["numeral"] = "numeral",
             ["num"] = "numeral",
@@ -267,10 +288,16 @@ public static class OxfordSourceDataHelper
 
             ["idiom"] = "idiom",
             ["phrasal"] = "idiom",
+            ["phr"] = "idiom",
+            ["phr."] = "idiom",
 
             ["symbol"] = "symbol",
             ["sym"] = "symbol",
-            ["sym."] = "symbol"
+            ["sym."] = "symbol",
+
+            ["particle"] = "particle",
+            ["part"] = "particle",
+            ["part."] = "particle"
         };
 
         return posMap.TryGetValue(pos, out var normalized)
@@ -300,7 +327,7 @@ public static class OxfordSourceDataHelper
         new(@",\s*(?<pos>\w+(?:\s+\w+)*?)$", RegexOptions.Compiled);
 
     private static readonly Regex BlockPartOfSpeechRegex =
-        new(@"▶\s*(?<pos>for abbreviation|adjective|noun|verb|adverb|exclamation|interjection|preposition|conjunction|pronoun|determiner|numeral|prefix|suffix|combining form|idiom|phrasal verb|symbol)",
+        new(@"▶\s*(?<pos>for abbreviation|adjective|noun|verb|adverb|exclamation|interjection|preposition|conjunction|pronoun|determiner|numeral|prefix|suffix|combining form|idiom|phrasal verb|symbol|particle|auxiliary verb|modal verb|linking verb)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex VariantFormsRegex =

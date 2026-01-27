@@ -1,10 +1,10 @@
-﻿using System.Collections.Generic;
+﻿using DictionaryImporter.Common;
+using DictionaryImporter.Common.SourceHelper;
+using Microsoft.Extensions.Logging;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
-using DictionaryImporter.Common;
-using DictionaryImporter.Sources.Common.Helper;
-using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Gutenberg;
 
@@ -23,16 +23,80 @@ public sealed class GutenbergWebsterExtractor(ILogger<GutenbergWebsterExtractor>
         var lines = ParsingHelperGutenberg.ProcessGutenbergStreamAsync(stream, logger, cancellationToken);
 
         GutenbergRawEntry? current = null;
+        bool inEntry = false;
+        int consecutiveEmptyLines = 0;
+        const int MaxConsecutiveEmptyLines = 2;
 
         await foreach (var line in lines.WithCancellation(cancellationToken))
         {
-            // ✅ FIX: use Gutenberg helper logic (NOT SourceDataHelper)
-            if (ParsingHelperGutenberg.IsGutenbergHeadwordLine(line, maxLength: 80))
+            var trimmedLine = line.Trim();
+
+            // Skip Project Gutenberg metadata lines
+            if (trimmedLine.StartsWith("***") ||
+                trimmedLine.StartsWith("Project Gutenberg") ||
+                trimmedLine.StartsWith("Title:") ||
+                trimmedLine.StartsWith("Author:"))
             {
-                // Yield previous entry if exists
+                continue;
+            }
+
+            // Check for end of entry (multiple blank lines or new headword)
+            if (inEntry && current != null)
+            {
+                if (string.IsNullOrWhiteSpace(trimmedLine))
+                {
+                    consecutiveEmptyLines++;
+                    if (consecutiveEmptyLines >= MaxConsecutiveEmptyLines)
+                    {
+                        // End of current entry
+                        if (ValidateGutenbergEntry(current))
+                        {
+                            if (!Helper.ShouldContinueProcessing(SourceCode, logger))
+                                yield break;
+
+                            ParsingHelperGutenberg.UpdateProgress(ref context);
+                            yield return current;
+                        }
+                        current = null;
+                        inEntry = false;
+                        consecutiveEmptyLines = 0;
+                        continue;
+                    }
+                }
+                else
+                {
+                    consecutiveEmptyLines = 0;
+
+                    // Check if this is a new headword starting
+                    if (ParsingHelperGutenberg.IsGutenbergHeadwordLine(trimmedLine, 80))
+                    {
+                        // Yield previous entry
+                        if (ValidateGutenbergEntry(current))
+                        {
+                            if (!Helper.ShouldContinueProcessing(SourceCode, logger))
+                                yield break;
+
+                            ParsingHelperGutenberg.UpdateProgress(ref context);
+                            yield return current;
+                        }
+
+                        // Start new entry
+                        current = new GutenbergRawEntry
+                        {
+                            Headword = trimmedLine,
+                            Lines = new List<string> { trimmedLine }
+                        };
+                        inEntry = true;
+                        continue;
+                    }
+                }
+            }
+
+            // Check for new headword
+            if (ParsingHelperGutenberg.IsGutenbergHeadwordLine(trimmedLine, 80))
+            {
                 if (current != null && ValidateGutenbergEntry(current))
                 {
-                    // ✅ STRICT: stop before yielding
                     if (!Helper.ShouldContinueProcessing(SourceCode, logger))
                         yield break;
 
@@ -40,24 +104,26 @@ public sealed class GutenbergWebsterExtractor(ILogger<GutenbergWebsterExtractor>
                     yield return current;
                 }
 
-                // Create new entry
                 current = new GutenbergRawEntry
                 {
-                    Headword = line.Trim()
+                    Headword = trimmedLine,
+                    Lines = new List<string> { trimmedLine }
                 };
-
-                current.Lines.Clear();
+                inEntry = true;
+                consecutiveEmptyLines = 0;
                 continue;
             }
 
-            if (current != null)
+            // Add line to current entry
+            if (current != null && inEntry)
+            {
                 current.Lines.Add(line);
+            }
         }
 
         // Yield the last entry
         if (current != null && ValidateGutenbergEntry(current))
         {
-            // ✅ STRICT: stop before yielding
             if (!Helper.ShouldContinueProcessing(SourceCode, logger))
                 yield break;
 
@@ -71,6 +137,34 @@ public sealed class GutenbergWebsterExtractor(ILogger<GutenbergWebsterExtractor>
     private static bool ValidateGutenbergEntry(GutenbergRawEntry entry)
     {
         return !string.IsNullOrWhiteSpace(entry.Headword) &&
-               entry.Lines.Count > 0;
+               entry.Lines != null &&
+               entry.Lines.Count > 0 &&
+               !IsProbablyGutenbergMetadata(entry.Headword);
+    }
+
+    private static bool IsProbablyGutenbergMetadata(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return true;
+
+        var trimmed = line.Trim();
+
+        // Skip Gutenberg metadata
+        if (trimmed.StartsWith("***") ||
+            trimmed.StartsWith("Produced by") ||
+            trimmed.StartsWith("Transcriber's Note") ||
+            trimmed.Contains("Project Gutenberg") ||
+            trimmed.StartsWith("Title:") ||
+            trimmed.StartsWith("Author:") ||
+            trimmed.StartsWith("Release Date:"))
+        {
+            return true;
+        }
+
+        // Skip very long lines that are probably not headwords
+        if (trimmed.Length > 120)
+            return true;
+
+        return false;
     }
 }

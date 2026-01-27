@@ -1,9 +1,9 @@
-﻿using System;
+﻿using DictionaryImporter.Common.SourceHelper;
+using DictionaryImporter.Infrastructure.Source;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using DictionaryImporter.Infrastructure.Source;
-using DictionaryImporter.Sources.Common.Helper;
-using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Sources.Gutenberg.Parsing;
 
@@ -19,17 +19,17 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
 
         try
         {
-            var cleanedFullText = ParsingHelperGutenberg.CleanRawFragment(entry.Definition);
-            var blocks = ParsingHelperGutenberg.SplitIntoEntryBlocks(cleanedFullText);
+            var rawFragment = entry.RawFragment ?? entry.Definition;
+            var blocks = ParsingHelperGutenberg.SplitIntoEntryBlocks(rawFragment);
 
-            if (blocks.Count == 0 && !string.IsNullOrWhiteSpace(cleanedFullText))
-                blocks.Add(cleanedFullText);
+            if (blocks.Count == 0 && !string.IsNullOrWhiteSpace(rawFragment))
+                blocks.Add(rawFragment);
 
             var results = new List<ParsedDefinition>();
 
             foreach (var block in blocks)
             {
-                // 🔒 Prevent foreign headword bleed (AB-, AB, etc.)
+                // Skip foreign headword bleed
                 if (ParsingHelperGutenberg.IsForeignHeadwordBlock(block, entry.Word))
                     continue;
 
@@ -44,7 +44,7 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
                 if (string.IsNullOrWhiteSpace(partOfSpeech))
                     partOfSpeech = ParsingHelperGutenberg.ExtractFallbackPartOfSpeech(entry);
 
-                var definitions = ParsingHelperGutenberg.ExtractDefinitions(block);
+                var definitions = ExtractProperDefinitions(block);
                 if (definitions == null || definitions.Count == 0)
                     continue;
 
@@ -56,17 +56,18 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
 
                 var subSenseIndex = 0;
 
-                foreach (var rawDef in definitions)
+                foreach (var definitionItem in definitions)
                 {
-                    var defText = rawDef?.Trim();
+                    var (defText, senseNum) = definitionItem;
+
                     if (string.IsNullOrWhiteSpace(defText))
                         continue;
 
-                    // ❌ Skip domain-only or junk definitions
+                    // Skip domain-only or junk definitions
                     if (ParsingHelperGutenberg.IsDomainOnlyDefinition(defText))
                         continue;
 
-                    // ✂ Split usage label from definition
+                    // Split usage label from definition
                     var (cleanDefinition, usageLabel) =
                         ParsingHelperGutenberg.SplitUsageFromDefinition(defText);
 
@@ -75,13 +76,11 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
 
                     subSenseIndex++;
 
-                    var finalSenseNum = entry.SenseNumber > 0
-                        ? entry.SenseNumber
-                        : subSenseIndex;
+                    var finalSenseNum = senseNum > 0 ? senseNum : subSenseIndex;
 
                     results.Add(new ParsedDefinition
                     {
-                        MeaningTitle = string.Empty, // never the headword
+                        MeaningTitle = string.Empty,
                         Definition = cleanDefinition,
                         RawFragment = block,
                         SenseNumber = finalSenseNum,
@@ -120,5 +119,189 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
 
             return Array.Empty<ParsedDefinition>();
         }
+    }
+
+    private List<(string Definition, int SenseNumber)> ExtractProperDefinitions(string block)
+    {
+        var definitions = new List<(string, int)>();
+
+        if (string.IsNullOrWhiteSpace(block))
+            return definitions;
+
+        var lines = ParsingHelperGutenberg.NormalizeNewLines(block)
+            .Split('\n')
+            .Select(l => l?.Trim())
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .ToList();
+
+        if (lines.Count == 0)
+            return definitions;
+
+        var currentSense = 1;
+        var currentDefinition = new StringBuilder();
+        var inDefinition = false;
+        var hasEtymologyInSense = false;
+
+        foreach (var line in lines)
+        {
+            // Skip headword lines
+            if (ParsingHelperGutenberg.IsGutenbergHeadwordLine(line, 80))
+                continue;
+
+            // Skip pronunciation lines
+            if (ParsingHelperGutenberg.RxPronunciationPosLine.IsMatch(line))
+                continue;
+
+            // Check for numbered sense start (like "1.", "2.")
+            var senseMatch = Regex.Match(line, @"^(?<num>\d+)\.\s*(?<content>.*)$");
+            if (senseMatch.Success)
+            {
+                // Save previous definition if any
+                if (inDefinition && currentDefinition.Length > 0)
+                {
+                    var def = currentDefinition.ToString().Trim();
+                    if (IsValidDefinition(def))
+                    {
+                        definitions.Add((def, currentSense));
+                    }
+                    currentDefinition.Clear();
+                }
+
+                // Parse new sense number
+                if (int.TryParse(senseMatch.Groups["num"].Value, out int senseNum))
+                {
+                    currentSense = senseNum;
+                }
+                else
+                {
+                    currentSense++;
+                }
+
+                var content = senseMatch.Groups["content"].Value;
+                if (!string.IsNullOrWhiteSpace(content))
+                {
+                    currentDefinition.Append(content);
+                    currentDefinition.Append(" ");
+                }
+                inDefinition = true;
+                hasEtymologyInSense = false;
+                continue;
+            }
+
+            // Check for "Defn:" marker
+            if (line.StartsWith("Defn:", StringComparison.OrdinalIgnoreCase))
+            {
+                // If we're already in a definition, save it
+                if (inDefinition && currentDefinition.Length > 0)
+                {
+                    var def = currentDefinition.ToString().Trim();
+                    if (IsValidDefinition(def))
+                    {
+                        definitions.Add((def, currentSense));
+                    }
+                    currentDefinition.Clear();
+                }
+
+                var defnContent = line.Substring(5).Trim();
+                if (!string.IsNullOrWhiteSpace(defnContent))
+                {
+                    currentDefinition.Append(defnContent);
+                    currentDefinition.Append(" ");
+                }
+                inDefinition = true;
+                continue;
+            }
+
+            // Check for "Etym:" marker
+            if (line.StartsWith("Etym:", StringComparison.OrdinalIgnoreCase))
+            {
+                hasEtymologyInSense = true;
+                // Etymology is handled separately, don't add to definition
+                continue;
+            }
+
+            // Check for "Syn." marker (start of synonyms section)
+            if (line.StartsWith("Syn.", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("Synonyms", StringComparison.OrdinalIgnoreCase))
+            {
+                // End current definition
+                if (inDefinition && currentDefinition.Length > 0)
+                {
+                    var def = currentDefinition.ToString().Trim();
+                    if (IsValidDefinition(def))
+                    {
+                        definitions.Add((def, currentSense));
+                    }
+                    currentDefinition.Clear();
+                    inDefinition = false;
+                }
+                continue;
+            }
+
+            // If we're in a definition, add continuation lines
+            if (inDefinition && !string.IsNullOrWhiteSpace(line))
+            {
+                // Skip metadata and notes that shouldn't be in definition
+                if (ParsingHelperGutenberg.IsMetadataLine(line) ||
+                    line.StartsWith("Note:", StringComparison.OrdinalIgnoreCase) ||
+                    line.StartsWith("Obs.", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Notes are part of definition, but clean them
+                    var cleanedNote = line.Replace("Note:", "").Replace("Note", "").Trim();
+                    if (!string.IsNullOrWhiteSpace(cleanedNote))
+                    {
+                        currentDefinition.Append(cleanedNote);
+                        currentDefinition.Append(" ");
+                    }
+                    continue;
+                }
+
+                // Skip domain-only lines
+                if (ParsingHelperGutenberg.RxDomainOnlyLine.IsMatch(line))
+                    continue;
+
+                // Add normal continuation
+                currentDefinition.Append(line);
+                currentDefinition.Append(" ");
+            }
+        }
+
+        // Add the last definition if any
+        if (inDefinition && currentDefinition.Length > 0)
+        {
+            var def = currentDefinition.ToString().Trim();
+            if (IsValidDefinition(def))
+            {
+                definitions.Add((def, currentSense));
+            }
+        }
+
+        return definitions;
+    }
+
+    private bool IsValidDefinition(string definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition))
+            return false;
+
+        var trimmed = definition.Trim();
+
+        if (trimmed.Length < 10)
+            return false;
+
+        if (!trimmed.Any(char.IsLetter))
+            return false;
+
+        // Skip lines that are just etymology markers
+        if (trimmed.StartsWith("Etym:", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("Etymology:", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Skip lines that are just synonyms markers
+        if (trimmed.StartsWith("Syn.", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("Synonyms", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return true;
     }
 }
