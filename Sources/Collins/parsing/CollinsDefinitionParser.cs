@@ -23,38 +23,32 @@ public sealed class CollinsDefinitionParser(ILogger<CollinsDefinitionParser> log
             yield break;
         }
 
-        var results = new List<ParsedDefinition>();
-
+        // Use a separate method to handle the try-catch and return the result
+        ParsedDefinition parsedDefinition;
         try
         {
-            // First clean the definition of Chinese characters
-            var cleanedDefinition = CollinsExtractor.RemoveChineseCharacters(entry.Definition);
+            // Use the helper to parse the Collins entry
+            parsedDefinition = ParsingHelperCollins.BuildParsedDefinition(entry);
 
-            // Create a copy with cleaned definition for parsing
-            var cleanedEntry = new DictionaryEntry
+            // Ensure we have proper sense number
+            if (parsedDefinition.SenseNumber <= 0)
             {
-                Word = entry.Word,
-                NormalizedWord = entry.NormalizedWord,
-                PartOfSpeech = entry.PartOfSpeech,
-                Definition = cleanedDefinition,
-                SenseNumber = entry.SenseNumber,
-                SourceCode = entry.SourceCode,
-                CreatedUtc = entry.CreatedUtc,
-                RawFragment = cleanedDefinition
-            };
+                parsedDefinition.SenseNumber = entry.SenseNumber;
+            }
 
-            var parsedDefinition = ParsingHelperCollins.BuildParsedDefinition(cleanedEntry);
-            results.Add(parsedDefinition);
+            // Ensure we have proper POS
+            if (string.IsNullOrEmpty(parsedDefinition.PartOfSpeech) || parsedDefinition.PartOfSpeech == "unk")
+            {
+                parsedDefinition.PartOfSpeech = entry.PartOfSpeech;
+            }
         }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Failed to parse Collins entry: {Word}", entry.Word);
-            results.Clear();
-            results.Add(CreateFallbackParsedDefinition(entry));
+            logger?.LogError(ex, "Error parsing Collins definition for {Word}", entry.Word);
+            parsedDefinition = CreateFallbackParsedDefinition(entry);
         }
 
-        foreach (var item in results)
-            yield return item;
+        yield return parsedDefinition;
     }
 
     private ParsedDefinition CreateFallbackParsedDefinition(DictionaryEntry entry)
@@ -69,7 +63,8 @@ public sealed class CollinsDefinitionParser(ILogger<CollinsDefinitionParser> log
             UsageLabel = null,
             CrossReferences = new List<CrossReference>(),
             Synonyms = null,
-            Alias = null
+            Alias = null,
+            PartOfSpeech = entry.PartOfSpeech
         };
     }
 }

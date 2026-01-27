@@ -1,12 +1,9 @@
-﻿using System.Text.RegularExpressions;
-using DictionaryImporter.Common;
-
-namespace DictionaryImporter.Common.SourceHelper;
+﻿namespace DictionaryImporter.Common.SourceHelper;
 
 internal static class ParsingHelperOxford
 {
     // ─────────────────────────────────────────────
-    // EXAMPLES
+    // EXAMPLES - FIXED to handle current broken data
     // ─────────────────────────────────────────────
     public static IReadOnlyList<string> ExtractExamples(string definition)
     {
@@ -24,42 +21,115 @@ internal static class ParsingHelperOxford
             if (line.StartsWith("【Examples】"))
             {
                 inExamples = true;
+                // Check if there's example text on the same line
+                var rest = line.Substring("【Examples】".Length).Trim();
+                if (!string.IsNullOrWhiteSpace(rest))
+                {
+                    // Handle example on same line as marker
+                    ProcessExampleLine(rest, examples);
+                }
                 continue;
             }
 
             if (!inExamples)
                 continue;
 
-            if (line.StartsWith("【"))
+            // Stop at next section marker or empty line
+            if (line.StartsWith("【") || string.IsNullOrWhiteSpace(line))
                 break;
 
-            if (line.StartsWith("»"))
-                examples.Add(line.TrimStart('»', ' ').Trim());
+            ProcessExampleLine(line, examples);
         }
 
         return examples;
     }
 
+    private static void ProcessExampleLine(string line, List<string> examples)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return;
+
+        // Handle example marker or plain text
+        if (line.StartsWith("»"))
+        {
+            var example = line.TrimStart('»', ' ').Trim();
+            if (!string.IsNullOrWhiteSpace(example))
+                examples.Add(example);
+        }
+        else if (!line.StartsWith("【")) // Not a section marker
+        {
+            // Could be example without marker in current broken data
+            examples.Add(line);
+        }
+    }
+
     // ─────────────────────────────────────────────
-    // CROSS REFERENCES
+    // CROSS REFERENCES - FIXED to handle current broken data
     // ─────────────────────────────────────────────
     public static IReadOnlyList<CrossReference> ExtractCrossReferences(string definition)
     {
         var crossRefs = new List<CrossReference>();
-        var seeAlso = Helper.ExtractSection(definition, "【SeeAlso】");
 
-        if (string.IsNullOrWhiteSpace(seeAlso))
+        if (string.IsNullOrWhiteSpace(definition))
             return crossRefs;
 
-        foreach (var part in seeAlso.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        // Check SeeAlso section - handle broken markers
+        var seeAlso = ExtractSectionWithBrokenMarkers(definition, "【SeeAlso】");
+        if (!string.IsNullOrWhiteSpace(seeAlso))
         {
-            var word = part.Trim();
-            if (!string.IsNullOrEmpty(word))
+            foreach (var part in seeAlso.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var word = part.Trim();
+                if (!string.IsNullOrEmpty(word))
+                {
+                    crossRefs.Add(new CrossReference
+                    {
+                        TargetWord = word,
+                        ReferenceType = "SeeAlso"
+                    });
+                }
+            }
+        }
+
+        // Extract cross-references from definition text
+        // Pattern 1: --› see word
+        var seeMatches = Regex.Matches(definition, @"--›\s*(?:see|cf\.?|compare)\s+([A-Za-z\-']+)");
+        foreach (Match match in seeMatches)
+        {
+            if (match.Groups[1].Success)
             {
                 crossRefs.Add(new CrossReference
                 {
-                    TargetWord = word,
+                    TargetWord = match.Groups[1].Value.Trim(),
                     ReferenceType = "SeeAlso"
+                });
+            }
+        }
+
+        // Pattern 2: variant of word
+        var variantMatches = Regex.Matches(definition, @"(?:variant of|another term for|同)\s+([A-Za-z\-']+)");
+        foreach (Match match in variantMatches)
+        {
+            if (match.Groups[1].Success)
+            {
+                crossRefs.Add(new CrossReference
+                {
+                    TargetWord = match.Groups[1].Value.Trim(),
+                    ReferenceType = "Variant"
+                });
+            }
+        }
+
+        // Pattern 3: (also word)
+        var alsoMatches = Regex.Matches(definition, @"\(also\s+([A-Za-z\-']+)\)");
+        foreach (Match match in alsoMatches)
+        {
+            if (match.Groups[1].Success)
+            {
+                crossRefs.Add(new CrossReference
+                {
+                    TargetWord = match.Groups[1].Value.Trim(),
+                    ReferenceType = "Also"
                 });
             }
         }
@@ -67,8 +137,30 @@ internal static class ParsingHelperOxford
         return crossRefs;
     }
 
+    private static string? ExtractSectionWithBrokenMarkers(string definition, string marker)
+    {
+        if (string.IsNullOrWhiteSpace(definition))
+            return null;
+
+        var idx = definition.IndexOf(marker, StringComparison.Ordinal);
+        if (idx < 0)
+            return null;
+
+        var start = idx + marker.Length;
+        var remaining = definition.Substring(start);
+
+        // Find next section marker or end
+        var nextSection = remaining.IndexOf("【", StringComparison.Ordinal);
+        if (nextSection >= 0)
+        {
+            return remaining.Substring(0, nextSection).Trim();
+        }
+
+        return remaining.Trim();
+    }
+
     // ─────────────────────────────────────────────
-    // MAIN ENTRY PARSER
+    // MAIN ENTRY PARSER - FIXED to handle current broken data
     // ─────────────────────────────────────────────
     public static OxfordParsedData ParseOxfordEntry(string definition)
     {
@@ -89,7 +181,7 @@ internal static class ParsingHelperOxford
     }
 
     // ─────────────────────────────────────────────
-    // DOMAIN / REGISTER
+    // DOMAIN / REGISTER - FIXED to handle current broken data
     // ─────────────────────────────────────────────
     public static string? ExtractOxfordDomain(string definition)
     {
@@ -97,12 +189,21 @@ internal static class ParsingHelperOxford
             return null;
 
         // First check for explicit Label section
-        var label = Helper.ExtractSection(definition, "【Label】");
+        var label = ExtractSectionWithBrokenMarkers(definition, "【Label】");
         if (!string.IsNullOrWhiteSpace(label))
         {
             label = CleanDomainText(label);
             if (IsValidOxfordDomain(label))
                 return label.Length <= 100 ? label : label[..100];
+        }
+
+        // Look for square bracket labels in definition: [informal], [dated], [N. Amer.], etc.
+        var bracketMatches = Regex.Matches(definition, @"\[([^\]]+)\]");
+        foreach (Match match in bracketMatches)
+        {
+            var candidate = CleanDomainText(match.Groups[1].Value);
+            if (IsValidOxfordDomain(candidate))
+                return candidate.Length <= 100 ? candidate : candidate[..100];
         }
 
         // Then check parentheses throughout definition
@@ -132,7 +233,7 @@ internal static class ParsingHelperOxford
     }
 
     // ─────────────────────────────────────────────
-    // IPA
+    // IPA - FIXED to handle current broken data
     // ─────────────────────────────────────────────
     public static string? ExtractIpaPronunciation(string definition)
     {
@@ -140,7 +241,7 @@ internal static class ParsingHelperOxford
             return null;
 
         // First check Pronunciation section
-        var pronSection = Helper.ExtractSection(definition, "【Pronunciation】");
+        var pronSection = ExtractSectionWithBrokenMarkers(definition, "【Pronunciation】");
         if (!string.IsNullOrWhiteSpace(pronSection))
         {
             var slashMatch = Regex.Match(pronSection, @"/([^/]+)/");
@@ -169,7 +270,7 @@ internal static class ParsingHelperOxford
     }
 
     // ─────────────────────────────────────────────
-    // VARIANTS
+    // VARIANTS - FIXED to handle current broken data
     // ─────────────────────────────────────────────
     public static IReadOnlyList<string> ExtractVariants(string definition)
     {
@@ -178,22 +279,10 @@ internal static class ParsingHelperOxford
             return variants.ToList();
 
         // Check Variants section
-        var section = Helper.ExtractSection(definition, "【Variants】");
+        var section = ExtractSectionWithBrokenMarkers(definition, "【Variants】");
         if (!string.IsNullOrWhiteSpace(section))
         {
             foreach (var v in section.Split(new[] { ',', ';', '，', '；' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                var s = v.Trim();
-                if (!string.IsNullOrEmpty(s))
-                    variants.Add(s);
-            }
-        }
-
-        // Check Chinese "also" notation
-        var also = Regex.Match(definition, @"也作\s*([^),;]+)");
-        if (also.Success)
-        {
-            foreach (var v in also.Groups[1].Value.Split(new[] { ',', ';', '，', '；' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 var s = v.Trim();
                 if (!string.IsNullOrEmpty(s))
@@ -205,23 +294,27 @@ internal static class ParsingHelperOxford
     }
 
     // ─────────────────────────────────────────────
-    // USAGE / GRAMMAR
+    // USAGE / GRAMMAR - FIXED to handle current broken data
     // ─────────────────────────────────────────────
     public static string? ExtractUsageLabel(string definition)
     {
-        var usage = Helper.ExtractSection(definition, "【Usage】");
+        var usage = ExtractSectionWithBrokenMarkers(definition, "【Usage】");
         if (!string.IsNullOrWhiteSpace(usage))
+        {
             return usage.Length <= 50 ? usage : usage[..50];
+        }
 
-        var grammar = Helper.ExtractSection(definition, "【Grammar】");
+        var grammar = ExtractSectionWithBrokenMarkers(definition, "【Grammar】");
         if (!string.IsNullOrWhiteSpace(grammar))
+        {
             return grammar.Length <= 50 ? grammar : grammar[..50];
+        }
 
         return null;
     }
 
     // ─────────────────────────────────────────────
-    // CLEAN DEFINITION (SAFE)
+    // CLEAN DEFINITION (SAFE) - FIXED to handle current broken data AND fix regex error
     // ─────────────────────────────────────────────
     public static string ExtractMainDefinition(string definition)
         => CleanOxfordDefinition(definition);
@@ -243,45 +336,38 @@ internal static class ParsingHelperOxford
         text = Regex.Replace(text, @"/[^/\n]+/", "");
 
         // Remove pronunciation section entirely
-        text = RemoveSection(text, "【Pronunciation】");
+        text = RemoveSectionWithBrokenMarkers(text, "【Pronunciation】");
 
-        // Remove domain parentheses only if we extracted a domain from them
-        if (!string.IsNullOrWhiteSpace(extractedDomain))
-        {
-            // Match parentheses containing the domain (case-insensitive)
-            text = Regex.Replace(text,
-                @"\([^)]*" + Regex.Escape(extractedDomain) + @"[^)]*\)",
-                "",
-                RegexOptions.IgnoreCase);
-        }
-
-        // Remove all structured sections
+        // Remove all structured sections (but keep the content after them)
         var sections = new[] {
-            "【Examples】", "【SeeAlso】", "【Usage】", "【Grammar】",
-            "【Variants】", "【Pronunciation】", "【Etymology】",
-            "【IDIOMS】", "【派生】", "【Chinese】", "【Label】"
-        };
+        "【Examples】", "【SeeAlso】", "【Usage】", "【Grammar】",
+        "【Variants】", "【Pronunciation】", "【Etymology】",
+        "【IDIOMS】", "【派生】", "【Chinese】", "【Label】",
+        "【语源】", "【用法】", "【PHR V】"
+    };
 
         foreach (var sec in sections)
-            text = RemoveSection(text, sec);
+            text = RemoveSectionWithBrokenMarkers(text, sec);
 
-        // Extract English part only (before Chinese bullet)
-        var bulletSplit = text.Split('•', 2);
-        if (bulletSplit.Length > 1)
-            text = bulletSplit[0];
+        // Remove formatting artifacts but keep meaningful content
+        // FIXED: Changed [▶»◘--›♦] to [▶»◘›♦\-] to avoid reverse range error
+        text = Regex.Replace(text, @"[▶»◘›♦\-]", " ");
 
-        // Clean up remaining markers
-        text = Regex.Replace(text, @"[▶»]", " ");
+        // Remove the string "?-->" (literal characters, not a range)
+        text = Regex.Replace(text, @"\?--\>", " ");
+
         text = Regex.Replace(text, @"\s+", " ").Trim();
+
+        // Remove any remaining broken Chinese markers
+        text = Regex.Replace(text, @"•\s*\[.*$", "").Trim();
+        text = Regex.Replace(text, @"\[.*$", "").Trim();
+
         text = text.TrimEnd('.', ';', ':', ',');
 
         return text;
     }
 
-    // ─────────────────────────────────────────────
-    // HELPERS
-    // ─────────────────────────────────────────────
-    private static string RemoveSection(string text, string marker)
+    private static string RemoveSectionWithBrokenMarkers(string text, string marker)
     {
         var idx = text.IndexOf(marker, StringComparison.Ordinal);
         if (idx < 0) return text;
@@ -313,13 +399,14 @@ internal static class ParsingHelperOxford
         // Oxford-specific domain labels
         var keywords = new[]
         {
-            "informal", "formal", "technical", "literary", "humorous", "dated", "archaic",
-            "slang", "colloquial", "dialect", "regional", "chiefly", "mainly", "especially",
-            "rare", "obsolete", "vulgar", "offensive", "derogatory", "euphemistic",
-            "figurative", "ironic", "sarcastic", "law", "medicine", "biology", "chemistry",
-            "physics", "mathematics", "computing", "finance", "business", "military",
-            "nautical", "aviation", "sports", "music", "art", "philosophy", "theology"
-        };
+        "informal", "formal", "technical", "literary", "humorous", "dated", "archaic",
+        "slang", "colloquial", "dialect", "regional", "chiefly", "mainly", "especially",
+        "rare", "obsolete", "vulgar", "offensive", "derogatory", "euphemistic",
+        "figurative", "ironic", "sarcastic", "law", "medicine", "biology", "chemistry",
+        "physics", "mathematics", "computing", "finance", "business", "military",
+        "nautical", "aviation", "sports", "music", "art", "philosophy", "theology",
+        "n. amer.", "north american", "british", "australian", "canadian", "new zealand"
+    };
 
         // Check if domain starts with or contains a known keyword
         foreach (var keyword in keywords)
@@ -335,7 +422,7 @@ internal static class ParsingHelperOxford
     }
 
     // ─────────────────────────────────────────────
-    // SYNONYMS (IMPROVED HANDLING)
+    // SYNONYMS (IMPROVED HANDLING) - FIXED to handle current broken data
     // ─────────────────────────────────────────────
     public static IReadOnlyList<string>? ExtractSynonymsFromExamples(IReadOnlyList<string> examples)
     {
@@ -346,6 +433,9 @@ internal static class ParsingHelperOxford
 
         foreach (var example in examples)
         {
+            if (string.IsNullOrWhiteSpace(example))
+                continue;
+
             // Pattern for "X or Y" or "X (synonym of Y)" or "X, same as Y"
             foreach (Match m in Regex.Matches(example,
                          @"\b([A-Z][a-z]+(?:-[A-Za-z]+)*)\b\s*(?:or|synonym of|same as|also called)\s*\b([A-Z][a-z]+(?:-[A-Za-z]+)*)\b",

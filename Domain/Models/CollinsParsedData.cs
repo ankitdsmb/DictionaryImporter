@@ -17,6 +17,15 @@ public class CollinsParsedData
     public IReadOnlyList<CrossReference> CrossReferences { get; set; } = new List<CrossReference>();
     public PhrasalVerbInfo PhrasalVerbInfo { get; set; } = new PhrasalVerbInfo();
     public bool IsPhrasalVerb { get; set; }
-    public string PrimaryDomain => DomainLabels?.FirstOrDefault() ?? string.Empty;
+
+    //public string PrimaryDomain => DomainLabels?.FirstOrDefault() ?? string.Empty;
+    public string PrimaryDomain { get; set; } = string.Empty;
+
     public string PrimaryUsagePattern => UsagePatterns?.FirstOrDefault() ?? string.Empty;
+
+    public List<string>? Synonyms { get; internal set; }
+    public string Alias { get; internal set; }
+    public string IPA { get; internal set; }
+    public string GrammarInfo { get; internal set; }
+    public string UsageNote { get; internal set; }
 }

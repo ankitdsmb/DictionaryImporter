@@ -9,8 +9,6 @@ namespace DictionaryImporter.Common.SourceHelper;
 
 internal static class ParsingHelperCollins
 {
-    #region Core Entry Parsing
-
     public static ParsedDefinition BuildParsedDefinition(DictionaryEntry entry)
     {
         if (entry == null)
@@ -19,23 +17,24 @@ internal static class ParsingHelperCollins
         if (string.IsNullOrWhiteSpace(entry.Definition))
             return BuildFallbackParsedDefinition(entry);
 
-        var parsed = ParseCollinsEntry(entry.Definition);
-
-        var fullDefinition = BuildFullDefinition(parsed);
+        var parsed = ParseCollinsEntry(entry.RawFragment ?? entry.Definition);
 
         return new ParsedDefinition
         {
             MeaningTitle = entry.Word ?? "unnamed sense",
-            Definition = fullDefinition,
-            RawFragment = entry.Definition,
+            Definition = entry.Definition,
+            RawFragment = entry.RawFragment,
             SenseNumber = parsed.SenseNumber,
             Domain = parsed.PrimaryDomain,
             UsageLabel = BuildUsageLabel(parsed),
             CrossReferences = parsed.CrossReferences?.ToList() ?? new List<CrossReference>(),
-            Synonyms = null,
+            Synonyms = parsed.Synonyms?.ToList() ?? new List<string>(),
             Alias = parsed.Alias,
-            Examples = parsed.Examples?.ToList() ?? new List<string>(),
-            PartOfSpeech = parsed.PartOfSpeech
+            Examples = parsed.Examples?.ToList() ?? new List<string>(), // This should populate the Examples
+            PartOfSpeech = parsed.PartOfSpeech,
+            IPA = parsed.IPA,
+            GrammarInfo = parsed.GrammarInfo,
+            UsageNote = parsed.UsageNote
         };
     }
 
@@ -46,227 +45,185 @@ internal static class ParsingHelperCollins
         if (string.IsNullOrWhiteSpace(definition))
             return data;
 
-        // Clean the definition first
-        var cleanedDefinition = CollinsExtractor.RemoveChineseCharacters(definition);
-
         // Parse sense number and POS
-        ParseSenseNumberAndPOS(cleanedDefinition, data);
+        ParseSenseNumberAndPOS(definition, data);
 
-        // Extract components
-        data.MainDefinition = ExtractMainDefinition(cleanedDefinition);
+        // Extract ALL components
         data.DomainLabels = ExtractDomainLabels(definition)?.ToList() ?? new List<string>();
         data.UsagePatterns = ExtractUsagePatterns(definition)?.ToList() ?? new List<string>();
-        data.Examples = ExtractExamples(cleanedDefinition)?.ToList() ?? new List<string>();
-        data.CrossReferences = ExtractCrossReferences(cleanedDefinition)?.ToList() ?? new List<CrossReference>();
-        data.Alias = ExtractAlias(cleanedDefinition);
+        data.Examples = ExtractCollinsExamples(definition)?.ToList() ?? new List<string>(); // Use improved extraction
+        data.CrossReferences = ExtractCrossReferences(definition)?.ToList() ?? new List<CrossReference>();
+        data.Alias = ExtractAlias(definition);
+        data.Synonyms = ExtractSynonyms(definition)?.ToList() ?? new List<string>();
+        data.GrammarInfo = ExtractGrammarInfo(definition);
+        data.UsageNote = ExtractUsageNote(definition);
+        data.IPA = ExtractIPA(definition);
 
-        data.CleanDefinition = CleanCollinsDefinition(cleanedDefinition);
-
-        // Set primary domain from labels
+        // Set primary domain
         if (data.DomainLabels.Any())
         {
             data.PrimaryDomain = data.DomainLabels.First();
+            if (data.PrimaryDomain.Equals("BRIT", StringComparison.OrdinalIgnoreCase))
+                data.PrimaryDomain = "UK";
+            else if (data.PrimaryDomain.Equals("AM", StringComparison.OrdinalIgnoreCase))
+                data.PrimaryDomain = "US";
         }
 
         return data;
     }
 
-    private static void ParseSenseNumberAndPOS(string definition, CollinsParsedData data)
+    private static void ParseSenseNumberAndPOS(string text, CollinsParsedData data)
     {
-        var lines = definition.Split('\n')
-            .Select(l => l.Trim())
-            .Where(l => !string.IsNullOrWhiteSpace(l))
-            .ToList();
-
-        if (lines.Count == 0)
+        if (string.IsNullOrWhiteSpace(text))
             return;
 
-        var firstLine = lines[0];
-
-        // Look for pattern like "1.N-VAR" or "1.VERB"
-        var match = Regex.Match(firstLine, @"^(?<num>\d+)\.(?<pos>[A-Z][A-Z\-]+)");
+        // Look for pattern at beginning
+        var match = Regex.Match(text, @"^(?<num>\d+)\.(?<pos>[A-Z][A-Z\-]+)");
         if (match.Success)
         {
             data.SenseNumber = int.Parse(match.Groups["num"].Value);
             data.PartOfSpeech = CollinsExtractor.NormalizePos(match.Groups["pos"].Value);
-            return;
         }
-
-        // Look for pattern like "1.ADV" (without hyphen)
-        match = Regex.Match(firstLine, @"^(?<num>\d+)\.([A-Z]+)");
-        if (match.Success)
+        else
         {
-            data.SenseNumber = int.Parse(match.Groups["num"].Value);
-            data.PartOfSpeech = CollinsExtractor.NormalizePos(match.Groups[2].Value);
-            return;
+            data.SenseNumber = 1;
+            data.PartOfSpeech = "unk";
         }
-
-        // Default values
-        data.SenseNumber = 1;
-        data.PartOfSpeech = "unk";
     }
 
-    private static string BuildFullDefinition(CollinsParsedData parsed)
+    public static IReadOnlyList<string> ExtractCollinsExamples(string text)
     {
-        var parts = new List<string>();
+        var examples = new List<string>();
 
-        // Add sense header if available
-        if (parsed.SenseNumber > 0 && !string.IsNullOrEmpty(parsed.PartOfSpeech))
-        {
-            parts.Add($"{parsed.SenseNumber}.{parsed.PartOfSpeech.ToUpper()}");
-        }
+        if (string.IsNullOrWhiteSpace(text))
+            return examples;
 
-        // Add main definition
-        if (!string.IsNullOrEmpty(parsed.MainDefinition))
-        {
-            parts.Add(parsed.MainDefinition);
-        }
-
-        // Add usage patterns
-        if (parsed.UsagePatterns?.Any() == true)
-        {
-            parts.Add($"【Patterns】{string.Join("; ", parsed.UsagePatterns)}");
-        }
-
-        // Add examples
-        if (parsed.Examples?.Any() == true)
-        {
-            parts.Add("【Examples】");
-            parts.AddRange(parsed.Examples.Select(e => $"• {e}"));
-        }
-
-        // Add cross references
-        if (parsed.CrossReferences?.Any() == true)
-        {
-            parts.Add("【See Also】" + string.Join(", ",
-                parsed.CrossReferences.Select(r => r.TargetWord)));
-        }
-
-        return string.Join("\n", parts);
-    }
-
-    #endregion Core Entry Parsing
-
-    #region Definitions
-
-    public static string ExtractMainDefinition(string text)
-    {
         var lines = text.Split('\n')
             .Select(l => l.Trim())
             .Where(l => !string.IsNullOrWhiteSpace(l))
             .ToList();
 
+        bool inExampleSection = false;
+
         foreach (var line in lines)
         {
-            // Skip lines that are clearly not the main definition
-            if (line.StartsWith("【") ||
-                line.StartsWith("...") ||
-                line.StartsWith("•") ||
-                Regex.IsMatch(line, @"^\d+\.[A-Z]") ||
-                line.Contains("→see:"))
+            // Skip definition lines
+            if (IsDefinitionLine(line))
                 continue;
 
-            // Look for English definition sentences
-            if (line.StartsWith("If ", StringComparison.OrdinalIgnoreCase) ||
-                line.StartsWith("You ", StringComparison.OrdinalIgnoreCase) ||
-                line.StartsWith("To ", StringComparison.OrdinalIgnoreCase) ||
-                line.StartsWith("When ", StringComparison.OrdinalIgnoreCase) ||
-                line.StartsWith("A ", StringComparison.OrdinalIgnoreCase) ||
-                line.StartsWith("An ", StringComparison.OrdinalIgnoreCase) ||
-                line.StartsWith("The ", StringComparison.OrdinalIgnoreCase) ||
-                (char.IsUpper(line.FirstOrDefault()) && line.Length > 10))
+            // Check for example markers
+            if (line.StartsWith("...") || line.StartsWith("•"))
             {
-                // Clean up the line
-                var cleaned = line.Replace(" ; ; ", " ")
-                                 .Replace(" ; ", " ")
-                                 .Replace("  ", " ")
-                                 .Trim();
-
-                // Ensure it ends with punctuation
-                if (!string.IsNullOrEmpty(cleaned) &&
-                    !cleaned.EndsWith(".") &&
-                    !cleaned.EndsWith("!") &&
-                    !cleaned.EndsWith("?"))
+                inExampleSection = true;
+                var example = ExtractExampleFromLine(line);
+                if (!string.IsNullOrWhiteSpace(example) && IsValidExample(example))
                 {
-                    cleaned += ".";
+                    examples.Add(example);
                 }
-
-                return cleaned;
             }
-        }
-
-        // If no main definition found, return first non-header line
-        foreach (var line in lines)
-        {
-            if (!Regex.IsMatch(line, @"^\d+\.[A-Z]") &&
-                !line.StartsWith("【") &&
-                !line.StartsWith("...") &&
-                !line.StartsWith("•"))
-            {
-                return line;
-            }
-        }
-
-        return string.Empty;
-    }
-
-    #endregion Definitions
-
-    #region Examples
-
-    public static IReadOnlyList<string> ExtractExamples(string text)
-    {
-        var examples = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        var lines = text.Split('\n')
-            .Select(l => l.Trim())
-            .Where(l => !string.IsNullOrWhiteSpace(l));
-
-        foreach (var line in lines)
-        {
-            // ...example pattern
-            if (line.StartsWith("..."))
-            {
-                var example = CleanExample(line[3..]);
-                if (!string.IsNullOrWhiteSpace(example))
-                    examples.Add(example);
-                continue;
-            }
-
-            // Bullet point examples
-            if (line.StartsWith("•"))
-            {
-                var example = CleanExample(line[1..]);
-                if (!string.IsNullOrWhiteSpace(example))
-                    examples.Add(example);
-                continue;
-            }
-
-            // Full English sentence pattern
-            if (Regex.IsMatch(line, @"^[A-Z][^.!?]*[.!?]$") &&
-                line.Length > 10 &&
-                !line.StartsWith("【"))
+            // If we're in example section and this is a continuation line
+            else if (inExampleSection && IsExampleContinuation(line))
             {
                 var example = CleanExample(line);
-                if (!string.IsNullOrWhiteSpace(example))
+                if (!string.IsNullOrWhiteSpace(example) && IsValidExample(example))
+                {
                     examples.Add(example);
+                }
+            }
+            else
+            {
+                inExampleSection = false;
             }
         }
 
-        return examples.ToList();
+        return examples.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static bool IsDefinitionLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return false;
+
+        var cleanLine = CollinsExtractor.RemoveChineseCharacters(line);
+
+        // Check if it looks like a definition
+        return cleanLine.StartsWith("If ", StringComparison.OrdinalIgnoreCase) ||
+               cleanLine.StartsWith("To ", StringComparison.OrdinalIgnoreCase) ||
+               cleanLine.StartsWith("When ", StringComparison.OrdinalIgnoreCase) ||
+               cleanLine.StartsWith("A ", StringComparison.OrdinalIgnoreCase) ||
+               cleanLine.StartsWith("An ", StringComparison.OrdinalIgnoreCase) ||
+               cleanLine.StartsWith("The ", StringComparison.OrdinalIgnoreCase) ||
+               cleanLine.StartsWith("You ", StringComparison.OrdinalIgnoreCase) ||
+               cleanLine.Contains(" means ") ||
+               cleanLine.Contains(" is ") ||
+               cleanLine.Contains(" are ") ||
+               cleanLine.Contains(" refers to ") ||
+               cleanLine.Contains(" describes ");
+    }
+
+    private static string ExtractExampleFromLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return null;
+
+        // Remove example markers
+        var example = line.StartsWith("...") ? line.Substring(3) :
+                     line.StartsWith("•") ? line.Substring(1) : line;
+
+        return CleanExample(example);
+    }
+
+    private static bool IsExampleContinuation(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line) || line.Length < 10)
+            return false;
+
+        // Check if it looks like an English sentence
+        var cleanLine = CollinsExtractor.RemoveChineseCharacters(line);
+
+        return char.IsUpper(cleanLine[0]) &&
+               (cleanLine.EndsWith(".") || cleanLine.EndsWith("!") || cleanLine.EndsWith("?")) &&
+               cleanLine.Length > 20 &&
+               !IsDefinitionLine(cleanLine);
+    }
+
+    private static bool IsValidExample(string example)
+    {
+        if (string.IsNullOrWhiteSpace(example) || example.Length < 15)
+            return false;
+
+        // Check it has English letters
+        if (!Regex.IsMatch(example, @"[A-Za-z]"))
+            return false;
+
+        // Check it's not a definition
+        if (IsDefinitionLine(example))
+            return false;
+
+        return true;
     }
 
     private static string CleanExample(string text)
     {
-        var cleaned = text.Replace("  ", " ")
-                         .Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
 
-        // Ensure proper punctuation
+        // Remove Chinese characters
+        var cleaned = CollinsExtractor.RemoveChineseCharacters(text)
+            .Replace("  ", " ")
+            .Trim();
+
+        // Remove any leftover punctuation at edges
+        cleaned = Regex.Replace(cleaned, @"^[,\s()""]+|[,\s()""]+$", "");
+
+        // Replace multiple periods with single period
+        cleaned = Regex.Replace(cleaned, @"\.{2,}", ".");
+
+        // Ensure proper ending
         if (!string.IsNullOrEmpty(cleaned) &&
             !cleaned.EndsWith(".") &&
             !cleaned.EndsWith("!") &&
-            !cleaned.EndsWith("?") &&
-            !cleaned.EndsWith("..."))
+            !cleaned.EndsWith("?"))
         {
             cleaned += ".";
         }
@@ -274,48 +231,27 @@ internal static class ParsingHelperCollins
         return cleaned;
     }
 
-    #endregion Examples
-
-    #region Labels & Usage
-
     public static IReadOnlyList<string> ExtractDomainLabels(string text)
     {
         var labels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Extract from 【语域标签】patterns
-        foreach (Match m in Regex.Matches(text, @"【语域标签】：\s*(?<label>.+?)(?:\s+[^\s】]+)?】"))
+        // 【语域标签】
+        foreach (Match m in Regex.Matches(text, @"【语域标签】：\s*(?<label>[^】]+)"))
         {
             var labelText = m.Groups["label"].Value;
-            // Extract English part
-            var engMatch = Regex.Match(labelText, @"([A-Z]+)");
+            var engMatch = Regex.Match(labelText, @"([A-Z][A-Z\s]+)");
             if (engMatch.Success)
-                labels.Add(engMatch.Groups[1].Value);
+                labels.Add(engMatch.Groups[1].Value.Trim());
         }
 
-        // Extract from 【FIELD标签】patterns
-        foreach (Match m in Regex.Matches(text, @"【FIELD标签】：\s*(?<label>.+?)(?:\s+[^\s】]+)?】"))
+        // 【FIELD标签】
+        foreach (Match m in Regex.Matches(text, @"【FIELD标签】：\s*(?<label>[^】]+)"))
         {
             var labelText = m.Groups["label"].Value;
-            var engMatch = Regex.Match(labelText, @"([A-Z]+)");
+            var engMatch = Regex.Match(labelText, @"([A-Z][A-Z\s]+)");
             if (engMatch.Success)
-                labels.Add(engMatch.Groups[1].Value);
+                labels.Add(engMatch.Groups[1].Value.Trim());
         }
-
-        // Extract from inline markers
-        if (text.Contains("主美") || text.Contains("AM") || text.Contains("美国英语"))
-            labels.Add("US");
-        if (text.Contains("主英") || text.Contains("BRIT") || text.Contains("英国英语"))
-            labels.Add("UK");
-        if (text.Contains("FORMAL") || text.Contains("正式"))
-            labels.Add("FORMAL");
-        if (text.Contains("INFORMAL") || text.Contains("非正式"))
-            labels.Add("INFORMAL");
-        if (text.Contains("VERY RUDE") || text.Contains("OFFENSIVE") || text.Contains("冒犯"))
-            labels.Add("OFFENSIVE");
-        if (text.Contains("JOURNALISM") || text.Contains("新闻"))
-            labels.Add("JOURNALISM");
-        if (text.Contains("BUSINESS") || text.Contains("商"))
-            labels.Add("BUSINESS");
 
         return labels.ToList();
     }
@@ -324,12 +260,10 @@ internal static class ParsingHelperCollins
     {
         var patterns = new List<string>();
 
-        // 【搭配模式】：usu N for n
-        foreach (Match m in Regex.Matches(text, @"【搭配模式】：\s*(.+?)(?:\s|$)"))
+        foreach (Match m in Regex.Matches(text, @"【搭配模式】：\s*(.+?)(?:\s|$|】)"))
             patterns.Add(CleanPattern(m.Groups[1].Value));
 
-        // 【语法信息】：V n
-        foreach (Match m in Regex.Matches(text, @"【语法信息】：\s*(.+?)(?:\s|$)"))
+        foreach (Match m in Regex.Matches(text, @"【语法信息】：\s*(.+?)(?:\s|$|】)"))
             patterns.Add(CleanPattern(m.Groups[1].Value));
 
         return patterns;
@@ -342,26 +276,60 @@ internal static class ParsingHelperCollins
             .Trim();
     }
 
-    private static string ExtractAlias(string text)
+    public static IReadOnlyList<string> ExtractSynonyms(string text)
     {
-        // Look for "also called" or "also known as"
-        var match = Regex.Match(text, @"also\s+(?:called|known as)\s+(?<alias>\w+)",
-            RegexOptions.IgnoreCase);
-        if (match.Success)
-            return match.Groups["alias"].Value;
+        var synonyms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        return null;
+        // Look for "synonym" patterns
+        var matches = Regex.Matches(text, @"synonym(?:s|ous)?\s+(?:of|for)?\s+['""]?([A-Za-z0-9\-']+)['""]?",
+            RegexOptions.IgnoreCase);
+
+        foreach (Match match in matches)
+        {
+            if (match.Groups[1].Success)
+                synonyms.Add(match.Groups[1].Value.Trim());
+        }
+
+        return synonyms.ToList();
     }
 
-    #endregion Labels & Usage
+    public static string ExtractAlias(string text)
+    {
+        var match = Regex.Match(text, @"also\s+(?:called|known as|spelled)\s+['""]?(?<alias>[A-Za-z0-9\-']+)['""]?",
+            RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups["alias"].Value : null;
+    }
 
-    #region Cross References
+    public static string ExtractGrammarInfo(string text)
+    {
+        var patterns = new List<string>();
+
+        foreach (Match m in Regex.Matches(text, @"【搭配模式】：\s*(.+?)(?:\s|$|】)"))
+            patterns.Add(CleanPattern(m.Groups[1].Value));
+
+        foreach (Match m in Regex.Matches(text, @"【语法信息】：\s*(.+?)(?:\s|$|】)"))
+            patterns.Add(CleanPattern(m.Groups[1].Value));
+
+        return patterns.Any() ? string.Join("; ", patterns) : null;
+    }
+
+    public static string ExtractUsageNote(string text)
+    {
+        var match = Regex.Match(text, @"【注意】：\s*(.+)");
+        return match.Success ? CleanPattern(match.Groups[1].Value) : null;
+    }
+
+    public static string ExtractIPA(string text)
+    {
+        // Look for IPA in slashes
+        var match = Regex.Match(text, @"/([^/]+)/");
+        return match.Success ? match.Groups[1].Value.Trim() : null;
+    }
 
     public static IReadOnlyList<CrossReference> ExtractCrossReferences(string text)
     {
         var refs = new List<CrossReference>();
 
-        // →see: xxx
         foreach (Match m in Regex.Matches(text, @"→see:\s*(?<w>[^;\n]+)", RegexOptions.IgnoreCase))
         {
             var words = m.Groups["w"].Value.Split(',')
@@ -381,38 +349,12 @@ internal static class ParsingHelperCollins
         return refs;
     }
 
-    #endregion Cross References
-
-    #region Cleaning
-
-    public static string CleanCollinsDefinition(string text)
+    private static string BuildUsageLabel(CollinsParsedData data)
     {
-        var lines = text.Split('\n')
-            .Select(l => l.Trim())
-            .Where(l => !string.IsNullOrWhiteSpace(l))
-            .Where(l => !l.StartsWith("【"))
-            .Where(l => !l.Contains("→see:"))
-            .Where(l => !l.StartsWith("..."))
-            .Where(l => !l.StartsWith("•"))
-            .ToList();
-
-        var joined = string.Join(" ", lines);
-
-        // Ensure proper punctuation
-        if (!string.IsNullOrEmpty(joined) &&
-            !joined.EndsWith(".") &&
-            !joined.EndsWith("!") &&
-            !joined.EndsWith("?"))
-        {
-            joined += ".";
-        }
-
-        return joined;
+        return data.UsagePatterns?.Any() == true
+            ? string.Join(", ", data.UsagePatterns.Distinct())
+            : null;
     }
-
-    #endregion Cleaning
-
-    #region Fallback
 
     public static ParsedDefinition BuildFallbackParsedDefinition(DictionaryEntry entry)
     {
@@ -425,40 +367,13 @@ internal static class ParsingHelperCollins
             Domain = null,
             UsageLabel = null,
             CrossReferences = new List<CrossReference>(),
-            Synonyms = null,
+            Synonyms = new List<string>(),
             Alias = null,
-            PartOfSpeech = entry.PartOfSpeech
+            Examples = new List<string>(),
+            PartOfSpeech = entry.PartOfSpeech,
+            IPA = null,
+            GrammarInfo = null,
+            UsageNote = null
         };
     }
-
-    private static string BuildUsageLabel(CollinsParsedData data)
-    {
-        var parts = new List<string>();
-
-        if (!string.IsNullOrWhiteSpace(data.PartOfSpeech) && data.PartOfSpeech != "unk")
-            parts.Add(data.PartOfSpeech.ToUpper());
-
-        parts.AddRange(data.DomainLabels ?? new List<string>());
-
-        if (data.UsagePatterns?.Any() == true)
-            parts.AddRange(data.UsagePatterns);
-
-        return parts.Count > 0 ? string.Join(", ", parts.Distinct()) : null;
-    }
-
-    #endregion Fallback
-}
-
-public class CollinsParsedData
-{
-    public int SenseNumber { get; set; } = 1;
-    public string PartOfSpeech { get; set; } = "unk";
-    public string MainDefinition { get; set; } = string.Empty;
-    public string CleanDefinition { get; set; } = string.Empty;
-    public List<string> DomainLabels { get; set; } = new();
-    public string PrimaryDomain { get; set; }
-    public List<string> UsagePatterns { get; set; } = new();
-    public List<string> Examples { get; set; } = new();
-    public List<CrossReference> CrossReferences { get; set; } = new();
-    public string Alias { get; set; }
 }

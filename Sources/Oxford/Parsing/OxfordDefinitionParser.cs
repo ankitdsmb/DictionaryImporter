@@ -5,10 +5,9 @@ using DictionaryImporter.Infrastructure.Source;
 namespace DictionaryImporter.Sources.Oxford.Parsing;
 
 public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logger)
-    : ISourceDictionaryDefinitionParser
+: ISourceDictionaryDefinitionParser
 {
     private readonly ILogger<OxfordDefinitionParser> _logger = logger;
-
     public string SourceCode => "ENG_OXFORD";
 
     public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
@@ -21,6 +20,9 @@ public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logge
         }
 
         var definition = entry.Definition;
+
+        // FIXED: Handle broken section markers in current data
+        definition = FixBrokenSectionMarkers(definition);
 
         // Parse all Oxford data at once
         var oxfordData = ParsingHelperOxford.ParseOxfordEntry(definition);
@@ -64,13 +66,63 @@ public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logge
         {
             MeaningTitle = entry.Word ?? "unnamed sense",
             Definition = fullDefinition.Trim(),
-            RawFragment = entry.Definition,
+            RawFragment = entry.RawFragment,
             SenseNumber = entry.SenseNumber,
             Domain = oxfordData.Domain,
             UsageLabel = usageLabelForOutput,
             CrossReferences = crossRefs,
             Synonyms = synonyms,
-            Alias = oxfordData.Variants.FirstOrDefault()
+            Alias = oxfordData.Variants.FirstOrDefault(),
+            SourceCode = entry.SourceCode
         };
+    }
+
+    private static string FixBrokenSectionMarkers(string definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition))
+            return definition;
+
+        var lines = definition.Split('\n');
+        var fixedLines = new List<string>();
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+
+            // Fix broken 【Examples】 section
+            if (trimmed.StartsWith("【Examples】") && trimmed.Length > "【Examples】".Length)
+            {
+                // Already has content on same line, leave as is
+                fixedLines.Add(trimmed);
+            }
+            else if (trimmed.StartsWith("【Examples】"))
+            {
+                // Empty examples section, keep it
+                fixedLines.Add("【Examples】");
+            }
+            // Fix broken 【Label】 section
+            else if (trimmed.StartsWith("【Label】") && !trimmed.EndsWith("】"))
+            {
+                // Fix incomplete label marker
+                fixedLines.Add(trimmed + "】");
+            }
+            else if (trimmed.Contains("【") && !trimmed.Contains("】"))
+            {
+                // Add missing closing marker
+                fixedLines.Add(trimmed + "】");
+            }
+            // Fix Chinese text markers
+            else if (trimmed.Contains("• [") && !trimmed.Contains("]"))
+            {
+                // Add missing closing bracket
+                fixedLines.Add(trimmed + "]");
+            }
+            else
+            {
+                fixedLines.Add(trimmed);
+            }
+        }
+
+        return string.Join("\n", fixedLines);
     }
 }
