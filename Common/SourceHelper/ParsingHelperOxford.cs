@@ -96,25 +96,36 @@ internal static class ParsingHelperOxford
         if (string.IsNullOrWhiteSpace(definition))
             return null;
 
-        foreach (Match match in Regex.Matches(definition, @"\(([^)]+)\)"))
-        {
-            var candidate = CleanDomainText(match.Groups[1].Value);
-
-            // Reject morphology
-            if (Regex.IsMatch(candidate, @"easier|easiest|plural|past|comparative|superlative",
-                RegexOptions.IgnoreCase))
-                continue;
-
-            if (IsValidOxfordDomain(candidate))
-                return candidate.Length <= 100 ? candidate : candidate[..100];
-        }
-
+        // First check for explicit Label section
         var label = Helper.ExtractSection(definition, "【Label】");
         if (!string.IsNullOrWhiteSpace(label))
         {
             label = CleanDomainText(label);
             if (IsValidOxfordDomain(label))
                 return label.Length <= 100 ? label : label[..100];
+        }
+
+        // Then check parentheses throughout definition
+        foreach (Match match in Regex.Matches(definition, @"\(([^)]+)\)"))
+        {
+            var candidate = CleanDomainText(match.Groups[1].Value);
+
+            // Skip morphological markers
+            if (Regex.IsMatch(candidate,
+                @"^(easier|easiest|plural|past|comparative|superlative|past tense|past participle|present participle|third person singular|ing form|ed form)$",
+                RegexOptions.IgnoreCase))
+                continue;
+
+            // Skip size/measurement references
+            if (Regex.IsMatch(candidate, @"^\d+\s*(cm|mm|m|kg|g|ml|l)$", RegexOptions.IgnoreCase))
+                continue;
+
+            // Skip numeric-only or symbol-only
+            if (Regex.IsMatch(candidate, @"^[\d\s\-]+$") || candidate.Length < 2)
+                continue;
+
+            if (IsValidOxfordDomain(candidate))
+                return candidate.Length <= 100 ? candidate : candidate[..100];
         }
 
         return null;
@@ -128,12 +139,33 @@ internal static class ParsingHelperOxford
         if (string.IsNullOrWhiteSpace(definition))
             return null;
 
-        var match = Regex.Match(definition, @"/([^/]+)/");
-        if (!match.Success)
-            return null;
+        // First check Pronunciation section
+        var pronSection = Helper.ExtractSection(definition, "【Pronunciation】");
+        if (!string.IsNullOrWhiteSpace(pronSection))
+        {
+            var slashMatch = Regex.Match(pronSection, @"/([^/]+)/");
+            if (slashMatch.Success)
+            {
+                var ipa = slashMatch.Groups[1].Value.Trim();
+                if (ContainsIpaCharacters(ipa))
+                    return ipa;
+            }
 
-        var ipa = match.Groups[1].Value.Trim();
-        return ContainsIpaCharacters(ipa) ? ipa : null;
+            // Also check if the section itself contains IPA
+            if (ContainsIpaCharacters(pronSection))
+                return pronSection.Trim();
+        }
+
+        // Fallback: search for IPA in slashes anywhere in definition
+        var matches = Regex.Matches(definition, @"/([^/\n]+)/");
+        foreach (Match match in matches)
+        {
+            var ipa = match.Groups[1].Value.Trim();
+            if (ContainsIpaCharacters(ipa))
+                return ipa;
+        }
+
+        return null;
     }
 
     // ─────────────────────────────────────────────
@@ -145,10 +177,11 @@ internal static class ParsingHelperOxford
         if (string.IsNullOrWhiteSpace(definition))
             return variants.ToList();
 
+        // Check Variants section
         var section = Helper.ExtractSection(definition, "【Variants】");
         if (!string.IsNullOrWhiteSpace(section))
         {
-            foreach (var v in section.Split(',', ';'))
+            foreach (var v in section.Split(new[] { ',', ';', '，', '；' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 var s = v.Trim();
                 if (!string.IsNullOrEmpty(s))
@@ -156,10 +189,11 @@ internal static class ParsingHelperOxford
             }
         }
 
-        var also = Regex.Match(definition, @"也作\s*([^),]+)");
+        // Check Chinese "also" notation
+        var also = Regex.Match(definition, @"也作\s*([^),;]+)");
         if (also.Success)
         {
-            foreach (var v in also.Groups[1].Value.Split(',', ';'))
+            foreach (var v in also.Groups[1].Value.Split(new[] { ',', ';', '，', '；' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 var s = v.Trim();
                 if (!string.IsNullOrEmpty(s))
@@ -199,26 +233,44 @@ internal static class ParsingHelperOxford
 
         var text = definition;
 
-        // Remove stars only
+        // Remove stars only at the beginning of the string
         text = Regex.Replace(text, @"^★+☆+\s*", "");
 
-        // Remove sense numbers
-        text = Regex.Replace(text, @"^\d+\.\s*", "");
+        // Remove sense numbers at beginning of lines
+        text = Regex.Replace(text, @"^\d+\.\s*", "", RegexOptions.Multiline);
 
-        // Remove domain parentheses only
+        // Remove IPA pronunciation - all variants
+        text = Regex.Replace(text, @"/[^/\n]+/", "");
+
+        // Remove pronunciation section entirely
+        text = RemoveSection(text, "【Pronunciation】");
+
+        // Remove domain parentheses only if we extracted a domain from them
         if (!string.IsNullOrWhiteSpace(extractedDomain))
-            text = Regex.Replace(text, @"\([^)]*" + Regex.Escape(extractedDomain) + @"[^)]*\)", "");
+        {
+            // Match parentheses containing the domain (case-insensitive)
+            text = Regex.Replace(text,
+                @"\([^)]*" + Regex.Escape(extractedDomain) + @"[^)]*\)",
+                "",
+                RegexOptions.IgnoreCase);
+        }
 
-        // Remove IPA
-        text = Regex.Replace(text, @"/[^/]+/", "");
+        // Remove all structured sections
+        var sections = new[] {
+            "【Examples】", "【SeeAlso】", "【Usage】", "【Grammar】",
+            "【Variants】", "【Pronunciation】", "【Etymology】",
+            "【IDIOMS】", "【派生】", "【Chinese】", "【Label】"
+        };
 
-        // Remove structured sections
-        foreach (var sec in new[] { "【Examples】", "【SeeAlso】", "【Usage】", "【Grammar】", "【Variants】", "【Pronunciation】", "【Etymology】", "【IDIOMS】", "【派生】" })
+        foreach (var sec in sections)
             text = RemoveSection(text, sec);
 
-        // English part only
-        text = text.Split('•', 2)[0];
+        // Extract English part only (before Chinese bullet)
+        var bulletSplit = text.Split('•', 2);
+        if (bulletSplit.Length > 1)
+            text = bulletSplit[0];
 
+        // Clean up remaining markers
         text = Regex.Replace(text, @"[▶»]", " ");
         text = Regex.Replace(text, @"\s+", " ").Trim();
         text = text.TrimEnd('.', ';', ':', ',');
@@ -241,30 +293,49 @@ internal static class ParsingHelperOxford
 
     private static string CleanDomainText(string domain)
     {
-        domain = Regex.Replace(domain, @"[\u4e00-\u9fff]", "");
+        domain = Regex.Replace(domain, @"[\u4e00-\u9fff]", ""); // Remove Chinese characters
         domain = Regex.Replace(domain, @"\s+", " ").Trim();
-        return domain.Trim('.', ',', ';', ':');
+        return domain.Trim('.', ',', ';', ':', '(', ')', '[', ']');
     }
 
     private static bool ContainsIpaCharacters(string text)
-        => Regex.IsMatch(text, @"[ˈˌːɑæəɛɪɔʊʌθðŋʃʒʤʧɡɜɒ]");
+        => Regex.IsMatch(text, @"[ˈˌːɑæəɛɪɔʊʌθðŋʃʒʤʧɡɜɒʁβɣɸɮɱɳɲŋʎʟʋɹɻɰʔʕʢʡɓɗʄɠʛɦɬɮɭʎʟɺɾɽʀʁʕʢʡʘǀǃǂǁ]");
 
     private static bool IsValidOxfordDomain(string domain)
     {
         if (string.IsNullOrWhiteSpace(domain))
             return false;
 
+        // Clean the domain text first
+        domain = CleanDomainText(domain);
+        domain = domain.ToLowerInvariant();
+
+        // Oxford-specific domain labels
         var keywords = new[]
         {
-            "informal","formal","technical","literary","humorous","dated","archaic",
-            "slang","colloquial","dialect","regional","chiefly","mainly","especially"
+            "informal", "formal", "technical", "literary", "humorous", "dated", "archaic",
+            "slang", "colloquial", "dialect", "regional", "chiefly", "mainly", "especially",
+            "rare", "obsolete", "vulgar", "offensive", "derogatory", "euphemistic",
+            "figurative", "ironic", "sarcastic", "law", "medicine", "biology", "chemistry",
+            "physics", "mathematics", "computing", "finance", "business", "military",
+            "nautical", "aviation", "sports", "music", "art", "philosophy", "theology"
         };
 
-        return keywords.Any(k => domain.Contains(k, StringComparison.OrdinalIgnoreCase));
+        // Check if domain starts with or contains a known keyword
+        foreach (var keyword in keywords)
+        {
+            if (domain == keyword ||
+                domain.StartsWith(keyword + " ") ||
+                domain.Contains(" " + keyword + " ") ||
+                domain.EndsWith(" " + keyword))
+                return true;
+        }
+
+        return false;
     }
 
     // ─────────────────────────────────────────────
-    // SYNONYMS (UNCHANGED, SAFE)
+    // SYNONYMS (IMPROVED HANDLING)
     // ─────────────────────────────────────────────
     public static IReadOnlyList<string>? ExtractSynonymsFromExamples(IReadOnlyList<string> examples)
     {
@@ -275,11 +346,27 @@ internal static class ParsingHelperOxford
 
         foreach (var example in examples)
         {
+            // Pattern for "X or Y" or "X (synonym of Y)" or "X, same as Y"
             foreach (Match m in Regex.Matches(example,
-                         @"\b([A-Z][a-z]+)\b\s*(?:or|synonym|same as)\s*\b([A-Z][a-z]+)\b"))
+                         @"\b([A-Z][a-z]+(?:-[A-Za-z]+)*)\b\s*(?:or|synonym of|same as|also called)\s*\b([A-Z][a-z]+(?:-[A-Za-z]+)*)\b",
+                         RegexOptions.IgnoreCase))
             {
                 set.Add(m.Groups[1].Value);
                 set.Add(m.Groups[2].Value);
+            }
+
+            // Also check for parenthetical synonyms
+            foreach (Match m in Regex.Matches(example,
+                         @"\(synonym\s*:\s*([^)]+)\)",
+                         RegexOptions.IgnoreCase))
+            {
+                var synonyms = m.Groups[1].Value.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var syn in synonyms)
+                {
+                    var cleanSyn = syn.Trim();
+                    if (!string.IsNullOrEmpty(cleanSyn))
+                        set.Add(cleanSyn);
+                }
             }
         }
 

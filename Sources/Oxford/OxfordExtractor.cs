@@ -15,6 +15,7 @@ public sealed class OxfordExtractor : IDataExtractor<OxfordRawEntry>
 
         OxfordRawEntry? currentEntry = null;
         OxfordSenseRaw? currentSense = null;
+        bool inExamplesSection = false;
 
         string? line;
         while ((line = await reader.ReadLineAsync(ct)) != null)
@@ -43,6 +44,7 @@ public sealed class OxfordExtractor : IDataExtractor<OxfordRawEntry>
                     currentEntry = null;
                 }
 
+                inExamplesSection = false;
                 continue;
             }
 
@@ -76,6 +78,7 @@ public sealed class OxfordExtractor : IDataExtractor<OxfordRawEntry>
                     VariantForms = variantForms
                 };
 
+                inExamplesSection = false;
                 continue;
             }
 
@@ -96,6 +99,7 @@ public sealed class OxfordExtractor : IDataExtractor<OxfordRawEntry>
                     SenseLabel = line.TrimStart('▶', ' ').Trim()
                 };
 
+                inExamplesSection = false;
                 continue;
             }
 
@@ -122,6 +126,7 @@ public sealed class OxfordExtractor : IDataExtractor<OxfordRawEntry>
                 foreach (var crossRef in crossRefs)
                     currentSense.CrossReferences.Add(crossRef);
 
+                inExamplesSection = false;
                 continue;
             }
 
@@ -133,24 +138,65 @@ public sealed class OxfordExtractor : IDataExtractor<OxfordRawEntry>
                     var example = OxfordSourceDataHelper.CleanExampleLine(line);
                     if (!string.IsNullOrWhiteSpace(example))
                         currentSense.Examples.Add(example);
+                    inExamplesSection = true;
                 }
 
                 continue;
             }
 
-            // ───────────────── CONTINUATION ─────────────────
-            if (currentSense != null &&
-                !line.StartsWith("【") &&
-                !line.StartsWith("◘"))
+            // ───────────────── STRUCTURED SECTION MARKER ─────────────────
+            if (line.StartsWith("【", StringComparison.Ordinal))
             {
-                if (line.StartsWith("Usage", StringComparison.OrdinalIgnoreCase) ||
-                    line.StartsWith("Note", StringComparison.OrdinalIgnoreCase))
+                // Examples, Usage, etc.
+                if (currentSense != null)
+                {
+                    if (line.StartsWith("【Examples】", StringComparison.Ordinal))
+                        inExamplesSection = true;
+                    else
+                        inExamplesSection = false;
+
+                    // Append section marker to definition
+                    if (string.IsNullOrWhiteSpace(currentSense.Definition))
+                        currentSense.Definition = line;
+                    else
+                        currentSense.Definition += "\n" + line;
+                }
+                continue;
+            }
+
+            // ───────────────── CONTINUATION LINE ─────────────────
+            if (currentSense != null)
+            {
+                if (inExamplesSection)
+                {
+                    // Continuation of example (multi-line example)
+                    if (currentSense.Examples.Count > 0)
+                    {
+                        var lastExample = currentSense.Examples.Last();
+                        currentSense.Examples[currentSense.Examples.Count - 1] =
+                            lastExample + " " + line.Trim();
+                    }
+                }
+                else if (line.StartsWith("Usage:", StringComparison.OrdinalIgnoreCase) ||
+                         line.StartsWith("Note:", StringComparison.OrdinalIgnoreCase) ||
+                         line.StartsWith("Grammar:", StringComparison.OrdinalIgnoreCase))
                 {
                     currentSense.UsageNote = line;
                 }
-                else
+                else if (line.StartsWith("IDIOM", StringComparison.OrdinalIgnoreCase) ||
+                         line.StartsWith("PHRASAL VERB", StringComparison.OrdinalIgnoreCase))
                 {
-                    currentSense.Definition += " " + line;
+                    // Start of idioms or phrasal verbs subsection
+                    if (!string.IsNullOrWhiteSpace(currentSense.Definition))
+                        currentSense.Definition += "\n" + line;
+                }
+                else if (!line.StartsWith("◘"))
+                {
+                    // Regular continuation of definition
+                    if (string.IsNullOrWhiteSpace(currentSense.Definition))
+                        currentSense.Definition = line;
+                    else
+                        currentSense.Definition += " " + line;
                 }
             }
         }

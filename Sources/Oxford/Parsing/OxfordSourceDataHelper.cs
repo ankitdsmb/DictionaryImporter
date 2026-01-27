@@ -24,17 +24,23 @@ public static class OxfordSourceDataHelper
             return false;
 
         headword = match.Groups["headword"].Value.Trim();
-        headword = Regex.Replace(headword, @"\d+\.?$", "").Trim(); // strip trailing sense numbers
+        // Remove trailing sense numbers (e.g., "word1." or "word 1")
+        headword = Regex.Replace(headword, @"\s*\d+\.?$", "").Trim();
+
+        // Also remove parenthesized numbers (e.g., "word (1)")
+        headword = Regex.Replace(headword, @"\s*\(\d+\)$", "").Trim();
 
         var rest = match.Groups["rest"].Value;
 
+        // Extract pronunciation (IPA in slashes)
         var pronMatch = PronunciationRegex.Match(rest);
         if (pronMatch.Success)
         {
-            pronunciation = pronMatch.Value;
+            pronunciation = pronMatch.Value.Trim();
             rest = rest.Replace(pronMatch.Value, "").Trim();
         }
 
+        // Extract variant forms
         var variantMatch = VariantFormsRegex.Match(rest);
         if (variantMatch.Success)
         {
@@ -51,10 +57,12 @@ public static class OxfordSourceDataHelper
         }
         else
         {
+            // Try inline POS (comma-separated at end)
             var inlinePosMatch = PartOfSpeechRegex.Match(rest);
             if (inlinePosMatch.Success)
             {
                 partOfSpeech = inlinePosMatch.Groups["pos"].Value.Trim();
+                rest = rest.Replace(inlinePosMatch.Value, "").Trim();
             }
         }
 
@@ -83,18 +91,32 @@ public static class OxfordSourceDataHelper
         senseNumber = int.Parse(senseMatch.Groups["number"].Value);
         var rest = senseMatch.Groups["rest"].Value.Trim();
 
-        // (informal), (mass noun), etc.
-        var labelMatch = SenseLabelRegex.Match(rest);
-        if (labelMatch.Success)
+        // Extract label in parentheses at the beginning
+        // Can be multi-level: "(informal, mass noun)" or "(informal) (mass noun)"
+        var labelBuilder = new List<string>();
+
+        while (true)
         {
-            senseLabel = labelMatch.Groups["label"].Value.Trim();
+            var labelMatch = SenseLabelRegex.Match(rest);
+            if (!labelMatch.Success)
+                break;
+
+            var label = labelMatch.Groups["label"].Value.Trim();
+            if (!string.IsNullOrWhiteSpace(label))
+                labelBuilder.Add(label);
+
             rest = labelMatch.Groups["rest"].Value.Trim();
         }
 
+        if (labelBuilder.Count > 0)
+            senseLabel = string.Join(", ", labelBuilder);
+
+        // Extract Chinese translation (after bullet)
         var translationMatch = ChineseTranslationRegex.Match(rest);
         if (translationMatch.Success)
         {
             chineseTranslation = translationMatch.Groups["translation"].Value.Trim();
+            rest = rest[..translationMatch.Index].Trim();
         }
 
         definition = rest;
@@ -105,11 +127,20 @@ public static class OxfordSourceDataHelper
         => !string.IsNullOrWhiteSpace(line) && line.StartsWith("»", StringComparison.Ordinal);
 
     public static string CleanExampleLine(string line)
-        => string.IsNullOrWhiteSpace(line) ? string.Empty : line.TrimStart('»', ' ').Trim();
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return string.Empty;
+
+        line = line.TrimStart('»', ' ').Trim();
+        // Remove trailing source citations like [OALD]
+        line = Regex.Replace(line, @"\s*\[[^\]]+\]$", "");
+        return line;
+    }
 
     public static bool IsEntrySeparator(string line)
         => !string.IsNullOrWhiteSpace(line) &&
-           line.StartsWith("————————————", StringComparison.Ordinal);
+           (line.StartsWith("────────", StringComparison.Ordinal) ||
+            line.StartsWith("========", StringComparison.Ordinal));
 
     public static IReadOnlyList<string> ExtractCrossReferences(string text)
     {
@@ -134,33 +165,84 @@ public static class OxfordSourceDataHelper
 
         var pos = rawPos.ToLowerInvariant().Trim();
 
+        // Remove parenthetical qualifiers
+        pos = Regex.Replace(pos, @"\s*\([^)]*\)", "").Trim();
+
         var posMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["noun"] = "noun",
             ["n"] = "noun",
             ["n."] = "noun",
+            ["mass noun"] = "noun",
+            ["count noun"] = "noun",
+            ["uncountable noun"] = "noun",
+            ["countable noun"] = "noun",
+            ["plural noun"] = "noun",
+            ["proper noun"] = "noun",
+
             ["verb"] = "verb",
             ["v"] = "verb",
             ["v."] = "verb",
+            ["intransitive verb"] = "verb",
+            ["transitive verb"] = "verb",
+            ["linking verb"] = "verb",
+            ["modal verb"] = "verb",
+            ["phrasal verb"] = "verb",
+
             ["adjective"] = "adj",
             ["adj"] = "adj",
             ["adj."] = "adj",
+
             ["adverb"] = "adv",
             ["adv"] = "adv",
             ["adv."] = "adv",
+
             ["exclamation"] = "exclamation",
             ["interjection"] = "exclamation",
+
             ["for abbreviation"] = "abbreviation",
             ["abbreviation"] = "abbreviation",
             ["abbr"] = "abbreviation",
             ["abbr."] = "abbreviation",
-            ["mass noun"] = "noun",
-            ["count noun"] = "noun",
+            ["initialism"] = "abbreviation",
+            ["acronym"] = "abbreviation",
+
             ["prefix"] = "prefix",
             ["suffix"] = "suffix",
+            ["combining form"] = "combining form",
+
             ["numeral"] = "numeral",
             ["num"] = "numeral",
-            ["num."] = "numeral"
+            ["num."] = "numeral",
+            ["cardinal number"] = "numeral",
+            ["ordinal number"] = "numeral",
+
+            ["pronoun"] = "pronoun",
+            ["pron"] = "pronoun",
+            ["pron."] = "pronoun",
+
+            ["conjunction"] = "conjunction",
+            ["conj"] = "conjunction",
+            ["conj."] = "conjunction",
+
+            ["preposition"] = "preposition",
+            ["prep"] = "preposition",
+            ["prep."] = "preposition",
+
+            ["determiner"] = "determiner",
+            ["det"] = "determiner",
+            ["det."] = "determiner",
+
+            ["article"] = "article",
+            ["definite article"] = "article",
+            ["indefinite article"] = "article",
+
+            ["idiom"] = "idiom",
+            ["phrasal"] = "idiom",
+
+            ["symbol"] = "symbol",
+            ["sym"] = "symbol",
+            ["sym."] = "symbol"
         };
 
         return posMap.TryGetValue(pos, out var normalized)
@@ -172,35 +254,39 @@ public static class OxfordSourceDataHelper
 
     // ★☆☆   East Timor1. ...
     // ★☆☆   East-West▶ adjective
+    // Handles optional sense numbers after headword
     private static readonly Regex HeadwordRegex =
-        new(@"^★+☆+\s+(?<headword>[^\d▶]+)\s*(?:▶\s*)?(?<rest>.*)$",
+        new(@"^★+☆+\s+(?<headword>[^\d▶]+?)(?:\s*\d+\.?)?\s*(?:▶\s*)?(?<rest>.*)$",
             RegexOptions.Compiled);
 
     private static readonly Regex PronunciationRegex =
-        new(@"/[^/]+/", RegexOptions.Compiled);
+        new(@"/[^/\n]+/", RegexOptions.Compiled);
 
     private static readonly Regex SenseNumberRegex =
         new(@"^(?<number>\d+)\.\s*(?<rest>.+)$", RegexOptions.Compiled);
 
+    // Matches parentheses at the beginning of a string
     private static readonly Regex SenseLabelRegex =
         new(@"^\((?<label>[^)]+)\)\s*(?<rest>.+)$", RegexOptions.Compiled);
 
     private static readonly Regex ChineseTranslationRegex =
         new(@"•\s*(?<translation>.+)$", RegexOptions.Compiled);
 
+    // Matches POS at end after comma
     private static readonly Regex PartOfSpeechRegex =
-        new(@",\s*(?<pos>\w+)$", RegexOptions.Compiled);
+        new(@",\s*(?<pos>\w+(?:\s+\w+)*?)$", RegexOptions.Compiled);
 
+    // Handles Oxford's block POS markers
     private static readonly Regex BlockPartOfSpeechRegex =
-        new(@"▶\s*(?<pos>for abbreviation|adjective|noun|verb|adverb|exclamation)",
+        new(@"▶\s*(?<pos>for abbreviation|adjective|noun|verb|adverb|exclamation|interjection|preposition|conjunction|pronoun|determiner|numeral|prefix|suffix|combining form|idiom|phrasal verb)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex VariantFormsRegex =
-        new(@"\((?:也作|亦作)\s*(?<variant>[^)]+)\)",
-            RegexOptions.Compiled);
+        new(@"(?:\(|（)(?:also|也作|亦作|又作)\s*(?<variant>[^)）]+)(?:\)|）)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex CrossReferenceRegex =
-        new(@"\b(?:see|cf\.|compare)\s+(?<word>\b[A-Z][a-z]+\b)",
+        new(@"\b(?:see|cf\.|compare|also|syn\.|synonym)\s+(?<word>\b[A-Z][A-Za-z\-']+\b)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     #endregion Compiled Regex Patterns

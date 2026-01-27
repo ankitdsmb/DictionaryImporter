@@ -15,6 +15,7 @@ public class ParsedDefinition
 
     // FIXED: Change to IReadOnlyList
     public IReadOnlyList<CrossReference>? CrossReferences { get; set; } = new List<CrossReference>();
+
     public IReadOnlyList<string>? Synonyms { get; set; } = new List<string>();
     public IReadOnlyList<string>? Examples { get; set; } = new List<string>();
 
@@ -23,11 +24,13 @@ public class ParsedDefinition
 
     // Add these properties for non-English text handling
     public bool HasNonEnglishText { get; set; }
+
     public long? NonEnglishTextId { get; set; }
     public string? SourceCode { get; set; }
 
     // Helper properties
     public string? SelfKey { get; set; }
+
     public string? ParentKey { get; set; }
     public string? PartOfSpeech { get; set; }
     public string? DetectedLanguages { get; set; }

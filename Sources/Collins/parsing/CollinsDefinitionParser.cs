@@ -10,8 +10,15 @@ public sealed class CollinsDefinitionParser(ILogger<CollinsDefinitionParser> log
 
     public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
     {
+        if (entry == null)
+        {
+            logger?.LogWarning("Received null entry");
+            yield break;
+        }
+
         if (string.IsNullOrWhiteSpace(entry.Definition))
         {
+            logger?.LogDebug("Empty definition for entry: {Word}", entry.Word);
             yield return CreateFallbackParsedDefinition(entry);
             yield break;
         }
@@ -20,7 +27,24 @@ public sealed class CollinsDefinitionParser(ILogger<CollinsDefinitionParser> log
 
         try
         {
-            results.Add(ParsingHelperCollins.BuildParsedDefinition(entry));
+            // First clean the definition of Chinese characters
+            var cleanedDefinition = CollinsExtractor.RemoveChineseCharacters(entry.Definition);
+
+            // Create a copy with cleaned definition for parsing
+            var cleanedEntry = new DictionaryEntry
+            {
+                Word = entry.Word,
+                NormalizedWord = entry.NormalizedWord,
+                PartOfSpeech = entry.PartOfSpeech,
+                Definition = cleanedDefinition,
+                SenseNumber = entry.SenseNumber,
+                SourceCode = entry.SourceCode,
+                CreatedUtc = entry.CreatedUtc,
+                RawFragment = cleanedDefinition
+            };
+
+            var parsedDefinition = ParsingHelperCollins.BuildParsedDefinition(cleanedEntry);
+            results.Add(parsedDefinition);
         }
         catch (Exception ex)
         {
