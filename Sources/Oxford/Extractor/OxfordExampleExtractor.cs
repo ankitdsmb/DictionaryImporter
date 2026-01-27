@@ -1,10 +1,5 @@
-﻿// File: Sources/Oxford/Extractor/OxfordExampleExtractor.cs
-
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.RegularExpressions;
-using DictionaryImporter.Domain.Models;
+﻿using DictionaryImporter.Common;
+using DictionaryImporter.Sources.Common.Helper;
 
 namespace DictionaryImporter.Sources.Oxford.Extractor;
 
@@ -16,10 +11,7 @@ public sealed class OxfordExampleExtractor : IExampleExtractor
     {
         var examples = new List<string>();
 
-        if (parsed == null)
-            return examples;
-
-        if (string.IsNullOrWhiteSpace(parsed.RawFragment))
+        if (parsed == null || string.IsNullOrWhiteSpace(parsed.RawFragment))
             return examples;
 
         var lines = parsed.RawFragment.Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -29,6 +21,7 @@ public sealed class OxfordExampleExtractor : IExampleExtractor
         {
             var trimmed = line.Trim();
 
+            // Start of examples section
             if (trimmed.StartsWith("【Examples】", StringComparison.OrdinalIgnoreCase))
             {
                 inExamplesSection = true;
@@ -38,38 +31,39 @@ public sealed class OxfordExampleExtractor : IExampleExtractor
             if (!inExamplesSection)
                 continue;
 
-            // stop on next section or blank
-            if (trimmed.StartsWith("【") || string.IsNullOrWhiteSpace(trimmed))
+            // Stop at next section header
+            if (trimmed.StartsWith("【"))
                 break;
 
+            // Oxford bullet marker
             if (!trimmed.StartsWith("»"))
                 continue;
 
-            var example = trimmed.Substring(1).Trim();
-
+            var example = trimmed[1..].Trim();
             if (string.IsNullOrWhiteSpace(example))
                 continue;
 
-            // FIX: never allow placeholder examples
+            // Reject placeholders
             if (IsPlaceholderExample(example))
                 continue;
 
-            // FIX: skip bilingual/non-English example lines (they don't belong in DictionaryEntryExample.ExampleText)
+            // Reject bilingual / non-English examples
             if (ContainsCjk(example))
                 continue;
 
-            // Normalize whitespace
+            // Normalize whitespace early
             example = Regex.Replace(example, @"\s+", " ").Trim();
 
-            if (example.Length == 0)
+            // ✅ Normalize + validate using shared extensions
+            example = example.NormalizeExample();
+
+            if (!example.IsValidExampleSentence())
                 continue;
 
             examples.Add(example);
         }
 
         return examples
-            .Where(e => !string.IsNullOrWhiteSpace(e))
-            .Select(e => e.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -82,14 +76,13 @@ public sealed class OxfordExampleExtractor : IExampleExtractor
         var t = text.Trim();
 
         return t.Equals("[NON_ENGLISH]", StringComparison.OrdinalIgnoreCase)
-               || t.Equals("[BILINGUAL_EXAMPLE]", StringComparison.OrdinalIgnoreCase)
-               || t.Equals("NON_ENGLISH", StringComparison.OrdinalIgnoreCase)
-               || t.Equals("BILINGUAL_EXAMPLE", StringComparison.OrdinalIgnoreCase);
+            || t.Equals("[BILINGUAL_EXAMPLE]", StringComparison.OrdinalIgnoreCase)
+            || t.Equals("NON_ENGLISH", StringComparison.OrdinalIgnoreCase)
+            || t.Equals("BILINGUAL_EXAMPLE", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ContainsCjk(string text)
     {
-        // Chinese / Japanese / Korean Unicode ranges (simple, fast check)
         foreach (var ch in text)
         {
             // CJK Unified Ideographs

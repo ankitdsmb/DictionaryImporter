@@ -29,8 +29,11 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
 
             foreach (var block in blocks)
             {
-                var headword = ParsingHelperGutenberg.ExtractHeadwordFromBlock(block);
+                // 🔒 Prevent foreign headword bleed (AB-, AB, etc.)
+                if (ParsingHelperGutenberg.IsForeignHeadwordBlock(block, entry.Word))
+                    continue;
 
+                var headword = ParsingHelperGutenberg.ExtractHeadwordFromBlock(block);
                 if (string.IsNullOrWhiteSpace(headword))
                     headword = entry.Word;
 
@@ -42,10 +45,6 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
                     partOfSpeech = ParsingHelperGutenberg.ExtractFallbackPartOfSpeech(entry);
 
                 var definitions = ParsingHelperGutenberg.ExtractDefinitions(block);
-
-                // ✅ IMPORTANT FIX:
-                // If no usable definitions extracted -> skip block
-                // Do NOT insert fake row "No definition available."
                 if (definitions == null || definitions.Count == 0)
                     continue;
 
@@ -57,46 +56,57 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
 
                 var subSenseIndex = 0;
 
-                foreach (var defText in definitions)
+                foreach (var rawDef in definitions)
                 {
+                    var defText = rawDef?.Trim();
+                    if (string.IsNullOrWhiteSpace(defText))
+                        continue;
+
+                    // ❌ Skip domain-only or junk definitions
+                    if (ParsingHelperGutenberg.IsDomainOnlyDefinition(defText))
+                        continue;
+
+                    // ✂ Split usage label from definition
+                    var (cleanDefinition, usageLabel) =
+                        ParsingHelperGutenberg.SplitUsageFromDefinition(defText);
+
+                    if (string.IsNullOrWhiteSpace(cleanDefinition))
+                        continue;
+
                     subSenseIndex++;
 
-                    var finalSenseNum = subSenseIndex;
-                    if (entry.SenseNumber > 0)
-                        finalSenseNum = entry.SenseNumber;
+                    var finalSenseNum = entry.SenseNumber > 0
+                        ? entry.SenseNumber
+                        : subSenseIndex;
 
-                    var parsed = new ParsedDefinition
+                    results.Add(new ParsedDefinition
                     {
-                        // ✅ IMPORTANT FIX:
-                        // MeaningTitle must not be headword. Keep empty.
-                        // Your UI already has headword in DictionaryEntry.Word.
-                        MeaningTitle = string.Empty,
-
-                        Definition = defText,
+                        MeaningTitle = string.Empty, // never the headword
+                        Definition = cleanDefinition,
                         RawFragment = block,
                         SenseNumber = finalSenseNum,
                         PartOfSpeech = partOfSpeech,
                         Etymology = etymology,
                         Pronunciation = pronunciation,
                         Domain = domains?.FirstOrDefault(),
-                        UsageLabel = null,
+                        UsageLabel = usageLabel,
                         CrossReferences = new List<CrossReference>(),
                         Synonyms = synonyms ?? new List<string>(),
                         Alias = null,
                         Examples = examples ?? new List<string>(),
-                        DedupKey = ParsingHelperGutenberg.GenerateDedupKey(headword, partOfSpeech, SourceCode)
-                    };
-
-                    results.Add(parsed);
+                        DedupKey = ParsingHelperGutenberg.GenerateDedupKey(
+                            headword,
+                            partOfSpeech,
+                            SourceCode)
+                    });
                 }
             }
 
             if (results.Count == 0)
             {
-                logger?.LogWarning("No definitions extracted from Gutenberg entry: {Word}", entry.Word);
-
-                // ✅ IMPORTANT FIX:
-                // Return empty, do NOT add fallback nonsense rows.
+                logger?.LogWarning(
+                    "No usable definitions extracted from Gutenberg entry: {Word}",
+                    entry.Word);
                 return Array.Empty<ParsedDefinition>();
             }
 
@@ -104,10 +114,10 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
         }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Failed to parse Gutenberg entry: {Word}", entry.Word);
+            logger?.LogError(ex,
+                "Failed to parse Gutenberg entry: {Word}",
+                entry.Word);
 
-            // ✅ IMPORTANT FIX:
-            // Return empty, do NOT add fallback nonsense rows.
             return Array.Empty<ParsedDefinition>();
         }
     }

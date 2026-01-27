@@ -22,22 +22,20 @@ public sealed class OxfordExtractor : IDataExtractor<OxfordRawEntry>
             ct.ThrowIfCancellationRequested();
 
             line = line.Trim();
-
             if (string.IsNullOrWhiteSpace(line))
                 continue;
 
+            // ───────────────── ENTRY SEPARATOR ─────────────────
             if (OxfordSourceDataHelper.IsEntrySeparator(line))
             {
+                if (currentSense != null && currentEntry != null)
+                {
+                    currentEntry.Senses.Add(currentSense);
+                    currentSense = null;
+                }
+
                 if (currentEntry != null)
                 {
-                    // flush current sense before yielding entry
-                    if (currentSense != null)
-                    {
-                        currentEntry.Senses.Add(currentSense);
-                        currentSense = null;
-                    }
-
-                    // ✅ STRICT: stop reading file once limit reached
                     if (!Helper.ShouldContinueProcessing(SourceCode, null))
                         yield break;
 
@@ -48,6 +46,7 @@ public sealed class OxfordExtractor : IDataExtractor<OxfordRawEntry>
                 continue;
             }
 
+            // ───────────────── HEADWORD LINE ─────────────────
             if (OxfordSourceDataHelper.TryParseHeadwordLine(
                     line,
                     out var headword,
@@ -55,16 +54,14 @@ public sealed class OxfordExtractor : IDataExtractor<OxfordRawEntry>
                     out var partOfSpeech,
                     out var variantForms))
             {
-                // flush old entry (with last pending sense)
+                if (currentSense != null && currentEntry != null)
+                {
+                    currentEntry.Senses.Add(currentSense);
+                    currentSense = null;
+                }
+
                 if (currentEntry != null)
                 {
-                    if (currentSense != null)
-                    {
-                        currentEntry.Senses.Add(currentSense);
-                        currentSense = null;
-                    }
-
-                    // ✅ STRICT: stop reading file once limit reached
                     if (!Helper.ShouldContinueProcessing(SourceCode, null))
                         yield break;
 
@@ -79,13 +76,30 @@ public sealed class OxfordExtractor : IDataExtractor<OxfordRawEntry>
                     VariantForms = variantForms
                 };
 
-                currentSense = null;
                 continue;
             }
 
             if (currentEntry == null)
                 continue;
 
+            // ───────────────── POS BLOCK HEADER ─────────────────
+            if (line.StartsWith("▶", StringComparison.Ordinal))
+            {
+                if (currentSense != null)
+                {
+                    currentEntry.Senses.Add(currentSense);
+                    currentSense = null;
+                }
+
+                currentSense = new OxfordSenseRaw
+                {
+                    SenseLabel = line.TrimStart('▶', ' ').Trim()
+                };
+
+                continue;
+            }
+
+            // ───────────────── NUMBERED SENSE ─────────────────
             if (OxfordSourceDataHelper.TryParseSenseLine(
                     line,
                     out var senseNumber,
@@ -99,7 +113,7 @@ public sealed class OxfordExtractor : IDataExtractor<OxfordRawEntry>
                 currentSense = new OxfordSenseRaw
                 {
                     SenseNumber = senseNumber,
-                    SenseLabel = senseLabel,
+                    SenseLabel = senseLabel ?? currentSense?.SenseLabel,
                     Definition = definition,
                     ChineseTranslation = chineseTranslation
                 };
@@ -111,18 +125,21 @@ public sealed class OxfordExtractor : IDataExtractor<OxfordRawEntry>
                 continue;
             }
 
+            // ───────────────── EXAMPLE LINE ─────────────────
             if (OxfordSourceDataHelper.IsExampleLine(line))
             {
-                var example = OxfordSourceDataHelper.CleanExampleLine(line);
-
-                if (!string.IsNullOrWhiteSpace(example) && currentSense != null)
-                    currentSense.Examples.Add(example);
+                if (currentSense != null)
+                {
+                    var example = OxfordSourceDataHelper.CleanExampleLine(line);
+                    if (!string.IsNullOrWhiteSpace(example))
+                        currentSense.Examples.Add(example);
+                }
 
                 continue;
             }
 
+            // ───────────────── CONTINUATION ─────────────────
             if (currentSense != null &&
-                !string.IsNullOrWhiteSpace(line) &&
                 !line.StartsWith("【") &&
                 !line.StartsWith("◘"))
             {
@@ -138,13 +155,15 @@ public sealed class OxfordExtractor : IDataExtractor<OxfordRawEntry>
             }
         }
 
-        // flush last entry at EOF
+        // ───────────────── EOF FLUSH ─────────────────
+        if (currentSense != null && currentEntry != null)
+        {
+            currentEntry.Senses.Add(currentSense);
+            currentSense = null;
+        }
+
         if (currentEntry != null)
         {
-            if (currentSense != null)
-                currentEntry.Senses.Add(currentSense);
-
-            // ✅ STRICT: stop reading file once limit reached
             if (!Helper.ShouldContinueProcessing(SourceCode, null))
                 yield break;
 

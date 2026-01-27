@@ -1,4 +1,10 @@
-﻿using DictionaryImporter.Common.SourceHelper;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+using DictionaryImporter.Common;
+using DictionaryImporter.Common.SourceHelper;
+using DictionaryImporter.Sources.Common.Helper;
 
 namespace DictionaryImporter.Sources.Collins.Extractor;
 
@@ -13,22 +19,24 @@ public sealed class CollinsExampleExtractor : IExampleExtractor
 
         // ✅ Always prefer RawFragment for Collins
         var raw = parsed.RawFragment;
-
         if (string.IsNullOrWhiteSpace(raw))
             raw = parsed.Definition;
 
         if (string.IsNullOrWhiteSpace(raw))
             return new List<string>();
 
-        // ✅ Main extraction using shared helper
         var examples = ParsingHelperCollins.ExtractExamples(raw)
-            .Select(NormalizeForDedupe)
+            .Select(e => e.NormalizeExample())          // 🔴 unified normalization
             .Where(e => !string.IsNullOrWhiteSpace(e))
             .Where(e => !IsPlaceholder(e))
+            .Where(e => e.IsValidExampleSentence())     // 🔴 semantic filter
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-        return examples;
+        return examples
+            .Select(e => e.NormalizeExample())
+            .Where(e => e.IsValidExampleSentence())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private static bool IsPlaceholder(string text)
@@ -40,34 +48,5 @@ public sealed class CollinsExampleExtractor : IExampleExtractor
                || text.StartsWith("[BILINGUAL_", StringComparison.OrdinalIgnoreCase)
                || text.Equals("[NON_ENGLISH]", StringComparison.OrdinalIgnoreCase)
                || text.Equals("[BILINGUAL_EXAMPLE]", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string NormalizeForDedupe(string example)
-    {
-        if (string.IsNullOrWhiteSpace(example))
-            return string.Empty;
-
-        var t = example.Trim();
-
-        // collapse whitespace
-        t = Regex.Replace(t, @"\s+", " ").Trim();
-
-        // normalize apostrophes
-        t = t.Replace("’", "'");
-
-        // remove wrapping quotes
-        t = t.Trim('\"', '\'', '“', '”', '‘', '’');
-
-        // remove trailing punctuation duplicates
-        t = t.TrimEnd('.', ',', ';', ':');
-
-        // add a sentence end if missing
-        if (!t.EndsWith(".") && !t.EndsWith("!") && !t.EndsWith("?"))
-            t += ".";
-
-        if (t.Length > 800)
-            t = t.Substring(0, 800).Trim();
-
-        return t;
     }
 }

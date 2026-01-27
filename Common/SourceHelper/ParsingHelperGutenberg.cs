@@ -19,15 +19,18 @@ public static class ParsingHelperGutenberg
 
     // Sense and definition patterns
     private static readonly Regex RxSenseNumberLine = new(@"^\s*(?<num>\d+)\.\s*(?<content>.+)$", RxCM);
+
     private static readonly Regex RxLetterSenseLine = new(@"^\s*(?<letter>[a-z])\.\s*(?<content>.+)$", RxCM);
     private static readonly Regex RxNumberOnlyLine = new(@"^\s*\d+\.\s*$", RxCM);
 
     // Definition markers
     private static readonly Regex RxDefnMarker = new(@"^\s*Defn:\s*(?<content>.+)$", RxCIM);
+
     private static readonly Regex RxDefinitionMarker = new(@"^\s*Definition:\s*(?<content>.+)$", RxCIM);
 
     // Etymology patterns
     private static readonly Regex RxEtymologyMarker = new(@"^\s*Etym:\s*(?<content>.+)$", RxCIM);
+
     private static readonly Regex RxEtymologyBracket = new(@"Etym:\s*\[(?<etym>[^\]]+)\]", RxCI);
     private static readonly Regex RxEtymologyFrom = new(@"^\s*From\s+(?<lang>[A-Z][a-z]+)\s+(?<word>[A-Za-z\-']+)", RxCIM);
 
@@ -62,6 +65,7 @@ public static class ParsingHelperGutenberg
 
     // Domain/category patterns
     private static readonly Regex RxDomainOnlyLine = new(@"^\((?<domain>[A-Za-z][A-Za-z\- ]*)\.\)$", RxC);
+
     private static readonly Regex RxDomainInParens = new(@"\((?<domain>[A-Za-z][A-Za-z\-\s]+)\.\)", RxC);
 
     // Example patterns
@@ -76,6 +80,7 @@ public static class ParsingHelperGutenberg
 
     // Cleaning patterns
     private static readonly Regex RxMultipleSpacesSameLine = new(@"[ \t]{2,}", RxC);
+
     private static readonly Regex RxHyphenatedLineBreak = new(@"(\w+)-\s*\n\s*(\w+)", RxC);
     private static readonly Regex RxLeadingPunctuation = new(@"^[\.\-,;:\s]+", RxC);
     private static readonly Regex RxTrailingPunctuation = new(@"[\.\-,;:\s]+$", RxC);
@@ -91,6 +96,9 @@ public static class ParsingHelperGutenberg
     // NEW METHOD (added) uses this regex
     private static readonly Regex RxMorphologyInlineNoise =
         new(@"\b(?:imp\.|p\.p\.|p\.pr\.|vb\.n\.|pl\.|sing\.|comp\.|superl\.)\b", RxCI);
+
+    private static readonly Regex RxGutenbergShortHeadword =
+        new(@"^[A-Z][a-z]?\s+[A-Z][a-z]?,\s*n\.", RegexOptions.Compiled);
 
     private static readonly string[] NonEnglishPatterns =
     {
@@ -112,7 +120,7 @@ public static class ParsingHelperGutenberg
     private static readonly Regex RxHeaderLine =
         new(@"^[A-Za-z""'\-\*`#\s]+\s*,\s*(v\.t\.|v\.i\.|v\.|n\.|a\.|adj\.|adv\.|prep\.)", RxCI);
 
-    #endregion
+    #endregion Regex Patterns (Compiled for Performance)
 
     #region Constants
 
@@ -136,7 +144,7 @@ public static class ParsingHelperGutenberg
         "Geol", "Gram", "Arch", "Mining", "Mach", "Paint", "Print"
     };
 
-    #endregion
+    #endregion Constants
 
     #region Core Parsing Methods
 
@@ -273,106 +281,94 @@ public static class ParsingHelperGutenberg
         if (string.IsNullOrWhiteSpace(rawFragment))
             return definitions;
 
-        var cleanedFragment = CleanRawFragment(rawFragment);
-        var blocks = SplitIntoEntryBlocks(cleanedFragment);
-        var entryBlock = blocks.Count > 0 ? blocks[0] : cleanedFragment;
-
-        // Remove synonyms & etymology before extracting definitions
-        entryBlock = RxSynonymsSection.Replace(entryBlock, "");
-        entryBlock = RemoveEtymologyLines(entryBlock);
-
-        // Remove morphology/inflection blocks
-        entryBlock = RxMorphologyBracketBlock.Replace(entryBlock, "");
-
-        var lines = NormalizeNewLines(entryBlock)
+        var cleaned = CleanRawFragment(rawFragment);
+        var lines = NormalizeNewLines(cleaned)
             .Split('\n')
             .Select(l => (l ?? string.Empty).Trim())
+            .Where(l => l.Length > 0)
             .ToList();
 
-        var senseLines = new List<(int Sense, string Text)>();
+        var buffer = new List<string>();
+        var started = false;
+        var headwordSeen = false;
 
-        for (int i = 0; i < lines.Count; i++)
+        foreach (var line in lines)
         {
-            var line = lines[i];
-            if (string.IsNullOrWhiteSpace(line))
-                continue;
+            // 🔴 HARD STOP: new Gutenberg headword = new entry
+            if (headwordSeen && IsNewGutenbergHeadword(line))
+                break;
 
-            if (line.Length > MaxRawLineLength)
-                line = line[..MaxRawLineLength];
-
-            if (RxAllCapsHeadwordLine.IsMatch(line) && LooksLikeRealHeadwordLine(line))
-                continue;
-
-            if (RxPronunciationPosLine.IsMatch(line))
-                continue;
-
-            if (RxDomainOnlyLine.IsMatch(line))
-                continue;
-
-            if (IsMetadataLine(line))
-                continue;
-
-            if (RxNumberOnlyLine.IsMatch(line))
-                continue;
-
-            var defnMatch = RxDefnMarker.Match(line);
-            if (defnMatch.Success)
+            // First headword
+            if (!headwordSeen && IsNewGutenbergHeadword(line))
             {
-                var content = defnMatch.Groups["content"].Value.Trim();
-                if (!string.IsNullOrWhiteSpace(content))
-                    senseLines.Add((senseLines.Count + 1, content));
+                headwordSeen = true;
                 continue;
             }
 
-            var senseMatch = RxSenseNumberLine.Match(line);
-            if (senseMatch.Success)
-            {
-                var numRaw = senseMatch.Groups["num"].Value;
-                if (!int.TryParse(numRaw, out var senseNum))
-                    senseNum = senseLines.Count + 1;
+            // Skip junk
+            if (RxPronunciationPosLine.IsMatch(line)) continue;
+            if (RxDomainOnlyLine.IsMatch(line)) continue;
+            if (IsMetadataLine(line)) continue;
 
-                var content = senseMatch.Groups["content"].Value.Trim();
-                if (!string.IsNullOrWhiteSpace(content))
-                    senseLines.Add((senseNum, content));
+            // Etymology starts definition zone but is not definition
+            if (line.StartsWith("Etym:", StringComparison.OrdinalIgnoreCase))
+            {
+                started = true;
                 continue;
             }
 
-            var letterMatch = RxLetterSenseLine.Match(line);
-            if (letterMatch.Success)
+            // Defn:
+            if (line.StartsWith("Defn:", StringComparison.OrdinalIgnoreCase))
             {
-                var content = letterMatch.Groups["content"].Value.Trim();
-                if (!string.IsNullOrWhiteSpace(content))
-                    senseLines.Add((senseLines.Count + 1, content));
-                continue;
-            }
+                started = true;
 
-            if (senseLines.Count > 0)
-            {
-                if (ShouldAppendContinuationLine(line))
+                if (buffer.Count > 0)
                 {
-                    var last = senseLines[^1];
-                    senseLines[^1] = (last.Sense, $"{last.Text} {line}".Trim());
+                    var def = CleanDefinition(string.Join(" ", buffer));
+                    if (IsGoodDefinition(def))
+                        definitions.Add(def);
+                    buffer.Clear();
                 }
+
+                buffer.Add(line[5..].Trim());
                 continue;
             }
 
-            if (IsCandidateDefinitionLine(line))
+            // Numbered sense
+            if (Regex.IsMatch(line, @"^\d+\.\s+"))
             {
-                senseLines.Add((1, line));
+                started = true;
+
+                if (buffer.Count > 0)
+                {
+                    var def = CleanDefinition(string.Join(" ", buffer));
+                    if (IsGoodDefinition(def))
+                        definitions.Add(def);
+                    buffer.Clear();
+                }
+
+                buffer.Add(Regex.Replace(line, @"^\d+\.\s+", "").Trim());
+                continue;
             }
+
+            if (!started)
+                continue;
+
+            buffer.Add(line);
         }
 
-        foreach (var s in senseLines)
+        if (buffer.Count > 0)
         {
-            var def = CleanDefinition(s.Text);
+            var def = CleanDefinition(string.Join(" ", buffer));
             if (IsGoodDefinition(def))
                 definitions.Add(def);
         }
 
         return definitions
-            .Where(IsGoodDefinition)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(d => d.Length > MaxDefinitionLength ? d[..MaxDefinitionLength].TrimEnd() + "..." : d)
+            .Select(d => d.Length > MaxDefinitionLength
+                ? d[..MaxDefinitionLength].TrimEnd() + "..."
+                : d)
             .ToList();
     }
 
@@ -551,18 +547,50 @@ public static class ParsingHelperGutenberg
         return domains.Select(d => d.ToLowerInvariant()).ToList();
     }
 
-    #endregion
+    #endregion Core Parsing Methods
 
     #region Gutenberg Transformer Helper Methods (NEW)
 
-    // ✅ Used ONLY by GutenbergWebsterTransformer
+    private static readonly Regex RxGutenbergAllCapsHeadword =
+        new(@"^[A-Z][A-Z0-9\s'\-;,&\.]{1,78}$", RegexOptions.Compiled);
+
+    private static readonly Regex RxGutenbergCapitalizedHeadword =
+        new(@"^[A-Z][a-z]+(?:[\s\-'][A-Z][a-z]+)*\s*,\s*(n|v|a|adj|adv)\.",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex RxGutenbergPrefixHeadword =
+        new(@"^[A-Z]{1,5}-$", RegexOptions.Compiled);
+
+    private static bool IsNewGutenbergHeadword(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return false;
+
+        var t = line.Trim();
+
+        if (t.Length < 2 || t.Length > 80)
+            return false;
+
+        if (RxGutenbergAllCapsHeadword.IsMatch(t))
+            return true;
+
+        if (RxGutenbergCapitalizedHeadword.IsMatch(t))
+            return true;
+
+        if (RxGutenbergPrefixHeadword.IsMatch(t))
+            return true;
+
+        if (RxGutenbergShortHeadword.IsMatch(t))
+            return true;
+
+        return false;
+    }
+
     public static IEnumerable<string> ExtractDefinitionsFromRawLines(List<string> lines)
     {
-        if (lines == null || lines.Count == 0)
-            yield break;
-
         var buffer = new List<string>();
         var started = false;
+        var headwordSeen = false;
 
         foreach (var rawLine in lines)
         {
@@ -570,27 +598,28 @@ public static class ParsingHelperGutenberg
             if (line.Length == 0)
                 continue;
 
-            if (!started && LooksLikeGutenbergHeaderLine(line))
-                continue;
+            // 🔴 STOP: new headword after first one
+            if (headwordSeen && IsNewGutenbergHeadword(line))
+                break;
 
-            // ✅ SKIP Etym: completely (never becomes a meaning definition)
+            // detect first headword
+            if (!headwordSeen && IsNewGutenbergHeadword(line))
+            {
+                headwordSeen = true;
+                continue;
+            }
+
+            // skip etymology blocks
             if (line.StartsWith("Etym:", StringComparison.OrdinalIgnoreCase))
             {
-                if (buffer.Count > 0)
-                {
-                    yield return string.Join(" ", buffer).Trim();
-                    buffer.Clear();
-                }
-
                 started = true;
                 continue;
             }
 
-            // ✅ Defn: starts a new definition
+            // Defn:
             if (line.StartsWith("Defn:", StringComparison.OrdinalIgnoreCase))
             {
                 started = true;
-
                 if (buffer.Count > 0)
                 {
                     yield return string.Join(" ", buffer).Trim();
@@ -601,11 +630,10 @@ public static class ParsingHelperGutenberg
                 continue;
             }
 
-            // ✅ Numbered definition starts a new definition
+            // Numbered senses
             if (Regex.IsMatch(line, @"^\d+\.\s+"))
             {
                 started = true;
-
                 if (buffer.Count > 0)
                 {
                     yield return string.Join(" ", buffer).Trim();
@@ -655,14 +683,14 @@ public static class ParsingHelperGutenberg
 
         cleaned = RxDefnMarker.Replace(cleaned, "${content}");
         cleaned = RxDefinitionMarker.Replace(cleaned, "${content}");
-
         cleaned = RxMultipleSpacesSameLine.Replace(cleaned, " ").Trim();
 
-        // Fix: missing boundary between definition and example/citation
         cleaned = FixMissingDefinitionExampleBoundary(cleaned);
 
-        if (!string.IsNullOrWhiteSpace(cleaned) &&
-            !cleaned.EndsWith(".") &&
+        // ✅ FIX: strip smart quotes before punctuation enforcement
+        cleaned = cleaned.TrimEnd('”', '’', '»', '″', '"', '\'');
+
+        if (!cleaned.EndsWith(".") &&
             !cleaned.EndsWith("!") &&
             !cleaned.EndsWith("?"))
         {
@@ -684,7 +712,7 @@ public static class ParsingHelperGutenberg
         return d.Trim();
     }
 
-    #endregion
+    #endregion Gutenberg Transformer Helper Methods (NEW)
 
     #region Cleaning Methods
 
@@ -733,13 +761,17 @@ public static class ParsingHelperGutenberg
         cleaned = RxTrailingPunctuation.Replace(cleaned, "");
 
         cleaned = RemoveInlineMorphologyNoise(cleaned);
-
         cleaned = RxMultipleSpacesSameLine.Replace(cleaned, " ").Trim();
 
         cleaned = FixMissingDefinitionExampleBoundary(cleaned);
 
+        // ✅ FIX: normalize trailing unicode punctuation BEFORE appending dot
+        cleaned = cleaned.TrimEnd('”', '’', '»', '″', '"', '\'');
+
         if (!string.IsNullOrWhiteSpace(cleaned) &&
-            !cleaned.EndsWith(".") && !cleaned.EndsWith("!") && !cleaned.EndsWith("?"))
+            !cleaned.EndsWith(".") &&
+            !cleaned.EndsWith("!") &&
+            !cleaned.EndsWith("?"))
         {
             cleaned += ".";
         }
@@ -920,7 +952,7 @@ public static class ParsingHelperGutenberg
         };
     }
 
-    #endregion
+    #endregion Cleaning Methods
 
     #region Fallback Methods
 
@@ -999,7 +1031,7 @@ public static class ParsingHelperGutenberg
         return "noun";
     }
 
-    #endregion
+    #endregion Fallback Methods
 
     #region Helper Methods for Parser
 
@@ -1135,7 +1167,7 @@ public static class ParsingHelperGutenberg
         return true;
     }
 
-    #endregion
+    #endregion Helper Methods for Parser
 
     #region Internal Helpers
 
@@ -1383,6 +1415,7 @@ public static class ParsingHelperGutenberg
         t = RxMultipleSpacesSameLine.Replace(t, " ").Trim();
         return t;
     }
+
     public static bool ValidateSynonymPair(string headwordA, string headwordB)
     {
         if (string.IsNullOrWhiteSpace(headwordA) || string.IsNullOrWhiteSpace(headwordB))
@@ -1409,7 +1442,7 @@ public static class ParsingHelperGutenberg
         return true;
     }
 
-    #endregion
+    #endregion Internal Helpers
 
     #region Progress Tracking and Logging
 
@@ -1587,6 +1620,7 @@ public static class ParsingHelperGutenberg
 
         return null;
     }
+
     public static bool IsGutenbergHeadwordLine(string? line, int maxLength = 80)
     {
         if (string.IsNullOrWhiteSpace(line))
@@ -1604,4 +1638,105 @@ public static class ParsingHelperGutenberg
         return LooksLikeRealHeadwordLine(t);
     }
 
+    public static bool IsForeignHeadwordBlock(string block, string expectedWord)
+    {
+        if (string.IsNullOrWhiteSpace(block) || string.IsNullOrWhiteSpace(expectedWord))
+            return false;
+
+        var lines = NormalizeNewLines(block)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+        if (lines.Length == 0)
+            return false;
+
+        var firstLine = lines[0].Trim();
+
+        // Normalize both sides
+        var normalizedExpected = NormalizeWord(expectedWord);
+        var normalizedBlock = NormalizeWord(firstLine);
+
+        // If first line looks like a DIFFERENT headword → foreign block
+        if (!string.IsNullOrWhiteSpace(normalizedBlock) &&
+            !normalizedBlock.Equals(normalizedExpected, StringComparison.OrdinalIgnoreCase))
+        {
+            // Reject short prefixes: AB-, A-, etc.
+            if (firstLine.EndsWith("-", StringComparison.Ordinal) ||
+                firstLine.Length <= 3)
+                return true;
+
+            // Reject obvious new dictionary headword
+            if (IsGutenbergHeadwordLine(firstLine))
+                return true;
+        }
+
+        return false;
+    }
+
+    public static (string CleanDefinition, string? UsageLabel)
+        SplitUsageFromDefinition(string definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition))
+            return (string.Empty, null);
+
+        var text = definition.Trim();
+        string? usage = null;
+
+        // Prefix usage: "Reflexively : ..."
+        var prefixMatch = Regex.Match(
+            text,
+            @"^(?<label>Reflexively|Figuratively|Literally|Usually|Chiefly)\s*[:\-]\s*(?<rest>.+)$",
+            RegexOptions.IgnoreCase);
+
+        if (prefixMatch.Success)
+        {
+            usage = prefixMatch.Groups["label"].Value.ToLowerInvariant();
+            text = prefixMatch.Groups["rest"].Value.Trim();
+        }
+
+        // Suffix usage: [Obs.], (Poetic), (Law)
+        var suffixMatch = Regex.Match(
+            text,
+            @"^(?<core>.+?)\s*(\[(?<label>Obs\.|Rare|Poet\.|Colloq\.)\]|\((?<label2>Poetic|Law|Naut|Arch|Bot|Zoöl)\.?\))$",
+            RegexOptions.IgnoreCase);
+
+        if (suffixMatch.Success)
+        {
+            text = suffixMatch.Groups["core"].Value.Trim();
+            usage ??= (suffixMatch.Groups["label"].Success
+                ? suffixMatch.Groups["label"].Value
+                : suffixMatch.Groups["label2"].Value).ToLowerInvariant();
+        }
+
+        // Final cleanup
+        text = text.Trim();
+        if (text.Length == 0)
+            return (string.Empty, usage);
+
+        if (!text.EndsWith(".") && !text.EndsWith("!") && !text.EndsWith("?"))
+            text += ".";
+
+        return (text, usage);
+    }
+
+    public static bool IsDomainOnlyDefinition(string definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition))
+            return true;
+
+        var t = definition.Trim();
+
+        // (Arch.) / (Bot.) / (Law).
+        if (Regex.IsMatch(t, @"^\([A-Za-z\s\-]+\.\)$"))
+            return true;
+
+        // Known domain only
+        if (KnownDomains.Contains(t.Trim('(', ')', '.', ' ')))
+            return true;
+
+        // Extremely short junk
+        if (t.Length <= 6 && !t.Any(char.IsLetter))
+            return true;
+
+        return false;
+    }
 }

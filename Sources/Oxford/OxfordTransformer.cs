@@ -3,17 +3,19 @@ using DictionaryImporter.Sources.Oxford.Parsing;
 
 namespace DictionaryImporter.Sources.Oxford;
 
-public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger) : IDataTransformer<OxfordRawEntry>
+public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger)
+    : IDataTransformer<OxfordRawEntry>
 {
     private const string SourceCode = "ENG_OXFORD";
 
     public IEnumerable<DictionaryEntry> Transform(OxfordRawEntry? raw)
     {
-        if (raw == null || !raw.Senses.Any()) yield break;
+        if (raw == null || raw.Senses == null || raw.Senses.Count == 0)
+            yield break;
 
         foreach (var entry in ProcessOxfordEntry(raw))
         {
-            // FIX: apply limit per produced DictionaryEntry (not per raw entry)
+            // apply limit per produced DictionaryEntry
             if (!Helper.ShouldContinueProcessing(SourceCode, logger))
                 yield break;
 
@@ -27,24 +29,31 @@ public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger) : IData
 
         try
         {
-            var normalizedWord = Helper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
-            var normalizedPos = OxfordSourceDataHelper.NormalizePartOfSpeech(raw.PartOfSpeech);
+            var normalizedWord =
+                Helper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
 
-            entries.AddRange(from sense in raw.Senses
-                let fullDefinition = BuildFullDefinition(raw, sense)
-                select new DictionaryEntry
+            foreach (var sense in raw.Senses)
+            {
+                // 1. POS resolution (Oxford-correct)
+                var resolvedPos = ResolvePartOfSpeech(raw, sense);
+
+                var fullDefinition = BuildFullDefinition(raw, sense);
+
+                entries.Add(new DictionaryEntry
                 {
                     Word = raw.Headword,
                     NormalizedWord = normalizedWord,
-                    PartOfSpeech = normalizedPos,
+                    PartOfSpeech = resolvedPos,
                     Definition = fullDefinition,
-                    // FIX: keep RawFragment truly "raw" so parsers/extractors can rely on it
-                    // Safest is the original sense definition text
+
+                    // keep truly raw (no headers, no examples)
                     RawFragment = sense.Definition,
+
                     SenseNumber = sense.SenseNumber,
                     SourceCode = SourceCode,
                     CreatedUtc = DateTime.UtcNow
                 });
+            }
 
             Helper.LogProgress(logger, SourceCode, Helper.GetCurrentCount(SourceCode));
         }
@@ -57,38 +66,56 @@ public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger) : IData
             yield return entry;
     }
 
+    private static string ResolvePartOfSpeech(OxfordRawEntry raw, OxfordSenseRaw sense)
+    {
+        // Prefer POS coming from Oxford POS block (▶ adjective, noun, etc.)
+        if (!string.IsNullOrWhiteSpace(sense.SenseLabel))
+        {
+            var normalized =
+                OxfordSourceDataHelper.NormalizePartOfSpeech(sense.SenseLabel);
+
+            if (normalized != "unk")
+                return normalized;
+        }
+
+        // Fallback to headword POS
+        return OxfordSourceDataHelper.NormalizePartOfSpeech(raw.PartOfSpeech);
+    }
+
     private static string BuildFullDefinition(OxfordRawEntry entry, OxfordSenseRaw sense)
     {
         var parts = new List<string>();
 
-        if (!string.IsNullOrEmpty(entry.Pronunciation))
+        if (!string.IsNullOrWhiteSpace(entry.Pronunciation))
             parts.Add($"【Pronunciation】{entry.Pronunciation}");
 
-        if (!string.IsNullOrEmpty(entry.VariantForms))
+        if (!string.IsNullOrWhiteSpace(entry.VariantForms))
             parts.Add($"【Variants】{entry.VariantForms}");
 
-        if (!string.IsNullOrEmpty(sense.SenseLabel))
+        if (!string.IsNullOrWhiteSpace(sense.SenseLabel))
             parts.Add($"【Label】{sense.SenseLabel}");
 
-        // FIX: Include the definition which contains both English and Chinese
+        // Main definition (English + Chinese, as Oxford provides)
         parts.Add(sense.Definition);
 
-        // FIX: Chinese translation is already part of the definition in Oxford format
-        // Only add it separately if it's not already included
-        if (!string.IsNullOrEmpty(sense.ChineseTranslation) && !sense.Definition.Contains(sense.ChineseTranslation))
+        // Safety: only add Chinese if extractor didn't already embed it
+        if (!string.IsNullOrWhiteSpace(sense.ChineseTranslation) &&
+            !sense.Definition.Contains(sense.ChineseTranslation))
+        {
             parts.Add($"【Chinese】{sense.ChineseTranslation}");
+        }
 
-        if (sense.Examples.Any())
+        if (sense.Examples != null && sense.Examples.Count > 0)
         {
             parts.Add("【Examples】");
             foreach (var example in sense.Examples)
                 parts.Add($"» {example}");
         }
 
-        if (!string.IsNullOrEmpty(sense.UsageNote))
+        if (!string.IsNullOrWhiteSpace(sense.UsageNote))
             parts.Add($"【Usage】{sense.UsageNote}");
 
-        if (sense.CrossReferences.Any())
+        if (sense.CrossReferences != null && sense.CrossReferences.Count > 0)
         {
             parts.Add("【SeeAlso】");
             parts.Add(string.Join("; ", sense.CrossReferences));

@@ -1,4 +1,7 @@
-﻿namespace DictionaryImporter.Sources.Generic;
+﻿using DictionaryImporter.Common;
+using DictionaryImporter.Sources.Common.Helper;
+
+namespace DictionaryImporter.Sources.Generic;
 
 public sealed class GenericExampleExtractor : IExampleExtractor
 {
@@ -11,15 +14,28 @@ public sealed class GenericExampleExtractor : IExampleExtractor
         if (string.IsNullOrWhiteSpace(parsed.Definition))
             return examples;
 
-        var quotedMatches = Regex.Matches(parsed.Definition, @"[""']([^""']+)[""']");
-        foreach (Match match in quotedMatches)
-            if (match.Groups[1].Value.Length > 10)
-                examples.Add(match.Groups[1].Value);
+        var matches = Regex.Matches(
+            parsed.Definition,
+            @"[\""“”']([^\""“”]+)[\""“”']",
+            RegexOptions.Compiled);
+
+        foreach (Match match in matches)
+        {
+            var raw = match.Groups[1].Value;
+
+            if (raw.Length < 10)
+                continue;
+
+            var normalized = raw.NormalizeExample();
+
+            if (!normalized.IsValidExampleSentence())
+                continue;
+
+            examples.Add(normalized);
+        }
 
         return examples
-            .Where(e => !string.IsNullOrWhiteSpace(e))
-            .Select(e => e.Trim())
-            .Distinct()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 }
