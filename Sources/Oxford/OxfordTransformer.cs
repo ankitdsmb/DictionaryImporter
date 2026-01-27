@@ -32,30 +32,45 @@ public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger)
             var normalizedWord =
                 Helper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
 
+            // Track sense numbers properly
+            int senseCounter = 1;
+
             foreach (var sense in raw.Senses)
             {
-                // 1. POS resolution (Oxford-correct)
-                var resolvedPos = ResolvePartOfSpeech(raw, sense);
+                // 1. POS resolution with confidence
+                var (resolvedPos, posConfidence) = ResolvePartOfSpeechWithConfidence(raw, sense);
 
-                // 2. Build clean definition and extract etymology separately
-                var (cleanDefinition, etymology, cleanRawFragment) = ProcessSenseDefinition(sense);
+                // 2. Extract clean English definition
+                var (cleanDefinition, domainLabels, usageLabels) = ExtractCleanEnglishDefinition(sense);
 
-                // 3. Build structured definition with proper sections
-                var structuredDefinition = BuildStructuredDefinition(raw, sense, cleanDefinition);
+                // 3. Extract etymology (cleanly, without sense numbers)
+                var etymology = ExtractCleanEtymology(sense.Definition);
 
-                // 4. Create entry
+                // 4. Preserve RawFragment with original content (but clean Chinese)
+                var cleanRawFragment = PreserveRawFragment(sense.Definition);
+
+                // 5. Build structured definition WITHOUT domain labels in definition text
+                var structuredDefinition = BuildCleanStructuredDefinition(
+                    raw, sense, cleanDefinition, domainLabels, usageLabels);
+
+                // 6. Ensure sense number is proper (1-based)
+                var properSenseNumber = sense.SenseNumber > 0 ? sense.SenseNumber : senseCounter;
+
                 entries.Add(new DictionaryEntry
                 {
                     Word = raw.Headword,
                     NormalizedWord = normalizedWord,
                     PartOfSpeech = resolvedPos,
+                    PartOfSpeechConfidence = posConfidence,
                     Definition = structuredDefinition,
                     Etymology = etymology,
-                    RawFragment = cleanRawFragment,
-                    SenseNumber = sense.SenseNumber,
+                    SenseNumber = properSenseNumber,
                     SourceCode = SourceCode,
-                    CreatedUtc = DateTime.UtcNow
+                    CreatedUtc = DateTime.UtcNow,
+                    RawFragment = cleanRawFragment
                 });
+
+                senseCounter++;
             }
 
             Helper.LogProgress(logger, SourceCode, Helper.GetCurrentCount(SourceCode));
@@ -69,101 +84,336 @@ public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger)
             yield return entry;
     }
 
-    private static (string cleanDefinition, string? etymology, string cleanRawFragment) ProcessSenseDefinition(OxfordSenseRaw sense)
+    private static (string resolvedPos, int? confidence) ResolvePartOfSpeechWithConfidence(OxfordRawEntry raw, OxfordSenseRaw sense)
+    {
+        var confidence = 0;
+        string resolvedPos = "unk";
+
+        // Priority 1: Explicit POS marker with high confidence
+        if (!string.IsNullOrWhiteSpace(sense.SenseLabel))
+        {
+            var posMatch = Regex.Match(sense.SenseLabel, @"▶\s*(noun|verb|adjective|adverb|exclamation|interjection|preposition|conjunction|pronoun|determiner|numeral|prefix|suffix|abbreviation|symbol|combining form|phrasal verb|idiom)", RegexOptions.IgnoreCase);
+            if (posMatch.Success)
+            {
+                resolvedPos = OxfordSourceDataHelper.NormalizePartOfSpeech(posMatch.Groups[1].Value);
+                confidence = 95; // High confidence for explicit markers
+                return (resolvedPos, confidence);
+            }
+
+            // Check if sense label itself is a POS
+            var normalizedFromLabel = OxfordSourceDataHelper.NormalizePartOfSpeech(sense.SenseLabel);
+            if (normalizedFromLabel != "unk")
+            {
+                resolvedPos = normalizedFromLabel;
+                confidence = 85;
+                return (resolvedPos, confidence);
+            }
+        }
+
+        // Priority 2: Check definition for POS markers
+        if (!string.IsNullOrWhiteSpace(sense.Definition))
+        {
+            var posMarkerMatch = Regex.Match(sense.Definition, @"^▶\s*(noun|verb|adjective|adverb|exclamation|interjection|preposition|conjunction|pronoun|determiner|numeral|prefix|suffix|abbreviation|symbol|combining form|phrasal verb|idiom)\b", RegexOptions.IgnoreCase);
+            if (posMarkerMatch.Success)
+            {
+                resolvedPos = OxfordSourceDataHelper.NormalizePartOfSpeech(posMarkerMatch.Groups[1].Value);
+                confidence = 90;
+                return (resolvedPos, confidence);
+            }
+        }
+
+        // Priority 3: Headword-level POS
+        if (!string.IsNullOrWhiteSpace(raw.PartOfSpeech))
+        {
+            resolvedPos = OxfordSourceDataHelper.NormalizePartOfSpeech(raw.PartOfSpeech);
+            confidence = 80;
+            return (resolvedPos, confidence);
+        }
+
+        // Priority 4: Infer from headword suffixes/prefixes
+        if (!string.IsNullOrWhiteSpace(raw.Headword))
+        {
+            var inferred = InferPosFromHeadword(raw.Headword);
+            if (inferred != "unk")
+            {
+                resolvedPos = inferred;
+                confidence = 60; // Medium confidence for inference
+                return (resolvedPos, confidence);
+            }
+        }
+
+        // Default
+        return ("unk", 0);
+    }
+
+    private static string InferPosFromHeadword(string headword)
+    {
+        var hw = headword.ToLowerInvariant();
+
+        // Noun suffixes
+        if (hw.EndsWith("ness") || hw.EndsWith("ment") || hw.EndsWith("tion") ||
+            hw.EndsWith("sion") || hw.EndsWith("ity") || hw.EndsWith("ance") ||
+            hw.EndsWith("ence") || hw.EndsWith("hood") || hw.EndsWith("ship"))
+            return "noun";
+
+        // Adjective suffixes
+        if (hw.EndsWith("able") || hw.EndsWith("ible") || hw.EndsWith("ive") ||
+            hw.EndsWith("ous") || hw.EndsWith("ful") || hw.EndsWith("less") ||
+            hw.EndsWith("ish") || hw.EndsWith("ic") || hw.EndsWith("al"))
+            return "adj";
+
+        // Adverb suffix
+        if (hw.EndsWith("ly"))
+            return "adv";
+
+        // Verb suffixes
+        if (hw.EndsWith("ize") || hw.EndsWith("ise") || hw.EndsWith("ify") ||
+            hw.EndsWith("ate") || hw.EndsWith("en"))
+            return "verb";
+
+        // Prefix detection
+        if (hw.StartsWith("un") || hw.StartsWith("re") || hw.StartsWith("dis") ||
+            hw.StartsWith("mis") || hw.StartsWith("pre") || hw.StartsWith("post") ||
+            hw.StartsWith("over") || hw.StartsWith("under") || hw.StartsWith("sub"))
+            return "prefix";
+
+        return "unk";
+    }
+
+    private static (string cleanDefinition, string? domain, string? usage) ExtractCleanEnglishDefinition(OxfordSenseRaw sense)
     {
         if (string.IsNullOrWhiteSpace(sense.Definition))
-            return (string.Empty, null, string.Empty);
+            return (string.Empty, null, null);
 
         var definition = sense.Definition;
-        string? etymology = null;
 
-        // 1. Extract etymology FIRST before cleaning
-        etymology = ExtractEtymologyText(definition);
+        // 1. Extract domain/usage labels FIRST
+        var (domain, usage) = ExtractDomainAndUsageLabels(definition);
 
-        // 2. Remove etymology section from definition
-        if (!string.IsNullOrEmpty(etymology))
-        {
-            definition = RemoveEtymologySection(definition);
-        }
+        // 2. Remove etymology section
+        definition = RemoveEtymologySection(definition);
 
-        // 3. Remove Chinese text and markers - BUT KEEP ENGLISH CONTENT
-        definition = RemoveChineseContentButKeepEnglish(definition);
+        // 3. Remove Chinese translations (pattern: English text • Chinese text)
+        definition = RemoveChineseTranslations(definition);
 
-        // 4. Clean up formatting
+        // 4. Remove structured section markers
+        definition = RemoveStructuredSections(definition);
+
+        // 5. Remove POS markers and other formatting
         definition = CleanFormatting(definition);
 
-        // 5. Process RawFragment similarly but keep more content
-        var cleanRawFragment = CleanRawFragment(sense.Definition);
-
-        return (definition.Trim(), etymology, cleanRawFragment);
-    }
-
-    private static string? ExtractEtymologyText(string definition)
-    {
-        if (string.IsNullOrWhiteSpace(definition))
-            return null;
-
-        // Look for 【语源】 section
-        var etymologyMatch = Regex.Match(definition, @"【语源】\s*(.+?)(?:\n【|$)");
-        if (etymologyMatch.Success)
+        // 6. Remove any remaining domain/usage brackets from definition text
+        if (!string.IsNullOrEmpty(domain) || !string.IsNullOrEmpty(usage))
         {
-            var etymology = etymologyMatch.Groups[1].Value.Trim();
-            // Clean Chinese text but keep English etymology
-            etymology = RemoveChineseContentButKeepEnglish(etymology);
-            etymology = CleanFormatting(etymology);
-
-            return !string.IsNullOrWhiteSpace(etymology) ? etymology : null;
+            definition = RemoveDomainLabelsFromText(definition, domain, usage);
         }
 
-        return null;
+        // 7. Extract main English definition (text before any remaining markers)
+        definition = ExtractMainEnglishText(definition);
+
+        return (definition.Trim(), domain, usage);
     }
 
-    private static string RemoveEtymologySection(string definition)
+    private static (string? domain, string? usage) ExtractDomainAndUsageLabels(string text)
     {
-        if (string.IsNullOrWhiteSpace(definition))
-            return definition;
+        if (string.IsNullOrWhiteSpace(text))
+            return (null, null);
 
-        // Remove the entire 【语源】 section
-        return Regex.Replace(definition, @"【语源】[^\n]*(\n[^\n【]*)*", "");
+        string? domain = null;
+        string? usage = null;
+
+        // Look for common domain labels in brackets
+        var bracketMatches = Regex.Matches(text, @"\[([^\]]+)\]");
+        foreach (Match match in bracketMatches)
+        {
+            var label = match.Groups[1].Value.Trim();
+            var labelLower = label.ToLowerInvariant();
+
+            // Usage labels
+            if (labelLower.Contains("informal")) usage = "informal";
+            else if (labelLower.Contains("formal")) usage = "formal";
+            else if (labelLower.Contains("dated")) usage = "dated";
+            else if (labelLower.Contains("archaic")) usage = "archaic";
+            else if (labelLower.Contains("slang")) usage = "slang";
+            else if (labelLower.Contains("humorous")) usage = "humorous";
+            else if (labelLower.Contains("literary")) usage = "literary";
+            else if (labelLower.Contains("technical")) usage = "technical";
+            else if (labelLower.Contains("euphemistic")) usage = "euphemistic";
+            else if (labelLower.Contains("derogatory")) usage = "derogatory";
+            else if (labelLower.Contains("offensive")) usage = "offensive";
+
+            // Domain labels
+            else if (labelLower.Contains("music")) domain = "Music";
+            else if (labelLower.Contains("law")) domain = "Law";
+            else if (labelLower.Contains("medicine")) domain = "Medicine";
+            else if (labelLower.Contains("biology")) domain = "Biology";
+            else if (labelLower.Contains("chemistry")) domain = "Chemistry";
+            else if (labelLower.Contains("physics")) domain = "Physics";
+            else if (labelLower.Contains("mathematics")) domain = "Mathematics";
+            else if (labelLower.Contains("computing")) domain = "Computing";
+            else if (labelLower.Contains("finance")) domain = "Finance";
+            else if (labelLower.Contains("business")) domain = "Business";
+            else if (labelLower.Contains("military")) domain = "Military";
+            else if (labelLower.Contains("nautical")) domain = "Nautical";
+            else if (labelLower.Contains("aviation")) domain = "Aviation";
+            else if (labelLower.Contains("sports")) domain = "Sports";
+            else if (labelLower.Contains("art")) domain = "Art";
+            else if (labelLower.Contains("philosophy")) domain = "Philosophy";
+            else if (labelLower.Contains("theology")) domain = "Theology";
+
+            // Regional labels
+            else if (labelLower.Contains("n. amer.") || labelLower.Contains("north american"))
+                domain = "North American";
+            else if (labelLower.Contains("british")) domain = "British";
+            else if (labelLower.Contains("australian")) domain = "Australian";
+            else if (labelLower.Contains("canadian")) domain = "Canadian";
+            else if (labelLower.Contains("new zealand")) domain = "New Zealand";
+
+            // If not matched above but looks like a domain, use it as domain
+            else if (label.Length > 0 && char.IsUpper(label[0]) && !label.Contains(" "))
+                domain = label;
+        }
+
+        return (domain, usage);
     }
 
-    private static string RemoveChineseContentButKeepEnglish(string text)
+    private static string RemoveDomainLabelsFromText(string text, string? domain, string? usage)
     {
         if (string.IsNullOrWhiteSpace(text))
             return text;
 
-        // Remove Chinese characters and their translations
-        // Pattern: English text • Chinese translation
+        var result = text;
+
+        // Remove domain brackets
+        if (!string.IsNullOrEmpty(domain))
+        {
+            result = Regex.Replace(result, $@"\s*\[{Regex.Escape(domain)}\]\s*", " ");
+        }
+
+        // Remove usage brackets
+        if (!string.IsNullOrEmpty(usage))
+        {
+            result = Regex.Replace(result, $@"\s*\[{Regex.Escape(usage)}\]\s*", " ");
+        }
+
+        // Remove any remaining brackets
+        result = Regex.Replace(result, @"\s*\[[^\]]*\]\s*", " ");
+
+        return result.Trim();
+    }
+
+    private static string RemoveChineseTranslations(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
+
+        // Remove pattern: English text • Chinese text
         text = Regex.Replace(text, @"•\s*[\u4e00-\u9fff].*?(?=\n|$)", "", RegexOptions.Multiline);
 
-        // Remove standalone Chinese characters
+        // Remove any remaining Chinese characters
         text = Regex.Replace(text, @"[\u4e00-\u9fff]", "");
 
         // Remove Chinese punctuation
         text = Regex.Replace(text, @"[，。、；：！？【】（）《》〈〉「」『』]", "");
 
-        // Remove Chinese section markers but keep content
-        text = Regex.Replace(text, @"【[^】]*】", " ");
-
         return text;
     }
 
-    private static string RemoveChineseTranslationMarkers(string text)
+    private static string RemoveStructuredSections(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return text;
 
-        // Remove markers like [of], [have], [to] - these are Chinese translation markers
-        // Only remove if they contain a single English word
-        text = Regex.Replace(text, @"\[([A-Za-z]+)\]", "$1");
+        // Remove section markers but keep their content
+        var sections = new[] { "【Examples】", "【SeeAlso】", "【Usage】", "【Grammar】",
+                              "【Variants】", "【Pronunciation】", "【IDIOMS】", "【派生】",
+                              "【Chinese】", "【Label】", "【语源】", "【用法】", "【PHR V】" };
 
-        // Remove empty brackets []
-        text = Regex.Replace(text, @"\[\s*\]", "");
-
-        // Remove any remaining brackets with content (might be other markers)
-        text = Regex.Replace(text, @"\[[^\]]*\]", "");
+        foreach (var section in sections)
+        {
+            text = text.Replace(section, "");
+        }
 
         return text;
+    }
+
+    private static string ExtractMainEnglishText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
+
+        // Split by lines and take only lines that look like English definition
+        var lines = text.Split('\n');
+        var englishLines = new List<string>();
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+
+            // Skip empty lines
+            if (string.IsNullOrWhiteSpace(trimmed))
+                continue;
+
+            // Skip lines that are clearly examples or markers
+            if (trimmed.StartsWith("»") || trimmed.StartsWith("--›") ||
+                trimmed.StartsWith("◘") || trimmed.Contains("IDIOMS"))
+                continue;
+
+            // Skip lines that are just numbers (sense numbers)
+            if (Regex.IsMatch(trimmed, @"^\d+\.?\s*$"))
+                continue;
+
+            // Keep lines with reasonable English content
+            if (trimmed.Length > 3 && ContainsEnglishWords(trimmed))
+            {
+                englishLines.Add(trimmed);
+            }
+        }
+
+        return string.Join(" ", englishLines).Trim();
+    }
+
+    private static bool ContainsEnglishWords(string text)
+    {
+        // Check if text contains reasonable English word patterns
+        return Regex.IsMatch(text, @"\b[a-zA-Z]{2,}\b") &&
+               !Regex.IsMatch(text, @"^[\d\s\.]+$");
+    }
+
+    private static string ExtractCleanEtymology(string definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition))
+            return null;
+
+        // Look for etymology section
+        var etymologyMatch = Regex.Match(definition, @"【语源】\s*(.+?)(?:\n【|$)");
+        if (!etymologyMatch.Success)
+            return null;
+
+        var etymology = etymologyMatch.Groups[1].Value.Trim();
+
+        // Clean the etymology - remove sense numbers at beginning
+        etymology = Regex.Replace(etymology, @"^\d+\.\s*", "");
+
+        // Remove Chinese characters
+        etymology = Regex.Replace(etymology, @"[\u4e00-\u9fff]", "");
+
+        // Remove Chinese punctuation
+        etymology = Regex.Replace(etymology, @"[，。、；：！？【】（）《》〈〉「」『』]", "");
+
+        // Clean formatting
+        etymology = CleanFormatting(etymology);
+
+        return !string.IsNullOrWhiteSpace(etymology) ? etymology : null;
+    }
+
+    private static string RemoveEtymologySection(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
+
+        // Remove the entire 【语源】 section
+        return Regex.Replace(text, @"【语源】[^\n]*(\n[^\n【]*)*", "");
     }
 
     private static string CleanFormatting(string text)
@@ -174,8 +424,8 @@ public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger)
         // Remove bullet markers
         text = Regex.Replace(text, @"•", " ");
 
-        // Remove formatting artifacts but keep meaningful content
-        text = Regex.Replace(text, @"[▶»◘›♦]", " ");
+        // Remove formatting artifacts
+        text = Regex.Replace(text, @"[▶»◘›♦\-]", " ");
 
         // Remove example markers at start of lines
         text = Regex.Replace(text, @"^»\s*", "", RegexOptions.Multiline);
@@ -189,72 +439,59 @@ public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger)
         return text;
     }
 
-    private static string CleanRawFragment(string? rawFragment)
+    private static string PreserveRawFragment(string rawFragment)
     {
         if (string.IsNullOrWhiteSpace(rawFragment))
             return string.Empty;
 
+        // Keep original but clean Chinese content
         var fragment = rawFragment;
 
-        // Remove Chinese text but keep English
-        fragment = RemoveChineseContentButKeepEnglish(fragment);
+        // Remove Chinese characters
+        fragment = Regex.Replace(fragment, @"[\u4e00-\u9fff]", "");
 
-        // Remove Chinese translation markers
-        fragment = RemoveChineseTranslationMarkers(fragment);
+        // Remove Chinese punctuation
+        fragment = Regex.Replace(fragment, @"[，。、；：！？【】（）《》〈〉「」『』]", "");
 
-        // Clean formatting but keep more structure
-        fragment = Regex.Replace(fragment, @"•", " ");
+        // Remove Chinese translation markers (keep the English word)
+        fragment = Regex.Replace(fragment, @"\[([A-Za-z]+)\]", "$1");
+
+        // Clean up
         fragment = Regex.Replace(fragment, @"\s+", " ").Trim();
 
         return fragment;
     }
 
-    private static string BuildStructuredDefinition(OxfordRawEntry entry, OxfordSenseRaw sense, string cleanDefinition)
+    private static string BuildCleanStructuredDefinition(OxfordRawEntry entry, OxfordSenseRaw sense,
+        string cleanDefinition, string? domain, string? usage)
     {
         var parts = new List<string>();
 
-        // Add Label section if we have sense label info
-        if (!string.IsNullOrWhiteSpace(sense.SenseLabel))
+        // Add domain/usage information if available
+        var labelParts = new List<string>();
+        if (!string.IsNullOrEmpty(domain))
+            labelParts.Add($"[{domain}]");
+        if (!string.IsNullOrEmpty(usage))
+            labelParts.Add($"[{usage}]");
+
+        if (labelParts.Count > 0)
         {
-            var cleanLabel = RemoveChineseContentButKeepEnglish(sense.SenseLabel);
-            cleanLabel = CleanFormatting(cleanLabel);
-
-            // Extract domain/usage labels from sense label
-            var domainLabels = ExtractDomainAndUsageLabels(cleanLabel);
-            if (!string.IsNullOrWhiteSpace(domainLabels))
-            {
-                parts.Add($"【Label】{domainLabels}");
-            }
-
-            // Remove POS markers from label for cleaner display
-            cleanLabel = Regex.Replace(cleanLabel, @"▶\s*(noun|verb|adjective|adverb|exclamation|interjection|preposition|conjunction|pronoun|determiner|numeral|prefix|suffix|abbreviation|symbol)\b", "", RegexOptions.IgnoreCase).Trim();
-
-            if (!string.IsNullOrWhiteSpace(cleanLabel) && cleanLabel != "unk")
-            {
-                if (string.IsNullOrWhiteSpace(domainLabels))
-                    parts.Add($"【Label】{cleanLabel}");
-            }
+            parts.Add($"【Label】{string.Join(", ", labelParts)}");
         }
 
-        // Add the clean definition - CRITICAL: Ensure this is NOT empty
+        // Add the clean English definition
         if (!string.IsNullOrWhiteSpace(cleanDefinition))
         {
-            // Extract main definition (text before Examples section)
-            var mainDefinition = ExtractMainDefinitionBeforeExamples(cleanDefinition);
-            if (!string.IsNullOrWhiteSpace(mainDefinition))
-                parts.Add(mainDefinition);
-            else
-                parts.Add(cleanDefinition); // Fallback to full clean definition
+            parts.Add(cleanDefinition);
         }
 
-        // Add Examples section if we have English examples
+        // Add Examples section if we have them
         if (sense.Examples != null && sense.Examples.Count > 0)
         {
             var englishExamples = new List<string>();
             foreach (var example in sense.Examples)
             {
-                var cleanExample = RemoveChineseContentButKeepEnglish(example);
-                cleanExample = CleanFormatting(cleanExample);
+                var cleanExample = CleanFormatting(example);
                 cleanExample = cleanExample.TrimStart('»', ' ').Trim();
 
                 if (!string.IsNullOrWhiteSpace(cleanExample) && cleanExample.Length > 5)
@@ -270,125 +507,5 @@ public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger)
         }
 
         return string.Join("\n", parts);
-    }
-
-    private static string ExtractMainDefinitionBeforeExamples(string definition)
-    {
-        if (string.IsNullOrWhiteSpace(definition))
-            return definition;
-
-        // Find the 【Examples】 section
-        var examplesIndex = definition.IndexOf("【Examples】", StringComparison.Ordinal);
-        if (examplesIndex > 0)
-        {
-            return definition.Substring(0, examplesIndex).Trim();
-        }
-
-        // If no examples section, return the whole definition
-        return definition;
-    }
-
-    private static string ExtractDomainAndUsageLabels(string label)
-    {
-        if (string.IsNullOrWhiteSpace(label))
-            return string.Empty;
-
-        var domainLabels = new List<string>();
-
-        // Extract common domain/usage labels
-        var labelLower = label.ToLowerInvariant();
-
-        // Check for common usage labels
-        if (labelLower.Contains("informal")) domainLabels.Add("[informal]");
-        if (labelLower.Contains("formal")) domainLabels.Add("[formal]");
-        if (labelLower.Contains("dated")) domainLabels.Add("[dated]");
-        if (labelLower.Contains("archaic")) domainLabels.Add("[archaic]");
-        if (labelLower.Contains("slang")) domainLabels.Add("[slang]");
-        if (labelLower.Contains("technical")) domainLabels.Add("[technical]");
-        if (labelLower.Contains("literary")) domainLabels.Add("[literary]");
-        if (labelLower.Contains("humorous")) domainLabels.Add("[humorous]");
-
-        // Check for regional labels
-        if (labelLower.Contains("north american") || labelLower.Contains("n. amer."))
-            domainLabels.Add("[N. Amer.]");
-        if (labelLower.Contains("british")) domainLabels.Add("[British]");
-
-        return string.Join(", ", domainLabels);
-    }
-
-    private static string ResolvePartOfSpeech(OxfordRawEntry raw, OxfordSenseRaw sense)
-    {
-        // Priority 1: Sense-level POS block (▶ adjective, noun, etc.)
-        if (!string.IsNullOrWhiteSpace(sense.SenseLabel))
-        {
-            // Check for explicit POS markers in sense label
-            var posMatch = Regex.Match(sense.SenseLabel, @"▶\s*(noun|verb|adjective|adverb|exclamation|interjection|preposition|conjunction|pronoun|determiner|numeral|prefix|suffix|abbreviation|symbol|combining form|phrasal verb|idiom)", RegexOptions.IgnoreCase);
-            if (posMatch.Success)
-            {
-                var pos = posMatch.Groups[1].Value.Trim();
-                var normalized = OxfordSourceDataHelper.NormalizePartOfSpeech(pos);
-                if (normalized != "unk")
-                    return normalized;
-            }
-
-            // Check if sense label is a POS itself
-            var normalizedFromLabel = OxfordSourceDataHelper.NormalizePartOfSpeech(sense.SenseLabel);
-            if (normalizedFromLabel != "unk")
-                return normalizedFromLabel;
-        }
-
-        // Priority 2: Check definition for POS markers at beginning
-        if (!string.IsNullOrWhiteSpace(sense.Definition))
-        {
-            // Look for ▶ POS marker at start of definition
-            var posMarkerMatch = Regex.Match(sense.Definition, @"^▶\s*(noun|verb|adjective|adverb|exclamation|interjection|preposition|conjunction|pronoun|determiner|numeral|prefix|suffix|abbreviation|symbol|combining form|phrasal verb|idiom)\b", RegexOptions.IgnoreCase);
-            if (posMarkerMatch.Success)
-            {
-                var pos = posMarkerMatch.Groups[1].Value.Trim();
-                var normalized = OxfordSourceDataHelper.NormalizePartOfSpeech(pos);
-                if (normalized != "unk")
-                    return normalized;
-            }
-
-            // Check for POS in parentheses at beginning
-            var firstParenMatch = Regex.Match(sense.Definition, @"^\(([^)]+)\)");
-            if (firstParenMatch.Success)
-            {
-                var possiblePos = firstParenMatch.Groups[1].Value.Trim();
-                // Filter out non-POS labels but allow known POS values
-                var normalized = OxfordSourceDataHelper.NormalizePartOfSpeech(possiblePos);
-                if (normalized != "unk")
-                    return normalized;
-            }
-        }
-
-        // Priority 3: Headword-level POS
-        if (!string.IsNullOrWhiteSpace(raw.PartOfSpeech))
-        {
-            var normalized = OxfordSourceDataHelper.NormalizePartOfSpeech(raw.PartOfSpeech);
-            if (normalized != "unk")
-                return normalized;
-        }
-
-        // Priority 4: Check for common suffixes in headword
-        if (!string.IsNullOrWhiteSpace(raw.Headword))
-        {
-            var headword = raw.Headword.ToLowerInvariant();
-            if (headword.EndsWith("ness") || headword.EndsWith("ment") || headword.EndsWith("tion") || headword.EndsWith("sion"))
-                return "noun";
-            if (headword.EndsWith("able") || headword.EndsWith("ible") || headword.EndsWith("ive") || headword.EndsWith("ous"))
-                return "adj";
-            if (headword.EndsWith("ly"))
-                return "adv";
-            if (headword.EndsWith("ize") || headword.EndsWith("ise"))
-                return "verb";
-            if (headword.EndsWith("ify"))
-                return "verb";
-            if (headword.StartsWith("un") || headword.StartsWith("re") || headword.StartsWith("dis") || headword.StartsWith("mis"))
-                return "prefix";
-        }
-
-        // Default: unknown
-        return "unk";
     }
 }

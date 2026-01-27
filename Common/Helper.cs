@@ -196,6 +196,41 @@ public static class Helper
         }
     }
 
+    public static int? NormalizePartOfSpeechConfidence(int? confidence)
+    {
+        if (!confidence.HasValue)
+            return null;
+
+        var conf = confidence.Value;
+        if (conf < 0) return 0;
+        if (conf > 100) return 100;
+        return conf;
+    }
+
+    public static int ComputePartOfSpeechConfidence(string pos, string sourceCode)
+    {
+        if (string.IsNullOrWhiteSpace(pos) || pos == "unk")
+            return 0;
+
+        // Base confidence based on source
+        var baseConfidence = sourceCode == "ENG_OXFORD" ? 80 : 70;
+
+        // Adjust based on POS specificity
+        var specificPos = new[] { "noun", "verb", "adjective", "adverb" };
+        if (specificPos.Contains(pos))
+            return Math.Min(baseConfidence + 15, 95);
+
+        var lessCommonPos = new[] { "preposition", "conjunction", "pronoun", "interjection" };
+        if (lessCommonPos.Contains(pos))
+            return Math.Min(baseConfidence + 10, 90);
+
+        var rarePos = new[] { "determiner", "numeral", "particle", "article" };
+        if (rarePos.Contains(pos))
+            return Math.Min(baseConfidence + 5, 85);
+
+        return baseConfidence;
+    }
+
     private static string RemoveDiacritics(string text)
     {
         if (string.IsNullOrWhiteSpace(text))

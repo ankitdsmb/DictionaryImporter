@@ -298,70 +298,51 @@ public static class ParsingHelperGutenberg
 
         var firstLine = lines[0].Trim();
 
-        // Try different patterns to extract headword
-        string headword = firstLine;
+        // Clean the headword
+        return ExtractCleanHeadword(firstLine);
+    }
 
-        // Remove trailing part of speech markers
-        var posMatch = RxPosAbbreviation.Match(firstLine);
-        if (posMatch.Success && posMatch.Index > 0)
-        {
-            headword = firstLine[..posMatch.Index].Trim();
-        }
+    public static string ExtractCleanHeadword(string rawHeadword)
+    {
+        if (string.IsNullOrWhiteSpace(rawHeadword))
+            return string.Empty;
 
-        // Remove trailing parentheticals like "(# emph. #)"
+        var headword = rawHeadword.Trim();
+
+        // Remove parenthetical content like "(# emph. #)"
         if (headword.Contains('(') && headword.Contains(')'))
         {
             var openParen = headword.IndexOf('(');
-            var closeParen = headword.LastIndexOf(')');
+            var closeParen = headword.IndexOf(')', openParen);
             if (closeParen > openParen)
             {
-                headword = headword[..openParen].Trim() +
-                          (closeParen < headword.Length - 1 ? headword[(closeParen + 1)..] : "");
-                headword = headword.Trim();
+                headword = headword.Remove(openParen, closeParen - openParen + 1).Trim();
             }
         }
 
         // Remove trailing punctuation
-        headword = headword.TrimEnd('.', ',', ';', ':');
+        headword = headword.TrimEnd('.', ',', ';', ':', ' ');
 
-        // If headword contains "Etym:" or "Defn:", cut it off
-        var etymIndex = headword.IndexOf("Etym:", StringComparison.OrdinalIgnoreCase);
-        if (etymIndex > 0)
-            headword = headword[..etymIndex].Trim();
-
-        var defnIndex = headword.IndexOf("Defn:", StringComparison.OrdinalIgnoreCase);
-        if (defnIndex > 0)
-            headword = headword[..defnIndex].Trim();
-
-        // Special case for headwords like "A-"
-        if (headword.EndsWith("-") && headword.Length > 1)
+        // Extract just the actual word part
+        var parts = headword.Split(new[] { ' ', '\t', ';', ',' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length > 0)
         {
-            // Keep as is
-        }
-        // Special case for headwords with numbers like "A 1"
-        else if (char.IsDigit(headword[^1]) && headword.Length > 2 && headword[^2] == ' ')
-        {
-            // Keep as is
-        }
-        else
-        {
-            // Split by space and take first meaningful token
-            var parts = headword.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length > 0)
+            // Take the first part that looks like a word
+            foreach (var part in parts)
             {
-                // Take first part that starts with a letter
-                foreach (var part in parts)
+                if (!string.IsNullOrWhiteSpace(part) && char.IsLetter(part[0]))
                 {
-                    if (!string.IsNullOrWhiteSpace(part) && char.IsLetter(part[0]))
+                    // Handle special cases like "A-" or "A."
+                    if (part.EndsWith("-") || part.EndsWith("."))
                     {
-                        headword = part;
-                        break;
+                        return part;
                     }
+                    return part;
                 }
             }
         }
 
-        return NormalizeHeadword(headword);
+        return headword;
     }
 
     public static string ExtractHeadword(string rawFragment)

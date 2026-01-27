@@ -152,15 +152,15 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
             if (ParsingHelperGutenberg.RxPronunciationPosLine.IsMatch(line))
                 continue;
 
-            // Check for numbered sense start (like "1.", "2.")
-            var senseMatch = Regex.Match(line, @"^(?<num>\d+)\.\s*(?<content>.*)$");
+            // Check for numbered sense start (like "1.", "2.") or "(Mus.)" patterns
+            var senseMatch = Regex.Match(line, @"^(?<num>\d+)\.\s*\(?(?<content>.*)$");
             if (senseMatch.Success)
             {
                 // Save previous definition if any
                 if (inDefinition && currentDefinition.Length > 0)
                 {
                     var def = currentDefinition.ToString().Trim();
-                    if (IsValidDefinition(def))
+                    if (IsValidDefinition(def) && !hasEtymologyInSense)
                     {
                         definitions.Add((def, currentSense));
                     }
@@ -177,7 +177,17 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
                     currentSense++;
                 }
 
-                var content = senseMatch.Groups["content"].Value;
+                var content = senseMatch.Groups["content"].Value.Trim();
+                // Remove domain in parentheses if present
+                if (content.StartsWith("(") && content.Contains(")"))
+                {
+                    var endParen = content.IndexOf(')');
+                    if (endParen > 0)
+                    {
+                        content = content.Substring(endParen + 1).Trim();
+                    }
+                }
+
                 if (!string.IsNullOrWhiteSpace(content))
                 {
                     currentDefinition.Append(content);
@@ -195,7 +205,7 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
                 if (inDefinition && currentDefinition.Length > 0)
                 {
                     var def = currentDefinition.ToString().Trim();
-                    if (IsValidDefinition(def))
+                    if (IsValidDefinition(def) && !hasEtymologyInSense)
                     {
                         definitions.Add((def, currentSense));
                     }
@@ -209,6 +219,7 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
                     currentDefinition.Append(" ");
                 }
                 inDefinition = true;
+                hasEtymologyInSense = false;
                 continue;
             }
 
@@ -228,7 +239,7 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
                 if (inDefinition && currentDefinition.Length > 0)
                 {
                     var def = currentDefinition.ToString().Trim();
-                    if (IsValidDefinition(def))
+                    if (IsValidDefinition(def) && !hasEtymologyInSense)
                     {
                         definitions.Add((def, currentSense));
                     }
@@ -270,7 +281,7 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
         if (inDefinition && currentDefinition.Length > 0)
         {
             var def = currentDefinition.ToString().Trim();
-            if (IsValidDefinition(def))
+            if (IsValidDefinition(def) && !hasEtymologyInSense)
             {
                 definitions.Add((def, currentSense));
             }

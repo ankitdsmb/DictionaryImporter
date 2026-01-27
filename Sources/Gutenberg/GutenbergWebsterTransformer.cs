@@ -129,51 +129,42 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
         if (lines == null || lines.Count == 0)
             return "noun";
 
-        // Check headword for POS
+        // Look for POS patterns in the entire block
+        var text = string.Join(" ", lines.Take(10));
+
+        // Check for common POS patterns
+        if (Regex.IsMatch(text, @"\b(noun|n\.)\b", RegexOptions.IgnoreCase))
+            return "noun";
+        if (Regex.IsMatch(text, @"\b(verb|v\.|v\.t\.|v\.i\.)\b", RegexOptions.IgnoreCase))
+            return "verb";
+        if (Regex.IsMatch(text, @"\b(adjective|adj\.|a\.)\b", RegexOptions.IgnoreCase))
+            return "adjective";
+        if (Regex.IsMatch(text, @"\b(adverb|adv\.)\b", RegexOptions.IgnoreCase))
+            return "adverb";
+        if (Regex.IsMatch(text, @"\b(preposition|prep\.)\b", RegexOptions.IgnoreCase))
+            return "preposition";
+        if (Regex.IsMatch(text, @"\b(conjunction|conj\.)\b", RegexOptions.IgnoreCase))
+            return "conjunction";
+        if (Regex.IsMatch(text, @"\b(interjection|interj\.)\b", RegexOptions.IgnoreCase))
+            return "interjection";
+        if (Regex.IsMatch(text, @"\b(pronoun|pron\.)\b", RegexOptions.IgnoreCase))
+            return "pronoun";
+
+        // Check headword for POS (e.g., "A, prep.")
         if (headword.Contains(','))
         {
             var parts = headword.Split(',');
             if (parts.Length > 1)
             {
-                var posPart = parts[1].Trim();
-                var posMatch = Regex.Match(posPart, @"^(n\.|v\.|a\.|adj\.|adv\.|prep\.|conj\.|interj\.|pron\.|art\.|det\.)");
-                if (posMatch.Success)
+                var posPart = parts[1].Trim().TrimEnd('.');
+                if (!string.IsNullOrWhiteSpace(posPart) && posPart.Length < 10)
                 {
-                    return ParsingHelperGutenberg.NormalizePartOfSpeech(posMatch.Value);
+                    return ParsingHelperGutenberg.NormalizePartOfSpeech(posPart);
                 }
             }
         }
 
-        // Check first few lines for POS markers
-        foreach (var line in lines.Take(5))
-        {
-            var posMatch = ParsingHelperGutenberg.RxPosAbbreviation.Match(line);
-            if (posMatch.Success)
-            {
-                return ParsingHelperGutenberg.NormalizePartOfSpeech(posMatch.Value);
-            }
-        }
-
-        // Default based on common patterns
-        var text = string.Join(" ", lines.Take(10));
-        if (text.Contains("noun", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains(" n.", StringComparison.OrdinalIgnoreCase))
-            return "noun";
-        if (text.Contains("verb", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains(" v.", StringComparison.OrdinalIgnoreCase))
-            return "verb";
-        if (text.Contains("adjective", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains(" adj.", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains(" a.", StringComparison.OrdinalIgnoreCase))
-            return "adjective";
-        if (text.Contains("adverb", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains(" adv.", StringComparison.OrdinalIgnoreCase))
-            return "adverb";
-        if (text.Contains("preposition", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains(" prep.", StringComparison.OrdinalIgnoreCase))
-            return "preposition";
-
-        return "noun";
+        return "noun"; // Default fallback
     }
 
     private List<DefinitionItem> ExtractDefinitionsFromEntry(List<string> lines, string headword)
@@ -187,20 +178,38 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
         var currentDefinition = new StringBuilder();
         var inDefinition = false;
         var collectingExamples = false;
+        var hasEtymology = false;
 
-        foreach (var line in lines)
+        foreach (var rawLine in lines)
         {
-            var trimmed = line.Trim();
-            if (string.IsNullOrWhiteSpace(trimmed))
+            var line = rawLine.Trim();
+            if (string.IsNullOrWhiteSpace(line))
                 continue;
 
             // Skip headword line
-            if (trimmed.Equals(headword, StringComparison.OrdinalIgnoreCase) ||
-                ParsingHelperGutenberg.IsGutenbergHeadwordLine(trimmed, 80))
+            if (ParsingHelperGutenberg.IsGutenbergHeadwordLine(line, 80))
                 continue;
 
+            // Check for etymology marker - don't include in definition
+            if (line.StartsWith("Etym:", StringComparison.OrdinalIgnoreCase))
+            {
+                hasEtymology = true;
+                // End current definition if we're in one
+                if (inDefinition && currentDefinition.Length > 0)
+                {
+                    var def = currentDefinition.ToString().Trim();
+                    if (IsValidDefinitionText(def))
+                    {
+                        definitions.Add(new DefinitionItem(def, currentSense));
+                    }
+                    currentDefinition.Clear();
+                    inDefinition = false;
+                }
+                continue;
+            }
+
             // Check for numbered sense
-            var senseMatch = Regex.Match(trimmed, @"^(?<num>\d+)\.\s*(?<content>.*)$");
+            var senseMatch = Regex.Match(line, @"^(?<num>\d+)\.\s*\(?(?<content>.*)$");
             if (senseMatch.Success)
             {
                 // Save previous definition
@@ -220,7 +229,17 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
                     currentSense = senseNum;
                 }
 
-                var content = senseMatch.Groups["content"].Value;
+                var content = senseMatch.Groups["content"].Value.Trim();
+                // Remove domain in parentheses if present
+                if (content.StartsWith("(") && content.Contains(")"))
+                {
+                    var endParen = content.IndexOf(')');
+                    if (endParen > 0)
+                    {
+                        content = content.Substring(endParen + 1).Trim();
+                    }
+                }
+
                 if (!string.IsNullOrWhiteSpace(content))
                 {
                     currentDefinition.Append(content);
@@ -228,11 +247,12 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
                 }
                 inDefinition = true;
                 collectingExamples = false;
+                hasEtymology = false;
                 continue;
             }
 
             // Check for "Defn:" marker
-            if (trimmed.StartsWith("Defn:", StringComparison.OrdinalIgnoreCase))
+            if (line.StartsWith("Defn:", StringComparison.OrdinalIgnoreCase))
             {
                 // Save previous definition
                 if (inDefinition && currentDefinition.Length > 0)
@@ -245,7 +265,7 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
                     currentDefinition.Clear();
                 }
 
-                var content = trimmed.Substring(5).Trim();
+                var content = line.Substring(5).Trim();
                 if (!string.IsNullOrWhiteSpace(content))
                 {
                     currentDefinition.Append(content);
@@ -253,16 +273,13 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
                 }
                 inDefinition = true;
                 collectingExamples = false;
+                hasEtymology = false;
                 continue;
             }
 
-            // Skip etymology markers (handled separately)
-            if (trimmed.StartsWith("Etym:", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            // Skip synonym markers (handled separately)
-            if (trimmed.StartsWith("Syn.", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith("Synonyms", StringComparison.OrdinalIgnoreCase))
+            // Check for synonym markers - end definition
+            if (line.StartsWith("Syn.", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("Synonyms", StringComparison.OrdinalIgnoreCase))
             {
                 if (inDefinition && currentDefinition.Length > 0)
                 {
@@ -277,10 +294,26 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
                 continue;
             }
 
-            // Add to current definition
-            if (inDefinition)
+            // Check for example markers
+            if (line.StartsWith("--"))
             {
-                currentDefinition.Append(trimmed);
+                if (inDefinition && currentDefinition.Length > 0)
+                {
+                    collectingExamples = true;
+                    // Don't add example markers to definition
+                    continue;
+                }
+            }
+
+            // Add to current definition if we're in one
+            if (inDefinition && !collectingExamples)
+            {
+                // Skip metadata lines
+                if (ParsingHelperGutenberg.IsMetadataLine(line) ||
+                    ParsingHelperGutenberg.RxDomainOnlyLine.IsMatch(line))
+                    continue;
+
+                currentDefinition.Append(line);
                 currentDefinition.Append(" ");
             }
         }

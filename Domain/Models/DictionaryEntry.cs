@@ -20,4 +20,5 @@ public class DictionaryEntry
     public string? GrammarInfo { get; internal set; }
     public string CrossReference { get; internal set; }
     public string IPA { get; internal set; }
+    public int? PartOfSpeechConfidence { get; internal set; }
 }
