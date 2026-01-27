@@ -6,8 +6,11 @@ using DictionaryImporter.Infrastructure.OneTimeTasks;
 using DictionaryImporter.Infrastructure.Source;
 using DictionaryImporter.Infrastructure.Validation;
 using DictionaryImporter.Sources.Century21.Parsing;
+using DictionaryImporter.Sources.Collins.Extractor;
 using DictionaryImporter.Sources.Collins.parsing;
+using DictionaryImporter.Sources.EnglishChinese.Extractor;
 using DictionaryImporter.Sources.EnglishChinese.Parsing;
+using DictionaryImporter.Sources.Gutenberg.Extractor;
 using DictionaryImporter.Sources.Kaikki.Parsing;
 using DictionaryImporter.Sources.Oxford.Extractor;
 using DictionaryImporter.Sources.Oxford.Parsing;
@@ -122,6 +125,22 @@ public static class BootstrapPipeline
         services.AddSingleton<IEtymologyExtractor, OxfordEtymologyExtractor>();
         services.AddSingleton<IExampleExtractor, OxfordExampleExtractor>();
         services.AddSingleton<ISynonymExtractor, OxfordSynonymExtractor>();
+
+        services.AddSingleton<IEtymologyExtractor, CollinsEtymologyExtractor>();
+        services.AddSingleton<IExampleExtractor, CollinsExampleExtractor>();
+        services.AddSingleton<ISynonymExtractor, CollinsSynonymExtractor>();
+
+        services.AddSingleton<IEtymologyExtractor, EnglishChineseEtymologyExtractor>();
+        services.AddSingleton<IExampleExtractor, EnglishChineseExampleExtractor>();
+        services.AddSingleton<ISynonymExtractor, EnglishChineseSynonymExtractor>();
+
+        services.AddSingleton<IEtymologyExtractor, GutenbergEtymologyExtractor>();
+        services.AddSingleton<IExampleExtractor, GutenbergExampleExtractor>();
+        services.AddSingleton<ISynonymExtractor, GutenbergSynonymExtractor>();
+
+        services.AddSingleton<IEtymologyExtractor, KaikkiEtymologyExtractor>();
+        services.AddSingleton<IExampleExtractor, KaikkiExampleExtractor>();
+        services.AddSingleton<ISynonymExtractor, KaikkiSynonymExtractor>();
 
         // ------------------------------------------------------------
         // ✅ KEEP: Register default validator (for fallback)

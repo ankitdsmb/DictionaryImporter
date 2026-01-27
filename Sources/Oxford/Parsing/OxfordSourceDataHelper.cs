@@ -13,6 +13,7 @@ public static class OxfordSourceDataHelper
         pronunciation = null;
         partOfSpeech = null;
         variantForms = null;
+
         if (string.IsNullOrWhiteSpace(line))
             return false;
 
@@ -107,7 +108,7 @@ public static class OxfordSourceDataHelper
         if (labelBuilder.Count > 0)
             senseLabel = string.Join(", ", labelBuilder);
 
-        // Extract Chinese translation (after bullet) - ONLY if it contains Chinese characters
+        // Extract Chinese translation (after bullet)
         var translationMatch = ChineseTranslationRegex.Match(rest);
         if (translationMatch.Success)
         {
@@ -115,13 +116,33 @@ public static class OxfordSourceDataHelper
             rest = rest[..translationMatch.Index].Trim();
         }
 
-        // Remove any remaining Chinese text from definition
-        definition = RemoveChineseText(rest);
-
-        // Remove bullet markers
-        definition = Regex.Replace(definition, @"•\s*", " ").Trim();
+        // Clean the definition
+        definition = CleanDefinitionText(rest);
 
         return true;
+    }
+
+    private static string CleanDefinitionText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
+
+        // Remove Chinese characters
+        text = Regex.Replace(text, @"[\u4e00-\u9fff]", "");
+
+        // Remove Chinese punctuation
+        text = Regex.Replace(text, @"[，。、；：！？【】（）《》〈〉「」『』]", "");
+
+        // Remove Chinese translation markers like [of], [have]
+        text = Regex.Replace(text, @"\[([A-Za-z]+)\]", "$1");
+
+        // Remove empty brackets
+        text = Regex.Replace(text, @"\[\s*\]", "");
+
+        // Clean up whitespace
+        text = Regex.Replace(text, @"\s+", " ").Trim();
+
+        return text;
     }
 
     public static bool IsExampleLine(string line)
@@ -135,29 +156,12 @@ public static class OxfordSourceDataHelper
         line = line.TrimStart('»', ' ').Trim();
 
         // Remove Chinese text
-        line = RemoveChineseText(line);
+        line = CleanDefinitionText(line);
 
         // Remove trailing source citations like [OALD]
         line = Regex.Replace(line, @"\s*\[[^\]]+\]$", "");
 
-        // Remove bullet markers
-        line = Regex.Replace(line, @"•\s*", " ").Trim();
-
-        return line;
-    }
-
-    private static string RemoveChineseText(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return text;
-
-        // Remove Chinese characters
-        text = Regex.Replace(text, @"[\u4e00-\u9fff]", "");
-
-        // Remove Chinese punctuation
-        text = Regex.Replace(text, @"[，。、；：！？【】（）《》〈〉「」『』]", "");
-
-        return text;
+        return line.Trim();
     }
 
     public static bool IsEntrySeparator(string line)
@@ -276,9 +280,6 @@ public static class OxfordSourceDataHelper
 
     #region Compiled Regex Patterns
 
-    // ★☆☆   East Timor1. ...
-    // ★☆☆   East-West▶ adjective
-    // Handles optional sense numbers after headword
     private static readonly Regex HeadwordRegex =
         new(@"^★+☆+\s+(?<headword>[^\d▶]+?)(?:\s*\d+\.?)?\s*(?:▶\s*)?(?<rest>.*)$",
             RegexOptions.Compiled);
@@ -289,19 +290,15 @@ public static class OxfordSourceDataHelper
     private static readonly Regex SenseNumberRegex =
         new(@"^(?<number>\d+)\.\s*(?<rest>.+)$", RegexOptions.Compiled);
 
-    // Matches parentheses at the beginning of a string
     private static readonly Regex SenseLabelRegex =
         new(@"^\((?<label>[^)]+)\)\s*(?<rest>.+)$", RegexOptions.Compiled);
 
-    // Matches Chinese text after bullet (contains Chinese characters)
     private static readonly Regex ChineseTranslationRegex =
-        new(@"•\s*(?<translation>[^\u0000-\u007F]+.*)$", RegexOptions.Compiled);
+        new(@"•\s*(?<translation>.+)$", RegexOptions.Compiled);
 
-    // Matches POS at end after comma
     private static readonly Regex PartOfSpeechRegex =
         new(@",\s*(?<pos>\w+(?:\s+\w+)*?)$", RegexOptions.Compiled);
 
-    // Handles Oxford's block POS markers
     private static readonly Regex BlockPartOfSpeechRegex =
         new(@"▶\s*(?<pos>for abbreviation|adjective|noun|verb|adverb|exclamation|interjection|preposition|conjunction|pronoun|determiner|numeral|prefix|suffix|combining form|idiom|phrasal verb|symbol)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
