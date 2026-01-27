@@ -30,17 +30,33 @@ public sealed class CollinsTransformer(ILogger<CollinsTransformer> logger)
             foreach (var sense in raw.Senses)
             {
                 var fullDefinition = BuildFullDefinition(sense);
+                var rawFragment = BuildRawFragment(sense);
+
+                // Handle cross-references specially
+                if (sense.PartOfSpeech == "ref" && sense.Definition?.Contains("→see:") == true)
+                {
+                    var crossRefMatch = Regex.Match(sense.Definition, @"→see:\s*(.+)");
+                    if (crossRefMatch.Success)
+                    {
+                        fullDefinition = $"See: {crossRefMatch.Groups[1].Value}";
+                        rawFragment = fullDefinition;
+                    }
+                }
 
                 entries.Add(new DictionaryEntry
                 {
                     Word = raw.Headword,
                     NormalizedWord = normalizedWord,
-                    PartOfSpeech = Helper.NormalizePartOfSpeech(sense.PartOfSpeech),
+                    PartOfSpeech = CollinsExtractor.NormalizePos(sense.PartOfSpeech),
                     Definition = fullDefinition,
-                    RawFragment = fullDefinition, // FIX: avoid missing RawFragment warnings
+                    RawFragment = rawFragment,
                     SenseNumber = sense.SenseNumber,
                     SourceCode = SourceCode,
-                    CreatedUtc = DateTime.UtcNow
+                    CreatedUtc = DateTime.UtcNow,
+                    Examples = sense.Examples?.ToList() ?? new List<string>(),
+                    UsageNote = sense.UsageNote,
+                    DomainLabel = sense.DomainLabel,
+                    GrammarInfo = sense.GrammarInfo
                 });
             }
 
@@ -57,24 +73,96 @@ public sealed class CollinsTransformer(ILogger<CollinsTransformer> logger)
 
     private static string BuildFullDefinition(CollinsSenseRaw sense)
     {
-        var parts = new List<string> { sense.Definition };
+        var parts = new List<string>();
 
+        // Add sense header
+        parts.Add($"{sense.SenseNumber}.{sense.PartOfSpeech.ToUpper()}");
+
+        // Add main definition (ensure it's cleaned)
+        if (!string.IsNullOrEmpty(sense.Definition))
+        {
+            var cleanedDef = CollinsExtractor.RemoveChineseCharacters(sense.Definition)
+                .Replace(" ; ; ", " ")
+                .Replace(" ; ", " ")
+                .Replace("  ", " ")
+                .Trim();
+
+            // Ensure it ends with punctuation
+            if (!string.IsNullOrEmpty(cleanedDef) &&
+                !cleanedDef.EndsWith(".") &&
+                !cleanedDef.EndsWith("!") &&
+                !cleanedDef.EndsWith("?") &&
+                !cleanedDef.Contains("→see:"))
+            {
+                cleanedDef += ".";
+            }
+
+            parts.Add(cleanedDef);
+        }
+
+        // Add grammar info
+        if (!string.IsNullOrEmpty(sense.GrammarInfo))
+        {
+            var cleanGrammar = CollinsExtractor.RemoveChineseCharacters(sense.GrammarInfo);
+            if (!string.IsNullOrWhiteSpace(cleanGrammar))
+            {
+                parts.Add($"【Grammar】{cleanGrammar}");
+            }
+        }
+
+        // Add domain label
+        if (!string.IsNullOrEmpty(sense.DomainLabel))
+        {
+            parts.Add($"【Domain】{sense.DomainLabel}");
+        }
+
+        // Add usage note
         if (!string.IsNullOrEmpty(sense.UsageNote))
-            parts.Add($"【Note】{sense.UsageNote}");
+        {
+            var cleanNote = CollinsExtractor.RemoveChineseCharacters(sense.UsageNote);
+            if (!string.IsNullOrWhiteSpace(cleanNote))
+            {
+                parts.Add($"【Note】{cleanNote}");
+            }
+        }
 
+        // Add examples
         if (sense.Examples.Any())
         {
             parts.Add("【Examples】");
             foreach (var example in sense.Examples)
-                parts.Add($"• {example}");
+            {
+                var cleanExample = CollinsExtractor.RemoveChineseCharacters(example)
+                    .Trim();
+                if (!string.IsNullOrWhiteSpace(cleanExample))
+                {
+                    parts.Add($"• {cleanExample}");
+                }
+            }
         }
 
-        if (!string.IsNullOrEmpty(sense.DomainLabel))
-            parts.Add($"【Domain】{sense.DomainLabel}");
-
-        if (!string.IsNullOrEmpty(sense.GrammarInfo))
-            parts.Add($"【Grammar】{sense.GrammarInfo}");
-
         return string.Join("\n", parts);
+    }
+
+    private static string BuildRawFragment(CollinsSenseRaw sense)
+    {
+        // For cross-references, keep it simple
+        if (sense.PartOfSpeech == "ref" && sense.Definition?.Contains("→see:") == true)
+        {
+            return sense.Definition;
+        }
+
+        var parts = new List<string>();
+
+        // Add sense header
+        parts.Add($"{sense.SenseNumber}.{sense.PartOfSpeech.ToUpper()}");
+
+        // Add definition
+        if (!string.IsNullOrEmpty(sense.Definition))
+        {
+            parts.Add(sense.Definition);
+        }
+
+        return string.Join(" ", parts).Trim();
     }
 }

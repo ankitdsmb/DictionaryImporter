@@ -1,4 +1,5 @@
-﻿using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Common;
+using DictionaryImporter.Sources.Common.Helper;
 
 namespace DictionaryImporter.Sources.Gutenberg.Extractor;
 
@@ -23,8 +24,8 @@ public sealed class GutenbergExampleExtractor : IExampleExtractor
         examples = ParsingHelperGutenberg.ExtractExamples(parsed.RawFragment);
 
         return examples
-            .Where(e => !string.IsNullOrWhiteSpace(e))
-            .Select(e => e.Trim())
+            .Select(e => e.NormalizeExample())
+            .Where(e => e.IsValidExampleSentence())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }

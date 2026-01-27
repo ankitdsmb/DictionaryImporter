@@ -22,6 +22,7 @@
     <PackageReference Include="Castle.Core" Version="5.2.1" />
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
+    <PackageReference Include="Humanizer.Core" Version="3.0.1" />
 	  <PackageReference Include="Lucene.Net" Version="4.8.0-beta00016" />
     <PackageReference Include="Lucene.Net.Analysis.Common" Version="4.8.0-beta00016" />
     <PackageReference Include="Lucene.Net.QueryParser" Version="4.8.0-beta00016" />
@@ -110,11 +111,6 @@
     <None Update="Resources\DataSource\Dictionaries\test\TheEnglishChineseDictionary.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Sources\Kaikki\Extractor\" />
-    <Folder Include="Sources\StructuredJson\Extractor\" />
   </ItemGroup>
 
 </Project>

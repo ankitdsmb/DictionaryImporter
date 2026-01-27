@@ -1,3 +1,6 @@
+using DictionaryImporter.Infrastructure.Graph;
+using Microsoft.Extensions.DependencyInjection;
+
 namespace DictionaryImporter.Bootstrap.Extensions;
 
 internal static class GraphRegistrationExtensions
@@ -29,11 +32,17 @@ internal static class GraphRegistrationExtensions
                 sp.GetRequiredService<DictionaryConceptMerger>(),
                 sp.GetRequiredService<ILogger<DictionaryGraphBuilder>>()));
 
+        // IMPORTANT:
+        // Some pipeline/orchestrator code requests DictionaryGraphBuilder directly (concrete),
+        // while some requests IGraphBuilder (interface).
+        // This alias guarantees BOTH work and resolve to the SAME singleton instance.
+        services.AddSingleton<DictionaryGraphBuilder>(sp =>
+            (DictionaryGraphBuilder)sp.GetRequiredService<IGraphBuilder>());
+
         services.AddSingleton(sp =>
             new DictionaryGraphNodeBuilder(
                 connectionString,
                 sp.GetRequiredService<ILogger<DictionaryGraphNodeBuilder>>()));
-
 
         services.AddSingleton(sp =>
             new DictionaryGraphValidator(

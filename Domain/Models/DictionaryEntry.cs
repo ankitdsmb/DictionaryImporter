@@ -1,4 +1,5 @@
-﻿namespace DictionaryImporter.Domain.Models;
+﻿
+namespace DictionaryImporter.Domain.Models;
 
 public class DictionaryEntry
 {
@@ -13,4 +14,8 @@ public class DictionaryEntry
     public string SourceCode { get; set; } = null!;
     public long? CanonicalWordId { get; set; }
     public DateTime CreatedUtc { get; set; }
+    public List<string> Examples { get; internal set; }
+    public string? UsageNote { get; internal set; }
+    public string? DomainLabel { get; internal set; }
+    public string? GrammarInfo { get; internal set; }
 }

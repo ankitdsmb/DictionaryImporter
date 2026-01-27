@@ -38,7 +38,11 @@ public sealed class EnglishChineseParser(ILogger<EnglishChineseParser> logger = 
         var parsedData = ParsingHelperEnglishChinese.ParseEngChnEntry(rawLine);
 
         // Return main sense
-        yield return CreateParsedDefinition(parsedData, entry, rawLine);
+        var mainSense = CreateParsedDefinition(parsedData, entry, rawLine);
+        if (mainSense != null)
+        {
+            yield return mainSense;
+        }
 
         // Return additional senses if present
         if (parsedData.AdditionalSenses != null && parsedData.AdditionalSenses.Count > 0)
@@ -46,7 +50,11 @@ public sealed class EnglishChineseParser(ILogger<EnglishChineseParser> logger = 
             var senseNumber = entry.SenseNumber + 1;
             foreach (var additionalSense in parsedData.AdditionalSenses)
             {
-                yield return CreateParsedDefinition(additionalSense, entry, rawLine, senseNumber++);
+                var sense = CreateParsedDefinition(additionalSense, entry, rawLine, senseNumber++);
+                if (sense != null)
+                {
+                    yield return sense;
+                }
             }
         }
     }
@@ -57,8 +65,14 @@ public sealed class EnglishChineseParser(ILogger<EnglishChineseParser> logger = 
         string rawFragment,
         int senseNumber = 1)
     {
-        // Build full definition with all metadata
+        // Build full definition
         var fullDefinition = BuildFullDefinition(data);
+
+        // If main definition is empty, don't create a parsed definition
+        if (string.IsNullOrWhiteSpace(data.MainDefinition))
+        {
+            return null;
+        }
 
         // Extract domain from labels
         var domain = ParsingHelperEnglishChinese.ExtractDomain(rawFragment);
@@ -153,7 +167,6 @@ public sealed class EnglishChineseParser(ILogger<EnglishChineseParser> logger = 
         };
     }
 }
-
 
 //namespace DictionaryImporter.Sources.EnglishChinese.Parsing
 //{
