@@ -1,14 +1,4 @@
 ﻿using DictionaryImporter.Common;
-using DictionaryImporter.Core.Text;
-using Microsoft.Extensions.Logging;
-using Microsoft.Data.SqlClient;
-using Dapper;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
 using DictionaryImporter.Infrastructure.Source;
 
 namespace DictionaryImporter.Infrastructure.Parsing;
@@ -79,7 +69,7 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
 
     public async Task ExecuteAsync(string sourceCode, CancellationToken ct)
     {
-        sourceCode =  Helper.ParsingPipeline.NormalizeSourceCode(sourceCode);
+        sourceCode = Helper.ParsingPipeline.NormalizeSourceCode(sourceCode);
 
         _logger.LogInformation("Stage=Parsing started | Source={SourceCode}", sourceCode);
 
