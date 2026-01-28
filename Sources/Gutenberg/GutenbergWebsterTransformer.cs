@@ -26,6 +26,7 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
             yield return entry;
     }
 
+    // Update GutenbergWebsterTransformer.cs - ProcessGutenbergEntry method
     private IEnumerable<DictionaryEntry> ProcessGutenbergEntry(GutenbergRawEntry raw)
     {
         var entries = new List<DictionaryEntry>();
@@ -36,14 +37,13 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
             var normalizedWord = Helper.NormalizeWord(headword);
             var rawFragment = string.Join("\n", raw.Lines);
 
-            // Extract part of speech from the headword or first few lines
             var partOfSpeech = ExtractPartOfSpeechFromEntry(raw.Lines, headword);
-
             var definitions = ExtractDefinitionsFromEntry(raw.Lines, headword);
+
             if (definitions.Count == 0)
                 yield break;
 
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenDefinitions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var sense = 1;
 
             foreach (var def in definitions)
@@ -52,9 +52,10 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
                 if (string.IsNullOrWhiteSpace(cleanedDef))
                     continue;
 
-                // Create dedup key from normalized content
-                var dedupKey = $"{normalizedWord}|{Helper.NormalizeWord(cleanedDef)}";
-                if (!seen.Add(dedupKey))
+                // Create more robust dedup key including POS
+                var dedupKey = $"{normalizedWord}|{partOfSpeech}|{Helper.NormalizeWord(cleanedDef)}";
+
+                if (!seenDefinitions.Add(dedupKey))
                 {
                     logger.LogDebug("Skipped duplicate definition for {Word}, sense {Sense}", headword, sense);
                     continue;
@@ -68,7 +69,7 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
                     RawFragment = rawFragment,
                     SenseNumber = def.SenseNumber > 0 ? def.SenseNumber : sense,
                     SourceCode = SourceCode,
-                    PartOfSpeech = partOfSpeech,
+                    PartOfSpeech = partOfSpeech, // Ensure POS is set
                     CreatedUtc = DateTime.UtcNow
                 });
 
@@ -86,6 +87,7 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
             yield return entry;
     }
 
+    // Update CleanHeadword method
     private string CleanHeadword(string headword)
     {
         if (string.IsNullOrWhiteSpace(headword))
@@ -93,32 +95,29 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
 
         var cleaned = headword.Trim();
 
-        // Remove parentheticals like "(# emph. #)"
-        if (cleaned.Contains('(') && cleaned.Contains(')'))
+        // Remove ALL parenthetical content
+        while (cleaned.Contains('(') && cleaned.Contains(')'))
         {
             var start = cleaned.IndexOf('(');
-            var end = cleaned.LastIndexOf(')');
+            var end = cleaned.IndexOf(')', start);
             if (end > start)
             {
                 cleaned = cleaned.Remove(start, end - start + 1).Trim();
             }
+            else
+            {
+                break;
+            }
         }
 
-        // Remove trailing punctuation
-        cleaned = cleaned.TrimEnd('.', ',', ';', ':');
+        // Remove trailing punctuation and spaces
+        cleaned = cleaned.TrimEnd('.', ',', ';', ':', ' ', '\t');
 
-        // Extract just the actual word (first part before any special characters)
-        var parts = cleaned.Split(new[] { ' ', '\t', ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length > 0)
+        // Extract just the actual word (first alphanumeric part)
+        var match = Regex.Match(cleaned, @"^([A-Za-z]+(?:[-'][A-Za-z]+)*)");
+        if (match.Success)
         {
-            // Take the first part that looks like a word
-            foreach (var part in parts)
-            {
-                if (part.Length > 0 && char.IsLetter(part[0]))
-                {
-                    return part;
-                }
-            }
+            return match.Value;
         }
 
         return cleaned;
@@ -129,42 +128,61 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
         if (lines == null || lines.Count == 0)
             return "noun";
 
-        // Look for POS patterns in the entire block
-        var text = string.Join(" ", lines.Take(10));
-
-        // Check for common POS patterns
-        if (Regex.IsMatch(text, @"\b(noun|n\.)\b", RegexOptions.IgnoreCase))
-            return "noun";
-        if (Regex.IsMatch(text, @"\b(verb|v\.|v\.t\.|v\.i\.)\b", RegexOptions.IgnoreCase))
-            return "verb";
-        if (Regex.IsMatch(text, @"\b(adjective|adj\.|a\.)\b", RegexOptions.IgnoreCase))
-            return "adjective";
-        if (Regex.IsMatch(text, @"\b(adverb|adv\.)\b", RegexOptions.IgnoreCase))
-            return "adverb";
-        if (Regex.IsMatch(text, @"\b(preposition|prep\.)\b", RegexOptions.IgnoreCase))
-            return "preposition";
-        if (Regex.IsMatch(text, @"\b(conjunction|conj\.)\b", RegexOptions.IgnoreCase))
-            return "conjunction";
-        if (Regex.IsMatch(text, @"\b(interjection|interj\.)\b", RegexOptions.IgnoreCase))
-            return "interjection";
-        if (Regex.IsMatch(text, @"\b(pronoun|pron\.)\b", RegexOptions.IgnoreCase))
-            return "pronoun";
-
         // Check headword for POS (e.g., "A, prep.")
         if (headword.Contains(','))
         {
             var parts = headword.Split(',');
             if (parts.Length > 1)
             {
-                var posPart = parts[1].Trim().TrimEnd('.');
-                if (!string.IsNullOrWhiteSpace(posPart) && posPart.Length < 10)
+                var posPart = parts[1].Trim();
+                var posMatch = Regex.Match(posPart, @"^(n\.|v\.|a\.|adj\.|adv\.|prep\.|conj\.|interj\.|pron\.|art\.|det\.)");
+                if (posMatch.Success)
                 {
-                    return ParsingHelperGutenberg.NormalizePartOfSpeech(posPart);
+                    return ParsingHelperGutenberg.NormalizePartOfSpeech(posMatch.Value);
                 }
             }
         }
 
-        return "noun"; // Default fallback
+        // Check first few lines for POS markers
+        foreach (var line in lines.Take(5))
+        {
+            // Look for patterns like "n.", "v.", "adj.", etc.
+            var posMatch = Regex.Match(line, @"\b(n\.|v\.t\.|v\.i\.|v\.|a\.|adj\.|adv\.|prep\.|conj\.|interj\.|pron\.|art\.|det\.)\b");
+            if (posMatch.Success)
+            {
+                return ParsingHelperGutenberg.NormalizePartOfSpeech(posMatch.Value);
+            }
+
+            // Look for full words
+            var fullWordMatch = Regex.Match(line, @"\b(noun|verb|adjective|adverb|preposition|conjunction|interjection|pronoun)\b", RegexOptions.IgnoreCase);
+            if (fullWordMatch.Success)
+            {
+                return fullWordMatch.Value.ToLowerInvariant();
+            }
+        }
+
+        // Analyze definition content for POS clues
+        var text = string.Join(" ", lines.Take(10));
+
+        if (text.Contains(" noun") || text.Contains("(n.") ||
+            Regex.IsMatch(text, @"\bplural\b", RegexOptions.IgnoreCase))
+            return "noun";
+
+        if (text.Contains(" verb") || text.Contains("(v.") ||
+            text.Contains(" to ") || text.Contains("ing "))
+            return "verb";
+
+        if (text.Contains(" adjective") || text.Contains("(adj.") ||
+            text.Contains("(a.") || text.Contains(" comparative "))
+            return "adjective";
+
+        if (text.Contains(" adverb") || text.Contains("(adv."))
+            return "adverb";
+
+        if (text.Contains(" preposition") || text.Contains("(prep."))
+            return "preposition";
+
+        return "noun"; // Default
     }
 
     private List<DefinitionItem> ExtractDefinitionsFromEntry(List<string> lines, string headword)
@@ -367,10 +385,13 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
         // Remove "Defn:" markers
         cleaned = cleaned.Replace("Defn:", "").Replace("defn:", "").Trim();
 
+        // Use enhanced cleaning to remove examples
+        cleaned = ParsingHelperGutenberg.RemoveExamplesFromDefinition(cleaned);
+
         // Clean up multiple spaces
         cleaned = Regex.Replace(cleaned, @"\s+", " ");
 
-        // Ensure proper punctuation
+        // Ensure proper punctuation (fallback if not already added by RemoveExamplesFromDefinition)
         if (!cleaned.EndsWith(".") && !cleaned.EndsWith("!") && !cleaned.EndsWith("?"))
         {
             cleaned += ".";

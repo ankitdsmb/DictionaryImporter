@@ -2263,7 +2263,7 @@ public static class ExampleTextExtensions
         if (t.Equals("NULL", StringComparison.OrdinalIgnoreCase))
             return false;
 
-        if (t.Length < 12 || t.Length > 400)
+        if (t.Length < 6 || t.Length > 400)
             return false;
 
         // must start with letter
@@ -2283,7 +2283,7 @@ public static class ExampleTextExtensions
             return false;
 
         var words = t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length < 4)
+        if (words.Length < 3)
             return false;
 
         // must contain verb OR quantity pattern

@@ -963,7 +963,9 @@ public static class ParsingHelperGutenberg
         return cleaned;
     }
 
-    private static string CleanDefinition(string definition)
+    // In ParsingHelperGutenberg.cs, fix the CleanDefinition method:
+
+    public static string CleanDefinition(string definition)
     {
         if (string.IsNullOrWhiteSpace(definition))
             return string.Empty;
@@ -981,6 +983,18 @@ public static class ParsingHelperGutenberg
         cleaned = RxMultipleSpacesSameLine.Replace(cleaned, " ").Trim();
 
         cleaned = FixMissingDefinitionExampleBoundary(cleaned);
+
+        // ✅ FIX: ADD THIS CODE TO REMOVE QUOTED EXAMPLES
+        // Remove quoted examples with optional author citations
+        cleaned = Regex.Replace(cleaned, @"""([^""]+)""\s*(?:\.\s*)?(?:[A-Z][a-z]+\.?)?", "");
+
+        // Remove example markers
+        cleaned = Regex.Replace(cleaned, @"\b(?:as,|e\.g\.,|i\.e\.,|for example,|such as)\s*", "",
+            RegexOptions.IgnoreCase);
+
+        // Clean up extra spaces
+        cleaned = RxMultipleSpacesSameLine.Replace(cleaned, " ").Trim();
+        cleaned = cleaned.TrimEnd('.', ',', ';', ':');
 
         // ✅ FIX: normalize trailing unicode punctuation BEFORE appending dot
         cleaned = cleaned.TrimEnd('”', '’', '»', '″', '"', '\'');
@@ -2071,5 +2085,127 @@ public static class ParsingHelperGutenberg
             return true;
 
         return false;
+    }
+
+    // Add these methods to ParsingHelperGutenberg.cs (existing file)
+
+    /// <summary>
+    /// Enhanced example extraction for Gutenberg Webster format
+    /// </summary>
+    public static List<string> ExtractExamplesEnhanced(string rawFragment)
+    {
+        var examples = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(rawFragment))
+            return examples;
+
+        var text = NormalizeNewLines(rawFragment);
+        if (text.Length > MaxFragmentLengthHardCap)
+            text = text[..MaxFragmentLengthHardCap];
+
+        var blocks = SplitIntoEntryBlocks(text);
+        var entryBlock = blocks.Count > 0 ? blocks[0] : text;
+
+        // Enhanced regex patterns for better example detection
+        var examplePatterns = new[]
+        {
+        // Quoted examples with optional author citation
+        new Regex(@"""([^""]+)""\s*(?:\.\s*)?(?:[A-Z][a-z]+\.?)?", RegexOptions.Compiled),
+
+        // Examples with markers: "as, ..." or "e.g., ..."
+        new Regex(@"(?:as,|e\.g\.,|i\.e\.,|for example,|such as)\s*""([^""]+)""",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+        // Inline examples: "as in ..." or "like ..."
+        new Regex(@"(?:as in|like|for instance)\s+""([^""]+)""",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled)
+    };
+
+        foreach (var pattern in examplePatterns)
+        {
+            foreach (Match match in pattern.Matches(entryBlock))
+            {
+                if (match.Groups[1].Success)
+                {
+                    var example = CleanExample(match.Groups[1].Value);
+                    if (!string.IsNullOrWhiteSpace(example) &&
+                        example.Length >= 6 &&
+                        example.Length <= MaxExampleLength)
+                    {
+                        // Filter out definition markers
+                        if (!example.Contains("Defn", StringComparison.OrdinalIgnoreCase) &&
+                            !example.Contains("Etym", StringComparison.OrdinalIgnoreCase) &&
+                            !example.Contains("Syn.", StringComparison.OrdinalIgnoreCase))
+                        {
+                            examples.Add(example);
+                        }
+                    }
+                }
+            }
+        }
+
+        return examples
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Remove examples from definition text
+    /// </summary>
+    // Add this public method to ParsingHelperGutenberg.cs:
+    public static string RemoveExamplesFromDefinition(string definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition))
+            return string.Empty;
+
+        var cleaned = definition;
+
+        // Remove quoted examples with optional author citations
+        cleaned = Regex.Replace(cleaned, @"""([^""]+)""\s*(?:\.\s*)?(?:[A-Z][a-z]+\.?)?", "");
+
+        // Remove example markers
+        cleaned = Regex.Replace(cleaned, @"\b(?:as,|e\.g\.,|i\.e\.,|for example,|such as)\s*", "",
+            RegexOptions.IgnoreCase);
+
+        // Clean up
+        cleaned = RxMultipleSpacesSameLine.Replace(cleaned, " ").Trim();
+        cleaned = cleaned.TrimEnd('.', ',', ';', ':');
+
+        if (!string.IsNullOrWhiteSpace(cleaned) &&
+            !cleaned.EndsWith(".") &&
+            !cleaned.EndsWith("!") &&
+            !cleaned.EndsWith("?"))
+        {
+            cleaned += ".";
+        }
+
+        return cleaned;
+    }
+
+    /// <summary>
+    /// Enhanced example cleaning
+    /// </summary>
+    private static string CleanExampleEnhanced(string example)
+    {
+        if (string.IsNullOrWhiteSpace(example))
+            return string.Empty;
+
+        var cleaned = example.Trim().Trim('"', '\'', '`').Trim();
+        cleaned = RxMultipleSpacesSameLine.Replace(cleaned, " ").Trim();
+
+        // Ensure proper capitalization
+        if (cleaned.Length > 0 && char.IsLower(cleaned[0]))
+        {
+            cleaned = char.ToUpperInvariant(cleaned[0]) + cleaned[1..];
+        }
+
+        // Ensure proper punctuation
+        if (!string.IsNullOrWhiteSpace(cleaned) &&
+            !cleaned.EndsWith(".") && !cleaned.EndsWith("!") && !cleaned.EndsWith("?"))
+        {
+            cleaned += ".";
+        }
+
+        return cleaned;
     }
 }

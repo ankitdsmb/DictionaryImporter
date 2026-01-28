@@ -121,6 +121,7 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
         }
     }
 
+    // Update ExtractProperDefinitions method in GutenbergDefinitionParser.cs
     private List<(string Definition, int SenseNumber)> ExtractProperDefinitions(string block)
     {
         var definitions = new List<(string, int)>();
@@ -152,15 +153,15 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
             if (ParsingHelperGutenberg.RxPronunciationPosLine.IsMatch(line))
                 continue;
 
-            // Check for numbered sense start (like "1.", "2.") or "(Mus.)" patterns
-            var senseMatch = Regex.Match(line, @"^(?<num>\d+)\.\s*\(?(?<content>.*)$");
+            // Check for numbered sense start
+            var senseMatch = Regex.Match(line, @"^(?<num>\d+)\.\s*(?<content>.*)$");
             if (senseMatch.Success)
             {
                 // Save previous definition if any
                 if (inDefinition && currentDefinition.Length > 0)
                 {
-                    var def = currentDefinition.ToString().Trim();
-                    if (IsValidDefinition(def) && !hasEtymologyInSense)
+                    var def = CleanDefinitionText(currentDefinition.ToString().Trim());
+                    if (IsValidDefinition(def))
                     {
                         definitions.Add((def, currentSense));
                     }
@@ -177,17 +178,7 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
                     currentSense++;
                 }
 
-                var content = senseMatch.Groups["content"].Value.Trim();
-                // Remove domain in parentheses if present
-                if (content.StartsWith("(") && content.Contains(")"))
-                {
-                    var endParen = content.IndexOf(')');
-                    if (endParen > 0)
-                    {
-                        content = content.Substring(endParen + 1).Trim();
-                    }
-                }
-
+                var content = senseMatch.Groups["content"].Value;
                 if (!string.IsNullOrWhiteSpace(content))
                 {
                     currentDefinition.Append(content);
@@ -204,8 +195,8 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
                 // If we're already in a definition, save it
                 if (inDefinition && currentDefinition.Length > 0)
                 {
-                    var def = currentDefinition.ToString().Trim();
-                    if (IsValidDefinition(def) && !hasEtymologyInSense)
+                    var def = CleanDefinitionText(currentDefinition.ToString().Trim());
+                    if (IsValidDefinition(def))
                     {
                         definitions.Add((def, currentSense));
                     }
@@ -219,7 +210,6 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
                     currentDefinition.Append(" ");
                 }
                 inDefinition = true;
-                hasEtymologyInSense = false;
                 continue;
             }
 
@@ -227,19 +217,17 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
             if (line.StartsWith("Etym:", StringComparison.OrdinalIgnoreCase))
             {
                 hasEtymologyInSense = true;
-                // Etymology is handled separately, don't add to definition
                 continue;
             }
 
-            // Check for "Syn." marker (start of synonyms section)
+            // Check for "Syn." marker
             if (line.StartsWith("Syn.", StringComparison.OrdinalIgnoreCase) ||
                 line.StartsWith("Synonyms", StringComparison.OrdinalIgnoreCase))
             {
-                // End current definition
                 if (inDefinition && currentDefinition.Length > 0)
                 {
-                    var def = currentDefinition.ToString().Trim();
-                    if (IsValidDefinition(def) && !hasEtymologyInSense)
+                    var def = CleanDefinitionText(currentDefinition.ToString().Trim());
+                    if (IsValidDefinition(def))
                     {
                         definitions.Add((def, currentSense));
                     }
@@ -257,7 +245,6 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
                     line.StartsWith("Note:", StringComparison.OrdinalIgnoreCase) ||
                     line.StartsWith("Obs.", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Notes are part of definition, but clean them
                     var cleanedNote = line.Replace("Note:", "").Replace("Note", "").Trim();
                     if (!string.IsNullOrWhiteSpace(cleanedNote))
                     {
@@ -280,14 +267,59 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
         // Add the last definition if any
         if (inDefinition && currentDefinition.Length > 0)
         {
-            var def = currentDefinition.ToString().Trim();
-            if (IsValidDefinition(def) && !hasEtymologyInSense)
+            var def = CleanDefinitionText(currentDefinition.ToString().Trim());
+            if (IsValidDefinition(def))
             {
                 definitions.Add((def, currentSense));
             }
         }
 
         return definitions;
+    }
+
+    // NEW METHOD: Clean definition text by removing examples
+    private string CleanDefinitionText(string definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition))
+            return definition;
+
+        // Use the new helper method from ParsingHelperGutenberg
+        return ParsingHelperGutenberg.RemoveExamplesFromDefinition(definition);
+    }
+
+    // NEW METHOD: Remove examples from definitions
+    private string CleanDefinitionOfExamples(string definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition))
+            return definition;
+
+        var cleaned = definition;
+
+        // Remove quoted examples with author citations
+        cleaned = Regex.Replace(cleaned, @"""([^""]+)""\s*\.?\s*[A-Z][a-z]+\.?", "");
+
+        // Remove quoted examples without citations
+        cleaned = Regex.Replace(cleaned, @"""([^""]+)""", "");
+
+        // Remove example markers
+        cleaned = Regex.Replace(cleaned, @"\bas,\s*", "", RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(cleaned, @"\be\.g\.,\s*", "", RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(cleaned, @"\bi\.e\.,\s*", "", RegexOptions.IgnoreCase);
+
+        // Clean up extra spaces and punctuation
+        cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
+        cleaned = cleaned.TrimEnd('.', ',', ';', ':');
+
+        // Ensure proper sentence ending
+        if (!string.IsNullOrWhiteSpace(cleaned) &&
+            !cleaned.EndsWith(".") &&
+            !cleaned.EndsWith("!") &&
+            !cleaned.EndsWith("?"))
+        {
+            cleaned += ".";
+        }
+
+        return cleaned;
     }
 
     private bool IsValidDefinition(string definition)

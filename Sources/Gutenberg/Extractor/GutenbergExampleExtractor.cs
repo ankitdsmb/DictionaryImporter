@@ -3,6 +3,7 @@ using DictionaryImporter.Common.SourceHelper;
 
 namespace DictionaryImporter.Sources.Gutenberg.Extractor;
 
+// Update the existing GutenbergExampleExtractor.cs
 public sealed class GutenbergExampleExtractor : IExampleExtractor
 {
     public string SourceCode => "GUT_WEBSTER";
@@ -14,14 +15,19 @@ public sealed class GutenbergExampleExtractor : IExampleExtractor
         if (parsed == null)
             return examples;
 
-        // ✅ IMPORTANT:
-        // For Gutenberg, examples should be extracted from RawFragment (original source block),
-        // not from parsed.Definition (which may already be cleaned or truncated).
+        // ✅ IMPORTANT: Use RawFragment for extraction (maintains original format)
         if (string.IsNullOrWhiteSpace(parsed.RawFragment))
             return examples;
 
-        // ✅ Use helper only
-        examples = ParsingHelperGutenberg.ExtractExamples(parsed.RawFragment);
+        // ✅ Use enhanced extraction from ParsingHelperGutenberg
+        examples = ParsingHelperGutenberg.ExtractExamplesEnhanced(parsed.RawFragment);
+
+        // ✅ ALSO extract from definition (for examples that might be embedded)
+        if (!string.IsNullOrWhiteSpace(parsed.Definition))
+        {
+            var definitionExamples = ParsingHelperGutenberg.ExtractExamplesEnhanced(parsed.Definition);
+            examples.AddRange(definitionExamples);
+        }
 
         return examples
             .Select(e => e.NormalizeExample())
