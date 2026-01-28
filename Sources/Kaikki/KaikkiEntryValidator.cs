@@ -2,15 +2,8 @@
 
 namespace DictionaryImporter.Sources.Kaikki;
 
-public sealed class KaikkiEntryValidator : IDictionaryEntryValidator
+public sealed class KaikkiEntryValidator(ILogger<KaikkiEntryValidator> logger) : IDictionaryEntryValidator
 {
-    private readonly ILogger<KaikkiEntryValidator> _logger;
-
-    public KaikkiEntryValidator(ILogger<KaikkiEntryValidator> logger)
-    {
-        _logger = logger;
-    }
-
     public ValidationResult Validate(DictionaryEntry entry)
     {
         if (string.IsNullOrWhiteSpace(entry.Word))
@@ -26,7 +19,7 @@ public sealed class KaikkiEntryValidator : IDictionaryEntryValidator
             if (isEnglish)
                 return ValidationResult.Valid();
 
-            _logger.LogDebug("Skipping non-English Kaikki entry: {Word}", entry.Word);
+            logger.LogDebug("Skipping non-English Kaikki entry: {Word}", entry.Word);
             return ValidationResult.Invalid("Not an English dictionary entry");
         }
 
@@ -34,7 +27,7 @@ public sealed class KaikkiEntryValidator : IDictionaryEntryValidator
         if (!string.IsNullOrWhiteSpace(entry.Definition) && entry.Definition.Length > 5)
             return ValidationResult.Valid();
 
-        _logger.LogDebug("Skipping Kaikki entry due to missing content: {Word}", entry.Word);
+        logger.LogDebug("Skipping Kaikki entry due to missing content: {Word}", entry.Word);
         return ValidationResult.Invalid("Insufficient entry content");
     }
 }

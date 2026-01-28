@@ -1,16 +1,11 @@
 ﻿using DictionaryImporter.Core.Text;
-using DictionaryImporter.Infrastructure.Parsing; // Needed for DictionaryParsedDefinitionProcessor
 using DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
-using DictionaryImporter.Infrastructure.Persistence;
 using DictionaryImporter.Infrastructure.Source;
 using DictionaryImporter.Sources.Collins.Extractor;
 using DictionaryImporter.Sources.EnglishChinese.Extractor;
 using DictionaryImporter.Sources.Generic;
 using DictionaryImporter.Sources.Gutenberg.Extractor;
-using DictionaryImporter.Sources.Gutenberg.Parsing;
 using DictionaryImporter.Sources.Oxford.Parsing;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Bootstrap.Extensions;
 
@@ -19,28 +14,26 @@ public static class ParsingRegistrationExtensions
     public static IServiceCollection AddParsing(this IServiceCollection services, string connectionString)
     {
         // ✅ REQUIRED: Stored Procedure Executor
-        // NOTE: If already registered elsewhere, multiple registrations are not fatal,
-        // but recommended is to keep it registered only once globally.
         services.AddSingleton<ISqlStoredProcedureExecutor>(_ =>
             new SqlStoredProcedureExecutor(connectionString));
 
-        // 1. Core Text Processing Services (New dependencies)
+        // 1. Core Text Processing Services
         services.AddSingleton<IOcrArtifactNormalizer, OcrArtifactNormalizer>();
         services.AddSingleton<IDefinitionNormalizer, DefinitionNormalizer>();
 
-        // 2. Text Formatter (Uses OCR & Definition normalizers)
+        // 2. Text Formatter
         services.AddSingleton<IDictionaryTextFormatter, DictionaryTextFormatter>();
 
         // 3. Parsers
         services.AddSingleton<IDictionaryDefinitionParser, OxfordDefinitionParser>();
 
-        // 4. Writers (using connectionString)
+        // 4. Writers
         services.AddTransient<IDictionaryEntryExampleWriter>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<SqlDictionaryEntryExampleWriter>>();
             var batcher = sp.GetRequiredService<GenericSqlBatcher>();
             var exec = sp.GetRequiredService<ISqlStoredProcedureExecutor>();
-            return new SqlDictionaryEntryExampleWriter(connectionString, batcher,exec, logger);
+            return new SqlDictionaryEntryExampleWriter(connectionString, batcher, exec, logger);
         });
 
         services.AddTransient<SqlParsedDefinitionWriter>(sp =>
@@ -61,7 +54,6 @@ public static class ParsingRegistrationExtensions
                 sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                 sp.GetRequiredService<ILogger<SqlDictionaryEntryCrossReferenceWriter>>()));
 
-        // ✅ FIX: SqlDictionaryAliasWriter now requires ISqlStoredProcedureExecutor
         services.AddSingleton<SqlDictionaryAliasWriter>(sp =>
             new SqlDictionaryAliasWriter(
                 sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
@@ -126,7 +118,7 @@ public static class ParsingRegistrationExtensions
                 sp.GetRequiredService<GenericEtymologyExtractor>(),
                 sp.GetRequiredService<ILogger<EtymologyExtractorRegistry>>()));
 
-        // 7. Main Processor Registration (Updated with new dependencies)
+        // 7. Main Processor Registration
         services.AddScoped<DictionaryParsedDefinitionProcessor>(sp =>
         {
             return new DictionaryParsedDefinitionProcessor(
@@ -149,9 +141,9 @@ public static class ParsingRegistrationExtensions
                 sp.GetRequiredService<IOcrArtifactNormalizer>(),
                 sp.GetRequiredService<IDefinitionNormalizer>(),
                 sp.GetRequiredService<ILogger<DictionaryParsedDefinitionProcessor>>()
+            // Optional parameters omitted - DI will provide null if not registered
             );
         });
-
         return services;
     }
 }

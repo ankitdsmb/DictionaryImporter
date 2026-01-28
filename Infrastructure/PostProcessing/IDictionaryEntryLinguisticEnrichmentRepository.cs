@@ -20,9 +20,3 @@ public interface IDictionaryEntryLinguisticEnrichmentRepository
         string ipa,
         CancellationToken ct);
 }
-
-public sealed class CanonicalWordIpaCandidateRow
-{
-    public long CanonicalWordId { get; init; }
-    public string RawFragment { get; init; } = string.Empty;
-}

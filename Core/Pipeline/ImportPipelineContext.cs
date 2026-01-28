@@ -1,14 +1,8 @@
 ﻿namespace DictionaryImporter.Core.Pipeline;
 
-public sealed class ImportPipelineContext
+public sealed class ImportPipelineContext(ImportSourceDefinition source, CancellationToken cancellationToken)
 {
-    public ImportPipelineContext(ImportSourceDefinition source, CancellationToken cancellationToken)
-    {
-        Source = source ?? throw new ArgumentNullException(nameof(source));
-        CancellationToken = cancellationToken;
-    }
-
-    public ImportSourceDefinition Source { get; }
+    public ImportSourceDefinition Source { get; } = source ?? throw new ArgumentNullException(nameof(source));
     public string SourceCode => Source.SourceCode;
-    public CancellationToken CancellationToken { get; }
+    public CancellationToken CancellationToken { get; } = cancellationToken;
 }

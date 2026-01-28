@@ -400,15 +400,9 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
         return cleaned;
     }
 
-    private class DefinitionItem
+    private class DefinitionItem(string definitionText, int senseNumber)
     {
-        public string DefinitionText { get; }
-        public int SenseNumber { get; }
-
-        public DefinitionItem(string definitionText, int senseNumber)
-        {
-            DefinitionText = definitionText;
-            SenseNumber = senseNumber;
-        }
+        public string DefinitionText { get; } = definitionText;
+        public int SenseNumber { get; } = senseNumber;
     }
 }

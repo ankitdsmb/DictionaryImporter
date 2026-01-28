@@ -5,33 +5,25 @@ using DictionaryImporter.Gateway.Grammar.Core.Results;
 
 namespace DictionaryImporter.Gateway.Grammar.Feature;
 
-public sealed class GrammarFeature : IGrammarFeature, IGrammarCorrector
+public sealed class GrammarFeature(
+    string connectionString,
+    EnhancedGrammarConfiguration settings,
+    ILanguageDetector languageDetector,
+    IGrammarCorrector corrector,
+    IEnumerable<IGrammarEngine> engines,
+    ILogger<GrammarFeature> logger)
+    : IGrammarFeature, IGrammarCorrector
 {
     private const int DbTimeoutSeconds = 180;
 
-    private readonly string _connectionString;
-    private readonly EnhancedGrammarConfiguration _settings;
-    private readonly ILanguageDetector _languageDetector;
-    private readonly IGrammarCorrector _corrector;
-    private readonly IReadOnlyCollection<IGrammarEngine> _engines;
-    private readonly ILogger<GrammarFeature> _logger;
+    private readonly string _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+    private readonly EnhancedGrammarConfiguration _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+    private readonly ILanguageDetector _languageDetector = languageDetector ?? throw new ArgumentNullException(nameof(languageDetector));
+    private readonly IGrammarCorrector _corrector = corrector ?? throw new ArgumentNullException(nameof(corrector));
+    private readonly IReadOnlyCollection<IGrammarEngine> _engines = engines?.ToArray() ?? Array.Empty<IGrammarEngine>();
+    private readonly ILogger<GrammarFeature> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     // ✅ Matches DI registration (6 args)
-    public GrammarFeature(
-        string connectionString,
-        EnhancedGrammarConfiguration settings,
-        ILanguageDetector languageDetector,
-        IGrammarCorrector corrector,
-        IEnumerable<IGrammarEngine> engines,
-        ILogger<GrammarFeature> logger)
-    {
-        _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
-        _languageDetector = languageDetector ?? throw new ArgumentNullException(nameof(languageDetector));
-        _corrector = corrector ?? throw new ArgumentNullException(nameof(corrector));
-        _engines = engines?.ToArray() ?? Array.Empty<IGrammarEngine>();
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
 
     // ✅ Pipeline entry point (REAL in codebase)
     public async Task CorrectSourceAsync(string sourceCode, CancellationToken ct)

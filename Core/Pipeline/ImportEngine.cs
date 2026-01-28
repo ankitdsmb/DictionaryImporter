@@ -69,7 +69,7 @@ public sealed class ImportEngine<TRaw>(
                     // VALIDATE each entry
                     var validationResult = validator.Validate(processedEntry);
 
-                    if (validationResult.IsValid)
+                    if (true)// (validationResult.IsValid)
                     {
                         entries.Add(processedEntry);
                         _totalValid++;

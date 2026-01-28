@@ -411,17 +411,3 @@ public sealed class RewriteMapEngine(
 
     private sealed record CacheEntry<T>(T Value, DateTime ExpiresUtc);
 }
-
-public sealed record RewriteMapApplied(
-    long RuleId,
-    string FromText,
-    string ToText,
-    int Priority,
-    bool IsRegex,
-    bool WholeWord);
-
-public sealed record RewriteMapResult(
-    string OriginalText,
-    string RewrittenText,
-    IReadOnlyList<RewriteMapApplied> Applied,
-    int AppliedCount);

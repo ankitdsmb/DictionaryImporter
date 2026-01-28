@@ -7,31 +7,24 @@ using System.Threading.Tasks;
 
 namespace DictionaryImporter.Common
 {
-    public class DynamicDictionaryConfigProvider
+    public class DynamicDictionaryConfigProvider(
+        IConfiguration configuration,
+        IMemoryCache cache,
+        HttpClient? httpClient = null)
     {
-        private readonly IConfiguration _configuration;
-        private readonly IMemoryCache _cache;
         private readonly TimeSpan _cacheDuration = TimeSpan.FromHours(1);
-        private readonly HttpClient _httpClient;
-
-        public DynamicDictionaryConfigProvider(IConfiguration configuration, IMemoryCache cache,
-            HttpClient? httpClient = null)
-        {
-            _configuration = configuration;
-            _cache = cache;
-            _httpClient = httpClient ?? new HttpClient();
-        }
+        private readonly HttpClient _httpClient = httpClient ?? new HttpClient();
 
         public async Task<HashSet<string>> GetStopWordsAsync(string language = "en")
         {
             var cacheKey = $"stopwords_{language}";
 
-            return await _cache.GetOrCreateAsync(cacheKey, async entry =>
+            return await cache.GetOrCreateAsync(cacheKey, async entry =>
             {
                 entry.AbsoluteExpirationRelativeToNow = _cacheDuration;
 
                 // Try to load from configuration first
-                var configStopWords = _configuration.GetSection($"Dictionary:StopWords:{language}")
+                var configStopWords = configuration.GetSection($"Dictionary:StopWords:{language}")
                     .Get<List<string>>();
 
                 if (configStopWords?.Any() == true)
@@ -49,12 +42,12 @@ namespace DictionaryImporter.Common
 
         public async Task<HashSet<string>> GetKnownDomainsAsync()
         {
-            return await _cache.GetOrCreateAsync("known_domains", async entry =>
+            return await cache.GetOrCreateAsync("known_domains", async entry =>
             {
                 entry.AbsoluteExpirationRelativeToNow = _cacheDuration;
 
                 // Load from configuration
-                var domains = _configuration.GetSection("Dictionary:KnownDomains")
+                var domains = configuration.GetSection("Dictionary:KnownDomains")
                     .Get<List<string>>();
 
                 if (domains?.Any() == true)
@@ -71,11 +64,11 @@ namespace DictionaryImporter.Common
 
         public async Task<Dictionary<string, string>> GetLanguagePatternsAsync()
         {
-            return await _cache.GetOrCreateAsync("language_patterns", async entry =>
+            return await cache.GetOrCreateAsync("language_patterns", async entry =>
             {
                 entry.AbsoluteExpirationRelativeToNow = _cacheDuration;
 
-                var patterns = _configuration.GetSection("Dictionary:LanguagePatterns")
+                var patterns = configuration.GetSection("Dictionary:LanguagePatterns")
                     .Get<Dictionary<string, string>>();
 
                 if (patterns?.Any() == true)
@@ -87,11 +80,11 @@ namespace DictionaryImporter.Common
 
         public async Task<HashSet<string>> GetNonEnglishPatternsAsync()
         {
-            return await _cache.GetOrCreateAsync("non_english_patterns", async entry =>
+            return await cache.GetOrCreateAsync("non_english_patterns", async entry =>
             {
                 entry.AbsoluteExpirationRelativeToNow = _cacheDuration;
 
-                var patterns = _configuration.GetSection("Dictionary:NonEnglishPatterns")
+                var patterns = configuration.GetSection("Dictionary:NonEnglishPatterns")
                     .Get<List<string>>();
 
                 if (patterns?.Any() == true)
@@ -480,10 +473,10 @@ namespace DictionaryImporter.Common
         // Method to manually refresh cache
         public void RefreshCache()
         {
-            _cache.Remove("stopwords_en");
-            _cache.Remove("known_domains");
-            _cache.Remove("language_patterns");
-            _cache.Remove("non_english_patterns");
+            cache.Remove("stopwords_en");
+            cache.Remove("known_domains");
+            cache.Remove("language_patterns");
+            cache.Remove("non_english_patterns");
         }
     }
 }
