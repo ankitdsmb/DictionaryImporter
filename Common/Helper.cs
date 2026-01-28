@@ -2,6 +2,7 @@
 using HtmlAgilityPack;
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
 
 namespace DictionaryImporter.Common;
 
@@ -468,6 +469,13 @@ public static class Helper
         }
 
         return true;
+    }
+
+    public static string Sha256(string input)
+    {
+        using var sha = SHA256.Create();
+        var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(input ?? ""));
+        return Convert.ToHexString(bytes);
     }
 
     public static void ResetProcessingState(string sourceCode)

@@ -4,9 +4,10 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DictionaryImporter.Common;
+using DictionaryImporter.Gateway.Rewriter;
 using Microsoft.Extensions.Logging;
 
-namespace DictionaryImporter.Gateway.Rewriter;
+namespace DictionaryImporter.Infrastructure.Persistence;
 
 public sealed class SqlLuceneSuggestionIndexRepository(
     ISqlStoredProcedureExecutor sp,

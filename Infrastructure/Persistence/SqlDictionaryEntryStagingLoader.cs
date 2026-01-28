@@ -1,13 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Data;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Dapper;
-using DictionaryImporter.Common;
-using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Logging;
+﻿using DictionaryImporter.Common;
 
 namespace DictionaryImporter.Infrastructure.Persistence;
 
@@ -28,34 +19,43 @@ public sealed class SqlDictionaryEntryStagingLoader(
         var now = DateTime.UtcNow;
 
         var sanitized = list
-            .Select(e => new DictionaryEntryStaging
+            .Select(e =>
             {
-                Word = Helper.SqlRepository.SafeTruncateOrEmpty(e.Word, 200),
-                NormalizedWord = Helper.SqlRepository.SafeTruncateOrEmpty(
-                    string.IsNullOrWhiteSpace(e.NormalizedWord) ? e.Word : e.NormalizedWord, 200),
-                PartOfSpeech = Helper.SqlRepository.SafeTruncateOrNull(e.PartOfSpeech, 50),
-                Definition = Helper.SqlRepository.SafeTruncateOrEmpty(e.Definition, 2000),
-                Etymology = Helper.SqlRepository.SafeTruncateOrNull(e.Etymology, 4000),
-                RawFragment = Helper.SqlRepository.SafeTruncateOrNull(e.RawFragment, 8000),
-                SenseNumber = e.SenseNumber,
-                SourceCode = Helper.SqlRepository.SafeTruncateOrEmpty(
-                    string.IsNullOrWhiteSpace(e.SourceCode) ? "UNKNOWN" : e.SourceCode, 30),
-                CreatedUtc = Helper.SqlRepository.FixSqlMinDateUtc(e.CreatedUtc, now)
+                var word = Helper.SqlRepository.SafeTruncateOrEmpty(e.Word, 200);
+                var def = Helper.SqlRepository.SafeTruncateOrEmpty(e.Definition, 2000);
+
+                return new DictionaryEntryStaging
+                {
+                    Word = word,
+                    WordHash = Helper.Sha256(word),
+
+                    NormalizedWord = Helper.SqlRepository.SafeTruncateOrEmpty(
+                        string.IsNullOrWhiteSpace(e.NormalizedWord) ? word : e.NormalizedWord, 200),
+
+                    PartOfSpeech = Helper.SqlRepository.SafeTruncateOrNull(e.PartOfSpeech, 50),
+
+                    Definition = def,
+                    DefinitionHash = Helper.Sha256(def),
+
+                    Etymology = Helper.SqlRepository.SafeTruncateOrNull(e.Etymology, 4000),
+                    RawFragment = Helper.SqlRepository.SafeTruncateOrNull(e.RawFragment, 8000),
+
+                    SenseNumber = e.SenseNumber,
+
+                    SourceCode = Helper.SqlRepository.SafeTruncateOrEmpty(
+                        string.IsNullOrWhiteSpace(e.SourceCode) ? "UNKNOWN" : e.SourceCode, 30),
+
+                    CreatedUtc = Helper.SqlRepository.FixSqlMinDateUtc(e.CreatedUtc, now)
+                };
             })
             .Where(e =>
                 !string.IsNullOrWhiteSpace(e.Word) &&
                 !string.IsNullOrWhiteSpace(e.Definition))
+            .Take(Helper.MAX_RECORDS_PER_SOURCE)
             .ToList();
 
         if (sanitized.Count == 0)
             return;
-
-        if (sanitized.Count > Helper.MAX_RECORDS_PER_SOURCE)
-        {
-            sanitized = sanitized
-                .Take(Helper.MAX_RECORDS_PER_SOURCE)
-                .ToList();
-        }
 
         await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct);
@@ -66,25 +66,36 @@ public sealed class SqlDictionaryEntryStagingLoader(
         {
             ct.ThrowIfCancellationRequested();
 
+            // =========================
+            // TEMP TABLE + INDEX
+            // =========================
             const string createTempSql = """
-                                         CREATE TABLE #DictionaryEntryStagingBatch (
-                                             Word            nvarchar(200)  NOT NULL,
-                                             NormalizedWord  nvarchar(200)  NULL,
-                                             PartOfSpeech    nvarchar(50)   NULL,
-                                             Definition      nvarchar(max)  NOT NULL,
-                                             Etymology       nvarchar(max)  NULL,
-                                             SenseNumber     int            NULL,
-                                             SourceCode      nvarchar(30)   NOT NULL,
-                                             CreatedUtc      datetime2      NOT NULL,
-                                             RawFragment     nvarchar(max)  NULL
-                                         );
-                                         """;
+                CREATE TABLE #DictionaryEntryStagingBatch
+                (
+                    Word            nvarchar(200) NOT NULL,
+                    WordHash        varchar(64)   NOT NULL,
+                    NormalizedWord  nvarchar(200) NULL,
+                    PartOfSpeech    nvarchar(50)  NULL,
+                    Definition      nvarchar(max) NOT NULL,
+                    DefinitionHash  varchar(64)   NOT NULL,
+                    Etymology       nvarchar(max) NULL,
+                    SenseNumber     int           NULL,
+                    SourceCode      nvarchar(30)  NOT NULL,
+                    CreatedUtc      datetime2     NOT NULL,
+                    RawFragment     nvarchar(max) NULL
+                );
 
-            await conn.ExecuteAsync(new CommandDefinition(
-                createTempSql,
-                transaction: tx,
-                cancellationToken: ct));
+                CREATE NONCLUSTERED INDEX IX_StagingBatch_Lookup
+                ON #DictionaryEntryStagingBatch
+                (SourceCode, WordHash, DefinitionHash, SenseNumber);
+                """;
 
+            await conn.ExecuteAsync(
+                new CommandDefinition(createTempSql, transaction: tx, cancellationToken: ct));
+
+            // =========================
+            // BULK COPY
+            // =========================
             var dt = BuildDataTable(sanitized);
 
             using (var bulk = new SqlBulkCopy(conn, SqlBulkCopyOptions.TableLock, (SqlTransaction)tx))
@@ -94,9 +105,11 @@ public sealed class SqlDictionaryEntryStagingLoader(
                 bulk.BulkCopyTimeout = 0;
 
                 bulk.ColumnMappings.Add("Word", "Word");
+                bulk.ColumnMappings.Add("WordHash", "WordHash");
                 bulk.ColumnMappings.Add("NormalizedWord", "NormalizedWord");
                 bulk.ColumnMappings.Add("PartOfSpeech", "PartOfSpeech");
                 bulk.ColumnMappings.Add("Definition", "Definition");
+                bulk.ColumnMappings.Add("DefinitionHash", "DefinitionHash");
                 bulk.ColumnMappings.Add("Etymology", "Etymology");
                 bulk.ColumnMappings.Add("SenseNumber", "SenseNumber");
                 bulk.ColumnMappings.Add("SourceCode", "SourceCode");
@@ -106,81 +119,52 @@ public sealed class SqlDictionaryEntryStagingLoader(
                 await bulk.WriteToServerAsync(dt, ct);
             }
 
-            const string createMergeActionTableSql = """
-                                                     CREATE TABLE #MergeActions
-                                                     (
-                                                         [action] nvarchar(10) NOT NULL
-                                                     );
-                                                     """;
+            // =========================
+            // FAST INSERT (NO MERGE)
+            // =========================
+            const string insertSql = """
+                INSERT INTO dbo.DictionaryEntry_Staging
+                (
+                    Word,
+                    WordHash,
+                    NormalizedWord,
+                    PartOfSpeech,
+                    Definition,
+                    DefinitionHash,
+                    Etymology,
+                    SenseNumber,
+                    SourceCode,
+                    CreatedUtc,
+                    RawFragment
+                )
+                SELECT
+                    b.Word,
+                    b.WordHash,
+                    b.NormalizedWord,
+                    b.PartOfSpeech,
+                    b.Definition,
+                    b.DefinitionHash,
+                    b.Etymology,
+                    b.SenseNumber,
+                    b.SourceCode,
+                    b.CreatedUtc,
+                    b.RawFragment
+                FROM #DictionaryEntryStagingBatch b
+                WHERE NOT EXISTS
+                (
+                    SELECT 1
+                    FROM dbo.DictionaryEntry_Staging t
+                    WHERE t.SourceCode = b.SourceCode
+                      AND t.WordHash = b.WordHash
+                      AND t.DefinitionHash = b.DefinitionHash
+                      AND ISNULL(t.SenseNumber, -1) = ISNULL(b.SenseNumber, -1)
+                );
 
-            await conn.ExecuteAsync(new CommandDefinition(
-                createMergeActionTableSql,
-                transaction: tx,
-                cancellationToken: ct));
+                SELECT @@ROWCOUNT;
+                """;
 
-            const string mergeAndCountSql = """
-                                            DECLARE @Inserted INT = 0;
-
-                                            MERGE dbo.DictionaryEntry_Staging AS target
-                                            USING (
-                                                SELECT
-                                                    b.Word,
-                                                    b.NormalizedWord,
-                                                    b.PartOfSpeech,
-                                                    b.Definition,
-                                                    b.Etymology,
-                                                    b.SenseNumber,
-                                                    b.SourceCode,
-                                                    b.CreatedUtc,
-                                                    b.RawFragment
-                                                FROM #DictionaryEntryStagingBatch b
-                                            ) AS src
-                                            ON (
-                                                   target.SourceCode = src.SourceCode
-                                               AND ISNULL(target.SenseNumber, -1) = ISNULL(src.SenseNumber, -1)
-                                               AND target.Word = src.Word
-                                               AND target.Definition = src.Definition
-                                            )
-                                            WHEN NOT MATCHED BY TARGET THEN
-                                                INSERT (
-                                                    Word,
-                                                    WordHash,
-                                                    NormalizedWord,
-                                                    PartOfSpeech,
-                                                    Definition,
-                                                    DefinitionHash,
-                                                    Etymology,
-                                                    SenseNumber,
-                                                    SourceCode,
-                                                    CreatedUtc,
-                                                    RawFragment
-                                                )
-                                                VALUES (
-                                                    src.Word,
-                                                    CONVERT(varchar(64), HASHBYTES('SHA2_256', ISNULL(src.Word,'')), 2),
-                                                    src.NormalizedWord,
-                                                    src.PartOfSpeech,
-                                                    src.Definition,
-                                                    CONVERT(varchar(64), HASHBYTES('SHA2_256', ISNULL(src.Definition,'')), 2),
-                                                    src.Etymology,
-                                                    src.SenseNumber,
-                                                    src.SourceCode,
-                                                    src.CreatedUtc,
-                                                    src.RawFragment
-                                                )
-                                            OUTPUT $action INTO #MergeActions;
-
-                                            SELECT @Inserted = COUNT(*)
-                                            FROM #MergeActions
-                                            WHERE [action] = 'INSERT';
-
-                                            SELECT @Inserted;
-                                            """;
-
-            var inserted = await conn.ExecuteScalarAsync<int>(new CommandDefinition(
-                mergeAndCountSql,
-                transaction: tx,
-                cancellationToken: ct));
+            var inserted = await conn.ExecuteScalarAsync<int>(
+                new CommandDefinition(insertSql, transaction: tx, cancellationToken: ct));
 
             await tx.CommitAsync(ct);
 
@@ -210,9 +194,11 @@ public sealed class SqlDictionaryEntryStagingLoader(
         var dt = new DataTable();
 
         dt.Columns.Add("Word", typeof(string));
+        dt.Columns.Add("WordHash", typeof(string));
         dt.Columns.Add("NormalizedWord", typeof(string));
         dt.Columns.Add("PartOfSpeech", typeof(string));
         dt.Columns.Add("Definition", typeof(string));
+        dt.Columns.Add("DefinitionHash", typeof(string));
         dt.Columns.Add("Etymology", typeof(string));
         dt.Columns.Add("SenseNumber", typeof(int));
         dt.Columns.Add("SourceCode", typeof(string));
@@ -222,13 +208,15 @@ public sealed class SqlDictionaryEntryStagingLoader(
         foreach (var r in rows)
         {
             var dr = dt.NewRow();
-            dr["Word"] = r.Word ?? string.Empty;
+            dr["Word"] = r.Word;
+            dr["WordHash"] = r.WordHash;
             dr["NormalizedWord"] = (object?)r.NormalizedWord ?? DBNull.Value;
             dr["PartOfSpeech"] = (object?)r.PartOfSpeech ?? DBNull.Value;
-            dr["Definition"] = r.Definition ?? string.Empty;
+            dr["Definition"] = r.Definition;
+            dr["DefinitionHash"] = r.DefinitionHash;
             dr["Etymology"] = (object?)r.Etymology ?? DBNull.Value;
             dr["SenseNumber"] = (object?)r.SenseNumber ?? DBNull.Value;
-            dr["SourceCode"] = r.SourceCode ?? "UNKNOWN";
+            dr["SourceCode"] = r.SourceCode;
             dr["CreatedUtc"] = Helper.SqlRepository.EnsureUtc(r.CreatedUtc);
             dr["RawFragment"] = (object?)r.RawFragment ?? DBNull.Value;
 

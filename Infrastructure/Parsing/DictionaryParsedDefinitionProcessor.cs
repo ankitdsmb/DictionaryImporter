@@ -1,7 +1,5 @@
 ﻿using DictionaryImporter.Common;
-using DictionaryImporter.Core.Abstractions;
 using DictionaryImporter.Infrastructure.Source;
-using DictionaryImporter.Sources.Collins.Models;
 
 namespace DictionaryImporter.Infrastructure.Parsing;
 
