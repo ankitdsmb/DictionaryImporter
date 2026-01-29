@@ -7,10 +7,18 @@ public class DictionaryEntryStaging
     public string? PartOfSpeech { get; set; }
     public string? Definition { get; set; }
     public string? Etymology { get; set; }
-    public string? RawFragment { get; set; } // ← ADD THIS
+    public string? RawFragment { get; set; }
     public int SenseNumber { get; set; } = 1;
     public string SourceCode { get; set; } = null!;
     public DateTime CreatedUtc { get; set; }
-    public string WordHash { get; internal set; }
-    public string DefinitionHash { get; internal set; }
+
+    // EXISTING (do NOT change)
+    public string WordHash { get; internal set; } = null!;
+
+    public string DefinitionHash { get; internal set; } = null!;
+
+    // ✅ NEW (for DB only)
+    public byte[] WordHashBytes { get; internal set; } = null!;
+
+    public byte[] DefinitionHashBytes { get; internal set; } = null!;
 }

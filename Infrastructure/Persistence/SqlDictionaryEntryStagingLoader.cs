@@ -1,227 +1,222 @@
-﻿using DictionaryImporter.Common;
+﻿using Dapper;
+using DictionaryImporter.Common;
+using DictionaryImporter.Domain.Models;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
+using System.Data;
 
 namespace DictionaryImporter.Infrastructure.Persistence;
 
-public sealed class SqlDictionaryEntryStagingLoader(
-    string connectionString,
-    ILogger<SqlDictionaryEntryStagingLoader> logger)
-    : IStagingLoader
+public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
 {
-    public async Task LoadAsync(IEnumerable<DictionaryEntryStaging> entries, CancellationToken ct)
+    private readonly string _connectionString;
+    private readonly ILogger<SqlDictionaryEntryStagingLoader> _logger;
+
+    private const int BatchSize = 1500;
+    private const int MaxRetries = 3;
+
+    // PERF: Reuse DataTable schema
+    private static readonly DataTable _tableTemplate = CreateTableTemplate();
+
+    public SqlDictionaryEntryStagingLoader(
+        string connectionString,
+        ILogger<SqlDictionaryEntryStagingLoader> logger)
+    {
+        _connectionString = connectionString;
+        _logger = logger;
+    }
+
+    // ============================================================
+    // INGEST
+    // ============================================================
+    public async Task LoadAsync(
+        IEnumerable<DictionaryEntryStaging> entries,
+        CancellationToken ct)
     {
         if (entries == null)
             return;
 
-        var list = entries.Where(e => e != null).ToList();
-        if (list.Count == 0)
-            return;
-
         var now = DateTime.UtcNow;
+        var buffer = new List<DictionaryEntryStaging>(BatchSize);
 
-        var sanitized = list
-            .Select(e =>
-            {
-                var word = Helper.SqlRepository.SafeTruncateOrEmpty(e.Word, 200);
-                var def = Helper.SqlRepository.SafeTruncateOrEmpty(e.Definition, 2000);
-
-                return new DictionaryEntryStaging
-                {
-                    Word = word,
-                    WordHash = Helper.Sha256(word),
-
-                    NormalizedWord = Helper.SqlRepository.SafeTruncateOrEmpty(
-                        string.IsNullOrWhiteSpace(e.NormalizedWord) ? word : e.NormalizedWord, 200),
-
-                    PartOfSpeech = Helper.SqlRepository.SafeTruncateOrNull(e.PartOfSpeech, 50),
-
-                    Definition = def,
-                    DefinitionHash = Helper.Sha256(def),
-
-                    Etymology = Helper.SqlRepository.SafeTruncateOrNull(e.Etymology, 4000),
-                    RawFragment = Helper.SqlRepository.SafeTruncateOrNull(e.RawFragment, 8000),
-
-                    SenseNumber = e.SenseNumber,
-
-                    SourceCode = Helper.SqlRepository.SafeTruncateOrEmpty(
-                        string.IsNullOrWhiteSpace(e.SourceCode) ? "UNKNOWN" : e.SourceCode, 30),
-
-                    CreatedUtc = Helper.SqlRepository.FixSqlMinDateUtc(e.CreatedUtc, now)
-                };
-            })
-            .Where(e =>
-                !string.IsNullOrWhiteSpace(e.Word) &&
-                !string.IsNullOrWhiteSpace(e.Definition))
-            .Take(Helper.MAX_RECORDS_PER_SOURCE)
-            .ToList();
-
-        if (sanitized.Count == 0)
-            return;
-
-        await using var conn = new SqlConnection(connectionString);
-        await conn.OpenAsync(ct);
-
-        await using var tx = await conn.BeginTransactionAsync(ct);
-
-        try
+        foreach (var e in entries)
         {
             ct.ThrowIfCancellationRequested();
 
-            // =========================
-            // TEMP TABLE + INDEX
-            // =========================
-            const string createTempSql = """
-                CREATE TABLE #DictionaryEntryStagingBatch
-                (
-                    Word            nvarchar(200) NOT NULL,
-                    WordHash        varchar(64)   NOT NULL,
-                    NormalizedWord  nvarchar(200) NULL,
-                    PartOfSpeech    nvarchar(50)  NULL,
-                    Definition      nvarchar(max) NOT NULL,
-                    DefinitionHash  varchar(64)   NOT NULL,
-                    Etymology       nvarchar(max) NULL,
-                    SenseNumber     int           NULL,
-                    SourceCode      nvarchar(30)  NOT NULL,
-                    CreatedUtc      datetime2     NOT NULL,
-                    RawFragment     nvarchar(max) NULL
-                );
+            var sanitized = Sanitize(e, now);
+            if (sanitized == null)
+                continue;
 
-                CREATE NONCLUSTERED INDEX IX_StagingBatch_Lookup
-                ON #DictionaryEntryStagingBatch
-                (SourceCode, WordHash, DefinitionHash, SenseNumber);
-                """;
+            buffer.Add(sanitized);
 
-            await conn.ExecuteAsync(
-                new CommandDefinition(createTempSql, transaction: tx, cancellationToken: ct));
-
-            // =========================
-            // BULK COPY
-            // =========================
-            var dt = BuildDataTable(sanitized);
-
-            using (var bulk = new SqlBulkCopy(conn, SqlBulkCopyOptions.TableLock, (SqlTransaction)tx))
+            if (buffer.Count == BatchSize)
             {
-                bulk.DestinationTableName = "#DictionaryEntryStagingBatch";
-                bulk.BatchSize = Helper.MAX_RECORDS_PER_SOURCE;
-                bulk.BulkCopyTimeout = 0;
-
-                bulk.ColumnMappings.Add("Word", "Word");
-                bulk.ColumnMappings.Add("WordHash", "WordHash");
-                bulk.ColumnMappings.Add("NormalizedWord", "NormalizedWord");
-                bulk.ColumnMappings.Add("PartOfSpeech", "PartOfSpeech");
-                bulk.ColumnMappings.Add("Definition", "Definition");
-                bulk.ColumnMappings.Add("DefinitionHash", "DefinitionHash");
-                bulk.ColumnMappings.Add("Etymology", "Etymology");
-                bulk.ColumnMappings.Add("SenseNumber", "SenseNumber");
-                bulk.ColumnMappings.Add("SourceCode", "SourceCode");
-                bulk.ColumnMappings.Add("CreatedUtc", "CreatedUtc");
-                bulk.ColumnMappings.Add("RawFragment", "RawFragment");
-
-                await bulk.WriteToServerAsync(dt, ct);
+                await InsertBatchWithRetryAsync(buffer, ct).ConfigureAwait(false);
+                buffer.Clear();
             }
-
-            // =========================
-            // FAST INSERT (NO MERGE)
-            // =========================
-            const string insertSql = """
-                INSERT INTO dbo.DictionaryEntry_Staging
-                (
-                    Word,
-                    WordHash,
-                    NormalizedWord,
-                    PartOfSpeech,
-                    Definition,
-                    DefinitionHash,
-                    Etymology,
-                    SenseNumber,
-                    SourceCode,
-                    CreatedUtc,
-                    RawFragment
-                )
-                SELECT
-                    b.Word,
-                    b.WordHash,
-                    b.NormalizedWord,
-                    b.PartOfSpeech,
-                    b.Definition,
-                    b.DefinitionHash,
-                    b.Etymology,
-                    b.SenseNumber,
-                    b.SourceCode,
-                    b.CreatedUtc,
-                    b.RawFragment
-                FROM #DictionaryEntryStagingBatch b
-                WHERE NOT EXISTS
-                (
-                    SELECT 1
-                    FROM dbo.DictionaryEntry_Staging t
-                    WHERE t.SourceCode = b.SourceCode
-                      AND t.WordHash = b.WordHash
-                      AND t.DefinitionHash = b.DefinitionHash
-                      AND ISNULL(t.SenseNumber, -1) = ISNULL(b.SenseNumber, -1)
-                );
-
-                SELECT @@ROWCOUNT;
-                """;
-
-            var inserted = await conn.ExecuteScalarAsync<int>(
-                new CommandDefinition(insertSql, transaction: tx, cancellationToken: ct));
-
-            await tx.CommitAsync(ct);
-
-            logger.LogInformation(
-                "Inserted staging rows (BATCH) | Inserted={Inserted} | Attempted={Attempted}",
-                inserted,
-                sanitized.Count);
         }
-        catch (OperationCanceledException)
-        {
-            try { await tx.RollbackAsync(CancellationToken.None); } catch { }
-            throw;
-        }
-        catch (Exception ex)
-        {
-            try { await tx.RollbackAsync(CancellationToken.None); } catch { }
 
-            logger.LogError(
-                ex,
-                "Failed batch insert staging rows | Attempted={Attempted}",
-                sanitized.Count);
+        if (buffer.Count > 0)
+            await InsertBatchWithRetryAsync(buffer, ct).ConfigureAwait(false);
+    }
+
+    // ============================================================
+    // FINALIZE
+    // ============================================================
+    public async Task FinalizeAsync(CancellationToken ct)
+    {
+        await using var conn = new SqlConnection(_connectionString);
+        await conn.OpenAsync(ct).ConfigureAwait(false);
+
+        var empty = _tableTemplate.Clone(); // PERF: no schema rebuild
+
+        var p = new DynamicParameters();
+        p.Add("@Entries", empty.AsTableValuedParameter("dbo.DictionaryEntryStagingType"));
+        p.Add("@Finalize", 1);
+
+        await conn.ExecuteAsync(
+            "dbo.sp_DictionaryEntryStaging_InsertFast",
+            p,
+            commandType: CommandType.StoredProcedure,
+            commandTimeout: 600)
+            .ConfigureAwait(false);
+    }
+
+    // ============================================================
+    // INSERT WITH DEADLOCK RETRY
+    // ============================================================
+    private async Task InsertBatchWithRetryAsync(
+        List<DictionaryEntryStaging> batch,
+        CancellationToken ct)
+    {
+        var attempt = 0;
+
+        while (true)
+        {
+            try
+            {
+                await InsertBatchAsync(batch, ct).ConfigureAwait(false);
+                return;
+            }
+            catch (SqlException ex) when (ex.Number == 1205 && attempt < MaxRetries)
+            {
+                attempt++;
+                await Task.Delay(200 * attempt, ct).ConfigureAwait(false);
+            }
         }
     }
 
-    private static DataTable BuildDataTable(List<DictionaryEntryStaging> rows)
+    // ============================================================
+    // INSERT SINGLE BATCH
+    // ============================================================
+    private async Task InsertBatchAsync(
+        List<DictionaryEntryStaging> batch,
+        CancellationToken ct)
+    {
+        var table = BuildDataTable(batch);
+
+        var p = new DynamicParameters();
+        p.Add("@Entries", table.AsTableValuedParameter("dbo.DictionaryEntryStagingType"));
+        p.Add("@Finalize", 0);
+
+        await using var conn = new SqlConnection(_connectionString);
+        await conn.OpenAsync(ct).ConfigureAwait(false);
+
+        await conn.ExecuteAsync(
+            "dbo.sp_DictionaryEntryStaging_InsertFast",
+            p,
+            commandType: CommandType.StoredProcedure,
+            commandTimeout: 120)
+            .ConfigureAwait(false);
+    }
+
+    // ============================================================
+    // SANITIZATION + HASHING
+    // ============================================================
+    private static DictionaryEntryStaging? Sanitize(
+        DictionaryEntryStaging e,
+        DateTime now)
+    {
+        if (string.IsNullOrWhiteSpace(e.Word) ||
+            string.IsNullOrWhiteSpace(e.Definition))
+            return null;
+
+        var word = Helper.SqlRepository.SafeTruncateOrEmpty(e.Word, 200);
+        var definition = Helper.SqlRepository.SafeTruncateOrEmpty(e.Definition, 2000);
+
+        var wordBytes = Helper.Sha256Bytes(word);
+        var defBytes = Helper.Sha256Bytes(definition);
+
+        // PERF: fast guard, avoid SQL retries
+        if (wordBytes.Length != 32 || defBytes.Length != 32)
+            return null;
+
+        return new DictionaryEntryStaging
+        {
+            Word = word,
+            NormalizedWord = Helper.SqlRepository.SafeTruncateOrEmpty(
+                string.IsNullOrWhiteSpace(e.NormalizedWord) ? word : e.NormalizedWord, 200),
+            PartOfSpeech = Helper.SqlRepository.SafeTruncateOrNull(e.PartOfSpeech, 50),
+            Definition = definition,
+            Etymology = Helper.SqlRepository.SafeTruncateOrNull(e.Etymology, 4000),
+            RawFragment = Helper.SqlRepository.SafeTruncateOrNull(e.RawFragment, 8000),
+            SenseNumber = e.SenseNumber,
+            SourceCode = Helper.SqlRepository.SafeTruncateOrEmpty(e.SourceCode, 30),
+            CreatedUtc = Helper.SqlRepository.FixSqlMinDateUtc(e.CreatedUtc, now),
+
+            WordHash = Convert.ToHexString(wordBytes),
+            DefinitionHash = Convert.ToHexString(defBytes),
+
+            WordHashBytes = wordBytes,
+            DefinitionHashBytes = defBytes
+        };
+    }
+
+    // ============================================================
+    // DATATABLE (REUSED SCHEMA)
+    // ============================================================
+    private static DataTable BuildDataTable(
+        List<DictionaryEntryStaging> rows)
+    {
+        var dt = _tableTemplate.Clone(); // PERF
+
+        foreach (var r in rows)
+        {
+            var dr = dt.NewRow();
+
+            dr[0] = r.Word;
+            dr[1] = r.WordHashBytes;
+            dr[2] = r.NormalizedWord;
+            dr[3] = (object?)r.PartOfSpeech ?? DBNull.Value;
+            dr[4] = r.Definition!;
+            dr[5] = r.DefinitionHashBytes;
+            dr[6] = (object?)r.Etymology ?? DBNull.Value;
+            dr[7] = r.SenseNumber;
+            dr[8] = r.SourceCode;
+            dr[9] = r.CreatedUtc;
+            dr[10] = (object?)r.RawFragment ?? DBNull.Value;
+
+            dt.Rows.Add(dr);
+        }
+
+        return dt;
+    }
+
+    private static DataTable CreateTableTemplate()
     {
         var dt = new DataTable();
 
         dt.Columns.Add("Word", typeof(string));
-        dt.Columns.Add("WordHash", typeof(string));
+        dt.Columns.Add("WordHash", typeof(byte[]));
         dt.Columns.Add("NormalizedWord", typeof(string));
         dt.Columns.Add("PartOfSpeech", typeof(string));
         dt.Columns.Add("Definition", typeof(string));
-        dt.Columns.Add("DefinitionHash", typeof(string));
+        dt.Columns.Add("DefinitionHash", typeof(byte[]));
         dt.Columns.Add("Etymology", typeof(string));
         dt.Columns.Add("SenseNumber", typeof(int));
         dt.Columns.Add("SourceCode", typeof(string));
         dt.Columns.Add("CreatedUtc", typeof(DateTime));
         dt.Columns.Add("RawFragment", typeof(string));
-
-        foreach (var r in rows)
-        {
-            var dr = dt.NewRow();
-            dr["Word"] = r.Word;
-            dr["WordHash"] = r.WordHash;
-            dr["NormalizedWord"] = (object?)r.NormalizedWord ?? DBNull.Value;
-            dr["PartOfSpeech"] = (object?)r.PartOfSpeech ?? DBNull.Value;
-            dr["Definition"] = r.Definition;
-            dr["DefinitionHash"] = r.DefinitionHash;
-            dr["Etymology"] = (object?)r.Etymology ?? DBNull.Value;
-            dr["SenseNumber"] = (object?)r.SenseNumber ?? DBNull.Value;
-            dr["SourceCode"] = r.SourceCode;
-            dr["CreatedUtc"] = Helper.SqlRepository.EnsureUtc(r.CreatedUtc);
-            dr["RawFragment"] = (object?)r.RawFragment ?? DBNull.Value;
-
-            dt.Rows.Add(dr);
-        }
 
         return dt;
     }

@@ -8,7 +8,7 @@ namespace DictionaryImporter.Common;
 
 public static class Helper
 {
-    public const int MAX_RECORDS_PER_SOURCE = 25;
+    public const int MAX_RECORDS_PER_SOURCE = int.MaxValue;
 
     // =====================================================================
     // 1) REGEX (ALL AT TOP)
@@ -476,6 +476,12 @@ public static class Helper
         using var sha = SHA256.Create();
         var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(input ?? ""));
         return Convert.ToHexString(bytes);
+    }
+
+    public static byte[] Sha256Bytes(string value)
+    {
+        using var sha = SHA256.Create();
+        return sha.ComputeHash(Encoding.UTF8.GetBytes(value));
     }
 
     public static void ResetProcessingState(string sourceCode)
