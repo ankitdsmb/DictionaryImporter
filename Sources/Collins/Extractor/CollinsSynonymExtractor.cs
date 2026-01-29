@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Sources.Collins.Extractor;
+﻿using DictionaryImporter.Core.Domain.Models;
+
+namespace DictionaryImporter.Sources.Collins.Extractor;
 
 internal class CollinsSynonymExtractor(ILogger<CollinsSynonymExtractor> logger) : ISynonymExtractor
 {

@@ -1,4 +1,5 @@
 ﻿using System.Text.RegularExpressions;
+using DictionaryImporter.Core.Domain.Models;
 using DictionaryImporter.Gateway.Grammar.Core;
 using DictionaryImporter.Gateway.Grammar.Engines;
 using Microsoft.Extensions.Logging;

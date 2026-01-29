@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Common.SourceHelper;
+﻿using DictionaryImporter.Core.Domain.Models;
+
+namespace DictionaryImporter.Common.SourceHelper;
 
 public static class ParsingHelperGutenberg
 {

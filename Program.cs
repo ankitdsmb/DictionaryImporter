@@ -1,6 +1,7 @@
 ﻿using DictionaryImporter.Bootstrap;
 using DictionaryImporter.Core.Jobs;
-using DictionaryImporter.Domain.Rewrite;
+using DictionaryImporter.Core.Orchestration;
+using DictionaryImporter.Core.Orchestration.Sources;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 

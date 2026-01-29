@@ -1,13 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
-using DictionaryImporter.Common;
+﻿using DictionaryImporter.Common;
 using DictionaryImporter.Gateway.Rewriter;
-using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Logging;
 
-namespace DictionaryImporter.Domain.Rewrite;
+namespace DictionaryImporter.Infrastructure.Persistence;
 
 public sealed class RewriteMapPromotionService(
     string connectionString,

@@ -1,6 +1,4 @@
-﻿using System.Threading;
-
-namespace DictionaryImporter.Core.Rewrite;
+﻿namespace DictionaryImporter.Core.Rewrite;
 
 public sealed class RewriteContextAccessor : IRewriteContextAccessor
 {

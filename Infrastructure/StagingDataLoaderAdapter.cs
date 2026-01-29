@@ -1,4 +1,5 @@
-﻿using DictionaryImporter.Infrastructure.Persistence.Mapping;
+﻿using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Infrastructure.Persistence.Mapping;
 
 namespace DictionaryImporter.Infrastructure;
 

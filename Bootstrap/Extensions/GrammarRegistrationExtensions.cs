@@ -1,4 +1,5 @@
-﻿using DictionaryImporter.Core.Text;
+﻿using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Core.Text;
 using DictionaryImporter.Gateway.Grammar.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

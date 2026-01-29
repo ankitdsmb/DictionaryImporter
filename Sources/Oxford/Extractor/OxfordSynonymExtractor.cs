@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Sources.Oxford.Extractor;
+﻿using DictionaryImporter.Core.Domain.Models;
+
+namespace DictionaryImporter.Sources.Oxford.Extractor;
 
 public sealed class OxfordSynonymExtractor(ILogger<OxfordSynonymExtractor> logger) : ISynonymExtractor
 {

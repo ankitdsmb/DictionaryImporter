@@ -1,27 +1,26 @@
-﻿using DictionaryImporter.Common;
+﻿using System.Collections.Concurrent;
+using System.Data;
+using System.Runtime.CompilerServices;
+using DictionaryImporter.Common;
 using DictionaryImporter.Infrastructure.Source;
+using Dapper;
+using DictionaryImporter.Core.Domain.Models;
+using Microsoft.Data.SqlClient;
+using DictionaryImporter.Core.Orchestration.Concurrency;
 
 namespace DictionaryImporter.Infrastructure.Parsing;
 
 public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProcessor
 {
-    // =========================
-    // CORE DEPENDENCIES
-    // =========================
     private readonly string _connectionString;
-
     private readonly ILogger<DictionaryParsedDefinitionProcessor> _logger;
 
-    // Parsing / extraction
     private readonly IDictionaryDefinitionParserResolver _parserResolver;
-
     private readonly IExampleExtractorRegistry _exampleExtractors;
     private readonly ISynonymExtractorRegistry _synonymExtractors;
     private readonly IEtymologyExtractorRegistry _etymologyExtractors;
 
-    // Writers
     private readonly SqlParsedDefinitionWriter _parsedWriter;
-
     private readonly IDictionaryEntryExampleWriter _exampleWriter;
     private readonly IDictionaryEntrySynonymWriter _synonymWriter;
     private readonly IDictionaryEntryAliasWriter _aliasWriter;
@@ -29,18 +28,14 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
     private readonly IDictionaryEntryCrossReferenceWriter _crossRefWriter;
     private readonly IEntryEtymologyWriter _etymologyWriter;
 
-    // Text processing
     private readonly IDictionaryTextFormatter _formatter;
-
     private readonly IGrammarEnrichedTextService _grammarText;
     private readonly ILanguageDetectionService _languageDetection;
     private readonly INonEnglishTextStorage _nonEnglishStorage;
     private readonly IOcrArtifactNormalizer _ocrNormalizer;
     private readonly IDefinitionNormalizer _definitionNormalizer;
 
-    // Batch
     private readonly IBatchProcessedDataCollector _batchCollector;
-
     private readonly BatchProcessingSettings _batchSettings;
     private readonly bool _useBatch;
 
@@ -91,13 +86,10 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
         _definitionNormalizer = definitionNormalizer;
 
         _batchCollector = batchCollector;
-        _batchSettings = batchSettings?.Value ?? new BatchProcessingSettings();
+        _batchSettings = batchSettings?.Value ?? new();
         _useBatch = _batchCollector != null && _batchSettings.BatchSize > 1;
     }
 
-    // =========================
-    // ENTRY POINT
-    // =========================
     public async Task ExecuteAsync(string sourceCode, CancellationToken ct)
     {
         sourceCode = Helper.ParsingPipeline.NormalizeSourceCode(sourceCode);
@@ -108,20 +100,18 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
             await ProcessSequentialAsync(sourceCode, ct);
     }
 
+    // =========================
+    // SEQUENTIAL (UNCHANGED)
+    // =========================
     private async Task ProcessSequentialAsync(string sourceCode, CancellationToken ct)
     {
-        var entries = await LoadEntriesAsync(sourceCode, ct);
-        if (entries.Count == 0) return;
-
         var parser = _parserResolver.Resolve(sourceCode);
         var exampleExtractor = _exampleExtractors.GetExtractor(sourceCode);
         var synonymExtractor = _synonymExtractors.GetExtractor(sourceCode);
         var etymologyExtractor = _etymologyExtractors.GetExtractor(sourceCode);
 
-        foreach (var entry in entries)
+        await foreach (var entry in StreamEntriesAsync(sourceCode, ct))
         {
-            ct.ThrowIfCancellationRequested();
-
             foreach (var parsed in ParseEntry(entry, parser, sourceCode))
             {
                 var parsedId = await _parsedWriter.WriteAsync(
@@ -138,127 +128,110 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
         }
     }
 
+    // =========================
+    // BATCH (OPTIMIZED)
+    // =========================
     private async Task ProcessBatchAsync(string sourceCode, CancellationToken ct)
     {
-        var entries = await LoadEntriesAsync(sourceCode, ct);
-        if (entries.Count == 0) return;
-
         var parser = _parserResolver.Resolve(sourceCode);
         var exampleExtractor = _exampleExtractors.GetExtractor(sourceCode);
         var synonymExtractor = _synonymExtractors.GetExtractor(sourceCode);
         var etymologyExtractor = _etymologyExtractors.GetExtractor(sourceCode);
 
-        foreach (var entry in entries)
+        await foreach (var entry in StreamEntriesAsync(sourceCode, ct))
         {
             ct.ThrowIfCancellationRequested();
 
-            foreach (var parsed in ParseEntry(entry, parser, sourceCode))
-            {
-                // 1. Root parsed definition
-                await _batchCollector.AddParsedDefinitionAsync(
-                    entry.DictionaryEntryId,
-                    parsed,
-                    sourceCode);
+            var parsedDefs = ParseEntry(entry, parser, sourceCode);
 
-                // 2. Examples
-                foreach (var ex in exampleExtractor
-                    .Extract(parsed)
-                    .Distinct(StringComparer.OrdinalIgnoreCase))
+            await Parallel.ForEachAsync(
+                parsedDefs,
+                new ParallelOptions
                 {
-                    var processed = await ProcessText(ex, "Example", sourceCode, ct);
+                    MaxDegreeOfParallelism = Environment.ProcessorCount,
+                    CancellationToken = ct
+                },
+                async (parsed, token) =>
+                {
+                    await _batchCollector.AddParsedDefinitionAsync(
+                        entry.DictionaryEntryId, parsed, sourceCode);
 
-                    if (!Helper.ParsingPipeline
-                            .IsNonEnglishOrBilingualPlaceholder(processed.ProcessedText))
+                    // Examples
+                    foreach (var ex in exampleExtractor
+                        .Extract(parsed)
+                        .Distinct(StringComparer.OrdinalIgnoreCase))
                     {
-                        await _batchCollector.AddExampleAsync(
-                            0, // ignored by collector
-                            processed.ProcessedText,
-                            sourceCode);
+                        var processed = await ProcessText(ex, "Example", sourceCode, token);
+                        if (!Helper.ParsingPipeline.IsNonEnglishOrBilingualPlaceholder(processed.ProcessedText))
+                            await _batchCollector.AddExampleAsync(0, processed.ProcessedText, sourceCode);
                     }
-                }
 
-                // 3. Synonyms
-                var validSynonyms = new List<string>();
+                    // Synonyms
+                    var validSynonyms = new List<string>();
 
-                foreach (var r in synonymExtractor.Extract(
-                    entry.Word,
-                    parsed.Definition,
-                    parsed.RawFragment))
-                {
-                    if (r.ConfidenceLevel is not ("high" or "medium")) continue;
-                    if (!synonymExtractor.ValidateSynonymPair(entry.Word, r.TargetHeadword)) continue;
-
-                    var processed = await ProcessText(r.TargetHeadword, "Synonym", sourceCode, ct);
-                    if (Helper.ParsingPipeline
-                        .IsNonEnglishOrBilingualPlaceholder(processed.ProcessedText))
-                        continue;
-
-                    var clean = Helper.ParsingPipeline
-                        .NormalizeForSynonymDedupe(processed.ProcessedText);
-
-                    if (!string.IsNullOrWhiteSpace(clean))
-                        validSynonyms.Add(clean);
-                }
-
-                if (validSynonyms.Count > 0)
-                {
-                    await _batchCollector.AddSynonymsAsync(
-                        0, // ignored
-                        validSynonyms,
-                        sourceCode);
-                }
-
-                // 4. Cross references
-                if (parsed.CrossReferences != null)
-                {
-                    foreach (var cr in parsed.CrossReferences)
+                    foreach (var r in synonymExtractor.Extract(
+                        entry.Word, parsed.Definition, parsed.RawFragment))
                     {
-                        if (!string.IsNullOrWhiteSpace(cr.TargetWord) &&
-                            !Helper.ParsingPipeline.IsNonEnglishOrBilingualPlaceholder(cr.TargetWord))
+                        if (r.ConfidenceLevel is not ("high" or "medium")) continue;
+                        if (!synonymExtractor.ValidateSynonymPair(entry.Word, r.TargetHeadword)) continue;
+
+                        var processed = await ProcessText(r.TargetHeadword, "Synonym", sourceCode, token);
+                        if (Helper.ParsingPipeline.IsNonEnglishOrBilingualPlaceholder(processed.ProcessedText))
+                            continue;
+
+                        var clean = Helper.ParsingPipeline.NormalizeForSynonymDedupe(processed.ProcessedText);
+                        if (!string.IsNullOrWhiteSpace(clean))
+                            validSynonyms.Add(clean);
+                    }
+
+                    if (validSynonyms.Count > 0)
+                        await _batchCollector.AddSynonymsAsync(0, validSynonyms, sourceCode);
+
+                    // Cross references
+                    if (parsed.CrossReferences != null)
+                    {
+                        foreach (var cr in parsed.CrossReferences)
                         {
-                            await _batchCollector.AddCrossReferenceAsync(
+                            if (!string.IsNullOrWhiteSpace(cr.TargetWord) &&
+                                !Helper.ParsingPipeline.IsNonEnglishOrBilingualPlaceholder(cr.TargetWord))
+                            {
+                                await _batchCollector.AddCrossReferenceAsync(
+                                    0,
+                                    new CrossReference
+                                    {
+                                        TargetWord = cr.TargetWord,
+                                        ReferenceType = cr.ReferenceType ?? "see"
+                                    },
+                                    sourceCode);
+                            }
+                        }
+                    }
+
+                    // Alias
+                    if (!string.IsNullOrWhiteSpace(parsed.Alias))
+                    {
+                        var processed = await ProcessText(parsed.Alias, "Alias", sourceCode, token);
+                        if (!Helper.ParsingPipeline.IsNonEnglishOrBilingualPlaceholder(processed.ProcessedText))
+                        {
+                            await _batchCollector.AddAliasAsync(
                                 0,
-                                new CrossReference
-                                {
-                                    TargetWord = cr.TargetWord,
-                                    ReferenceType = cr.ReferenceType ?? "see"
-                                },
+                                processed.ProcessedText,
+                                entry.DictionaryEntryId,
                                 sourceCode);
                         }
                     }
-                }
 
-                // 5. Alias + Variant
-                if (!string.IsNullOrWhiteSpace(parsed.Alias))
-                {
-                    var processed = await ProcessText(parsed.Alias, "Alias", sourceCode, ct);
+                    // Etymology
+                    var ety = etymologyExtractor.Extract(
+                        entry.Word, parsed.Definition, parsed.RawFragment);
 
-                    if (!Helper.ParsingPipeline
-                            .IsNonEnglishOrBilingualPlaceholder(processed.ProcessedText))
+                    if (!string.IsNullOrWhiteSpace(ety.EtymologyText))
                     {
-                        await _batchCollector.AddAliasAsync(
-                            0,
-                            processed.ProcessedText,
-                            entry.DictionaryEntryId,
-                            sourceCode);
-                    }
-                }
+                        var processed = await ProcessText(ety.EtymologyText, "Etymology", sourceCode, token);
 
-                // 6. Etymology
-                var ety = etymologyExtractor.Extract(
-                    entry.Word,
-                    parsed.Definition,
-                    parsed.RawFragment);
-
-                if (!string.IsNullOrWhiteSpace(ety.EtymologyText))
-                {
-                    var processed = await ProcessText(ety.EtymologyText, "Etymology", sourceCode, ct);
-
-                    if (!Helper.ParsingPipeline
-                            .IsNonEnglishOrBilingualPlaceholder(processed.ProcessedText))
-                    {
-                        await _batchCollector.AddEtymologyAsync(
-                            new DictionaryEntryEtymology
+                        if (!Helper.ParsingPipeline.IsNonEnglishOrBilingualPlaceholder(processed.ProcessedText))
+                        {
+                            await _batchCollector.AddEtymologyAsync(new DictionaryEntryEtymology
                             {
                                 DictionaryEntryId = entry.DictionaryEntryId,
                                 EtymologyText = processed.ProcessedText,
@@ -268,16 +241,41 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
                                 NonEnglishTextId = processed.NonEnglishTextId,
                                 CreatedUtc = DateTime.UtcNow
                             });
+                        }
                     }
-                }
-            }
+                });
         }
 
         await _batchCollector.FlushBatchAsync(ct);
     }
 
     // =========================
-    // WRITE HELPERS
+    // STREAM DB
+    // =========================
+    private async IAsyncEnumerable<DictionaryEntry> StreamEntriesAsync(
+        string sourceCode,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        await using var conn = new SqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        await using var reader = await conn.ExecuteReaderAsync(
+            """
+            SELECT DictionaryEntryId, Word, Definition, RawFragment, SenseNumber, SourceCode
+            FROM dbo.DictionaryEntry
+            WHERE SourceCode = @SourceCode
+            ORDER BY DictionaryEntryId
+            """,
+            new { SourceCode = sourceCode });
+
+        var parser = reader.GetRowParser<DictionaryEntry>();
+
+        while (await reader.ReadAsync(ct))
+            yield return parser(reader);
+    }
+
+    // =========================
+    // ORIGINAL PRIVATE HELPERS (RESTORED)
     // =========================
     private async Task WriteExamples(
         long parsedId,
@@ -381,32 +379,13 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
     }
 
     // =========================
-    // COMMON UTILITIES
+    // COMMON
     // =========================
-    private async Task<List<DictionaryEntry>> LoadEntriesAsync(string sourceCode, CancellationToken ct)
-    {
-        await using var conn = new SqlConnection(_connectionString);
-        await conn.OpenAsync(ct);
-
-        return (await conn.QueryAsync<DictionaryEntry>(
-            """
-            SELECT DictionaryEntryId, Word, Definition, RawFragment, SenseNumber, SourceCode
-            FROM dbo.DictionaryEntry
-            WHERE SourceCode = @SourceCode
-            ORDER BY DictionaryEntryId
-            """,
-            new { SourceCode = sourceCode }))
-            .ToList();
-    }
-
     private IEnumerable<ParsedDefinition> ParseEntry(
         DictionaryEntry entry,
         IDictionaryDefinitionParser parser,
         string sourceCode)
-    {
-        return parser.Parse(entry)
-            ?? new[] { CreateFallback(entry, sourceCode) };
-    }
+        => parser.Parse(entry) ?? new[] { CreateFallback(entry, sourceCode) };
 
     private async Task<(string ProcessedText, long? NonEnglishTextId)> ProcessText(
         string text,
@@ -442,8 +421,7 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
     }
 
     private static ParsedDefinition CreateFallback(DictionaryEntry entry, string sourceCode)
-    {
-        return new ParsedDefinition
+        => new()
         {
             MeaningTitle = entry.Word,
             Definition = entry.Definition ?? string.Empty,
@@ -452,5 +430,4 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
             SourceCode = sourceCode,
             CrossReferences = new List<CrossReference>()
         };
-    }
 }

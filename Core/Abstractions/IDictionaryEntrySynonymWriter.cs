@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Core.Abstractions;
+﻿using DictionaryImporter.Core.Domain.Models;
+
+namespace DictionaryImporter.Core.Abstractions;
 
 public interface IDictionaryEntrySynonymWriter
 {

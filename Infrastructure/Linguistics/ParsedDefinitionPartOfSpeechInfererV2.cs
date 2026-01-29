@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Infrastructure.Linguistics;
+﻿using DictionaryImporter.Core.Domain.Models;
+
+namespace DictionaryImporter.Infrastructure.Linguistics;
 
 public sealed class ParsedDefinitionPartOfSpeechInfererV2
     : IPartOfSpeechInfererV2

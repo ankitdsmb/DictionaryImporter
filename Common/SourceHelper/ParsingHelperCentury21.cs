@@ -1,4 +1,5 @@
-﻿using HtmlAgilityPack;
+﻿using DictionaryImporter.Core.Domain.Models;
+using HtmlAgilityPack;
 
 namespace DictionaryImporter.Common.SourceHelper;
 

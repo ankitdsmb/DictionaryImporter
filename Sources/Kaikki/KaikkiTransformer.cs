@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using DictionaryImporter.Common;
 using DictionaryImporter.Common.SourceHelper;
+using DictionaryImporter.Core.Domain.Models;
 using JsonException = Newtonsoft.Json.JsonException;
 
 namespace DictionaryImporter.Sources.Kaikki;
@@ -53,7 +54,6 @@ public sealed class KaikkiTransformer(ILogger<KaikkiTransformer> logger) : IData
 
         var definitions = ParsingHelperKaikki.ExtractEnglishDefinitions(root);
 
-        // FIX: If no definitions from ExtractEnglishDefinitions, try alternative extraction
         if (definitions.Count == 0)
         {
             definitions = TryExtractShortDefinitions(root);

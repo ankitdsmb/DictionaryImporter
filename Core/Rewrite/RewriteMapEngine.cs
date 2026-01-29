@@ -1,13 +1,4 @@
-﻿using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
-using DictionaryImporter.Gateway.Rewriter;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
+﻿using DictionaryImporter.Gateway.Rewriter;
 
 namespace DictionaryImporter.Core.Rewrite;
 

@@ -1,9 +1,5 @@
-﻿using Dapper;
-using DictionaryImporter.Common;
-using DictionaryImporter.Domain.Models;
-using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Logging;
-using System.Data;
+﻿using DictionaryImporter.Common;
+using DictionaryImporter.Core.Domain.Models;
 
 namespace DictionaryImporter.Infrastructure.Persistence;
 
@@ -12,11 +8,17 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
     private readonly string _connectionString;
     private readonly ILogger<SqlDictionaryEntryStagingLoader> _logger;
 
-    private const int BatchSize = 1500;
+    private int _adaptiveBatchSize = 2000;
+
+    private const int MinBatchSize = 500;
+    private const int MaxBatchSize = 4000;
     private const int MaxRetries = 3;
 
-    // PERF: Reuse DataTable schema
-    private static readonly DataTable _tableTemplate = CreateTableTemplate();
+    private const bool UseBulkCopy = true;
+
+    private static readonly ConcurrentDictionary<string, bool> EnsuredSources = new();
+
+    private static readonly DataTable TableTemplate = CreateTableTemplate();
 
     public SqlDictionaryEntryStagingLoader(
         string connectionString,
@@ -26,9 +28,6 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
         _logger = logger;
     }
 
-    // ============================================================
-    // INGEST
-    // ============================================================
     public async Task LoadAsync(
         IEnumerable<DictionaryEntryStaging> entries,
         CancellationToken ct)
@@ -37,7 +36,7 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
             return;
 
         var now = DateTime.UtcNow;
-        var buffer = new List<DictionaryEntryStaging>(BatchSize);
+        var buffer = new List<DictionaryEntryStaging>(_adaptiveBatchSize);
 
         foreach (var e in entries)
         {
@@ -49,42 +48,43 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
 
             buffer.Add(sanitized);
 
-            if (buffer.Count == BatchSize)
+            if (buffer.Count >= _adaptiveBatchSize)
             {
-                await InsertBatchWithRetryAsync(buffer, ct).ConfigureAwait(false);
+                await FlushAdaptiveAsync(buffer, ct).ConfigureAwait(false);
                 buffer.Clear();
             }
         }
 
         if (buffer.Count > 0)
-            await InsertBatchWithRetryAsync(buffer, ct).ConfigureAwait(false);
+        {
+            await FlushAdaptiveAsync(buffer, ct).ConfigureAwait(false);
+            buffer.Clear();
+        }
     }
 
-    // ============================================================
-    // FINALIZE
-    // ============================================================
-    public async Task FinalizeAsync(CancellationToken ct)
+    private async Task FlushAdaptiveAsync(
+        List<DictionaryEntryStaging> batch,
+        CancellationToken ct)
     {
-        await using var conn = new SqlConnection(_connectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        var sw = Stopwatch.StartNew();
 
-        var empty = _tableTemplate.Clone(); // PERF: no schema rebuild
+        if (UseBulkCopy)
+            await BulkInsertAsync(batch, ct).ConfigureAwait(false);
+        else
+            await InsertBatchWithRetryAsync(batch, ct).ConfigureAwait(false);
 
-        var p = new DynamicParameters();
-        p.Add("@Entries", empty.AsTableValuedParameter("dbo.DictionaryEntryStagingType"));
-        p.Add("@Finalize", 1);
-
-        await conn.ExecuteAsync(
-            "dbo.sp_DictionaryEntryStaging_InsertFast",
-            p,
-            commandType: CommandType.StoredProcedure,
-            commandTimeout: 600)
-            .ConfigureAwait(false);
+        sw.Stop();
+        AdjustBatchSize(sw.ElapsedMilliseconds);
     }
 
-    // ============================================================
-    // INSERT WITH DEADLOCK RETRY
-    // ============================================================
+    private void AdjustBatchSize(long elapsedMs)
+    {
+        if (elapsedMs < 300 && _adaptiveBatchSize < MaxBatchSize)
+            _adaptiveBatchSize += 250;
+        else if (elapsedMs > 1200 && _adaptiveBatchSize > MinBatchSize)
+            _adaptiveBatchSize -= 250;
+    }
+
     private async Task InsertBatchWithRetryAsync(
         List<DictionaryEntryStaging> batch,
         CancellationToken ct)
@@ -106,9 +106,6 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
         }
     }
 
-    // ============================================================
-    // INSERT SINGLE BATCH
-    // ============================================================
     private async Task InsertBatchAsync(
         List<DictionaryEntryStaging> batch,
         CancellationToken ct)
@@ -130,9 +127,52 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
             .ConfigureAwait(false);
     }
 
-    // ============================================================
-    // SANITIZATION + HASHING
-    // ============================================================
+    private async Task BulkInsertAsync(
+        List<DictionaryEntryStaging> batch,
+        CancellationToken ct)
+    {
+        var sourceCode = batch[0].SourceCode;
+
+        await EnsureSourceTableAsync(sourceCode, ct).ConfigureAwait(false);
+
+        var tableName = $"dbo.DictionaryEntry_Staging_Source_{sourceCode}";
+        var dt = BuildDataTable(batch);
+
+        await using var conn = new SqlConnection(_connectionString);
+        await conn.OpenAsync(ct).ConfigureAwait(false);
+
+        using var bulk = new SqlBulkCopy(
+            conn,
+            SqlBulkCopyOptions.TableLock,
+            null)
+        {
+            DestinationTableName = tableName,
+            BatchSize = dt.Rows.Count,
+            BulkCopyTimeout = 300
+        };
+
+        await bulk.WriteToServerAsync(dt, ct).ConfigureAwait(false);
+    }
+
+    private async Task EnsureSourceTableAsync(
+        string sourceCode,
+        CancellationToken ct)
+    {
+        if (EnsuredSources.ContainsKey(sourceCode))
+            return;
+
+        await using var conn = new SqlConnection(_connectionString);
+        await conn.OpenAsync(ct).ConfigureAwait(false);
+
+        await conn.ExecuteAsync(
+            "dbo.sp_DictionaryEntryStaging_EnsureSourceTable",
+            new { SourceCode = sourceCode },
+            commandType: CommandType.StoredProcedure)
+            .ConfigureAwait(false);
+
+        EnsuredSources[sourceCode] = true;
+    }
+
     private static DictionaryEntryStaging? Sanitize(
         DictionaryEntryStaging e,
         DateTime now)
@@ -147,7 +187,6 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
         var wordBytes = Helper.Sha256Bytes(word);
         var defBytes = Helper.Sha256Bytes(definition);
 
-        // PERF: fast guard, avoid SQL retries
         if (wordBytes.Length != 32 || defBytes.Length != 32)
             return null;
 
@@ -164,26 +203,19 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
             SourceCode = Helper.SqlRepository.SafeTruncateOrEmpty(e.SourceCode, 30),
             CreatedUtc = Helper.SqlRepository.FixSqlMinDateUtc(e.CreatedUtc, now),
 
-            WordHash = Convert.ToHexString(wordBytes),
-            DefinitionHash = Convert.ToHexString(defBytes),
-
             WordHashBytes = wordBytes,
             DefinitionHashBytes = defBytes
         };
     }
 
-    // ============================================================
-    // DATATABLE (REUSED SCHEMA)
-    // ============================================================
     private static DataTable BuildDataTable(
         List<DictionaryEntryStaging> rows)
     {
-        var dt = _tableTemplate.Clone(); // PERF
+        var dt = TableTemplate.Clone();
 
         foreach (var r in rows)
         {
             var dr = dt.NewRow();
-
             dr[0] = r.Word;
             dr[1] = r.WordHashBytes;
             dr[2] = r.NormalizedWord;
@@ -195,7 +227,6 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
             dr[8] = r.SourceCode;
             dr[9] = r.CreatedUtc;
             dr[10] = (object?)r.RawFragment ?? DBNull.Value;
-
             dt.Rows.Add(dr);
         }
 
@@ -205,7 +236,6 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
     private static DataTable CreateTableTemplate()
     {
         var dt = new DataTable();
-
         dt.Columns.Add("Word", typeof(string));
         dt.Columns.Add("WordHash", typeof(byte[]));
         dt.Columns.Add("NormalizedWord", typeof(string));
@@ -217,7 +247,6 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
         dt.Columns.Add("SourceCode", typeof(string));
         dt.Columns.Add("CreatedUtc", typeof(DateTime));
         dt.Columns.Add("RawFragment", typeof(string));
-
         return dt;
     }
 }

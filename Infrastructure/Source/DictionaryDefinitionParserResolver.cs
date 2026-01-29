@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using DictionaryImporter.Core.Domain.Models;
+using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Source;
 

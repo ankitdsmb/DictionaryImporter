@@ -1,5 +1,6 @@
 ﻿using System.Globalization;
 using DictionaryImporter.Common;
+using DictionaryImporter.Core.Domain.Models;
 using DictionaryImporter.Sources.Oxford.Parsing;
 
 namespace DictionaryImporter.Sources.Oxford;

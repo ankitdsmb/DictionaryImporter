@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Infrastructure.Persistence.Mapping;
+﻿using DictionaryImporter.Core.Domain.Models;
+
+namespace DictionaryImporter.Infrastructure.Persistence.Mapping;
 
 public static class StagingMapper
 {

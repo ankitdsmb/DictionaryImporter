@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Core.Linguistics;
+﻿using DictionaryImporter.Core.Domain.Models;
+
+namespace DictionaryImporter.Core.Linguistics;
 
 public interface IPartOfSpeechInfererV2
 {

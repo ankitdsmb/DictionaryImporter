@@ -1,5 +1,6 @@
 ﻿using DictionaryImporter.Common;
 using DictionaryImporter.Common.SourceHelper;
+using DictionaryImporter.Core.Domain.Models;
 using DictionaryImporter.Infrastructure.Source;
 
 namespace DictionaryImporter.Sources.Kaikki.Parsing;

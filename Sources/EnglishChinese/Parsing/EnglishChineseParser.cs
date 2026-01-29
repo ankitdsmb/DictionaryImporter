@@ -1,5 +1,6 @@
-﻿using DictionaryImporter.Infrastructure.Source;
-using DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Common.SourceHelper;
+using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Infrastructure.Source;
 
 namespace DictionaryImporter.Sources.EnglishChinese.Parsing;
 

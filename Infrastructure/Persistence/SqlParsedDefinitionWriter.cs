@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Dapper;
 using DictionaryImporter.Common;
+using DictionaryImporter.Core.Domain.Models;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 

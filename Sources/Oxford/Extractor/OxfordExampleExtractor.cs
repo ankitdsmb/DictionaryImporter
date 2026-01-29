@@ -1,5 +1,5 @@
 ﻿using DictionaryImporter.Common;
-using DictionaryImporter.Sources.Common.Helper;
+using DictionaryImporter.Core.Domain.Models;
 
 namespace DictionaryImporter.Sources.Oxford.Extractor;
 

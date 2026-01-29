@@ -1,4 +1,5 @@
-﻿using DictionaryImporter.Sources.Collins;
+﻿using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Sources.Collins;
 
 namespace DictionaryImporter.Common.SourceHelper;
 

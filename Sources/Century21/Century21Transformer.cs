@@ -1,6 +1,7 @@
 ﻿using DictionaryImporter.Common;
 using HtmlAgilityPack;
 using System.Net;
+using DictionaryImporter.Core.Domain.Models;
 
 namespace DictionaryImporter.Sources.Century21;
 

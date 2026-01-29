@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Infrastructure.Source;
+﻿using DictionaryImporter.Core.Domain.Models;
+
+namespace DictionaryImporter.Infrastructure.Source;
 
 public sealed class DefaultDefinitionParser : IDictionaryDefinitionParser
 {

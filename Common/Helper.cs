@@ -1,14 +1,15 @@
-﻿using DictionaryImporter.Core.Rewrite;
-using HtmlAgilityPack;
+﻿using HtmlAgilityPack;
 using System.Globalization;
 using System.Net;
 using System.Security.Cryptography;
+using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Core.Rewrite;
 
 namespace DictionaryImporter.Common;
 
 public static class Helper
 {
-    public const int MAX_RECORDS_PER_SOURCE = int.MaxValue;
+    public const int MAX_RECORDS_PER_SOURCE = 1000;
 
     // =====================================================================
     // 1) REGEX (ALL AT TOP)

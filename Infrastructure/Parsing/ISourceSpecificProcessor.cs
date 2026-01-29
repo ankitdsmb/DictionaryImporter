@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Infrastructure.Parsing;
+﻿using DictionaryImporter.Core.Domain.Models;
+
+namespace DictionaryImporter.Infrastructure.Parsing;
 
 public interface ISourceSpecificProcessor
 {

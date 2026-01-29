@@ -1,6 +1,11 @@
-﻿using DictionaryImporter.Core.Pipeline.Steps;
+﻿using DictionaryImporter.Core.Orchestration;
+using DictionaryImporter.Core.Orchestration.Concurrency;
+using DictionaryImporter.Core.Orchestration.Engine;
+using DictionaryImporter.Core.Orchestration.Models;
+using DictionaryImporter.Core.Orchestration.Pipeline;
+using DictionaryImporter.Core.Orchestration.Pipeline.Steps;
+using DictionaryImporter.Core.Orchestration.Sources;
 using DictionaryImporter.Core.Rewrite;
-using DictionaryImporter.Domain.Rewrite;
 using DictionaryImporter.Gateway.Rewriter;
 using DictionaryImporter.Infrastructure.OneTimeTasks;
 using DictionaryImporter.Infrastructure.Source;
@@ -345,6 +350,11 @@ public static class BootstrapPipeline
             var exec = sp.GetRequiredService<ISqlStoredProcedureExecutor>();
             return new SqlDictionaryEntrySynonymWriter(connectionString, log, batcher, exec);
         });
+
+        services.AddSingleton<IDictionaryImportControl>(
+            sp => new DictionaryImportControl(
+                connectionString,
+                sp.GetRequiredService<ILogger<DictionaryImportControl>>()));
 
         services.AddScoped<DictionaryParsedDefinitionProcessor>(sp =>
         {
