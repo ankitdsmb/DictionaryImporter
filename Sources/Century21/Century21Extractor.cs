@@ -4,15 +4,9 @@ using HtmlAgilityPack;
 
 namespace DictionaryImporter.Sources.Century21;
 
-public sealed class Century21Extractor : IDataExtractor<Century21RawEntry>
+public sealed class Century21Extractor(ILogger<Century21Extractor> logger) : IDataExtractor<Century21RawEntry>
 {
     private const string SourceCode = "CENTURY21";
-    private readonly ILogger<Century21Extractor> _logger;
-
-    public Century21Extractor(ILogger<Century21Extractor> logger)
-    {
-        _logger = logger;
-    }
 
     public async IAsyncEnumerable<Century21RawEntry> ExtractAsync(
         Stream stream,
@@ -30,7 +24,7 @@ public sealed class Century21Extractor : IDataExtractor<Century21RawEntry>
 
         if (wordBlocks == null)
         {
-            _logger.LogWarning("No word blocks found in Century21 source");
+            logger.LogWarning("No word blocks found in Century21 source");
             yield break;
         }
 
@@ -40,10 +34,10 @@ public sealed class Century21Extractor : IDataExtractor<Century21RawEntry>
             var entry = ParseWordBlock(block);
             if (entry != null)
             {
-                if (!Helper.ShouldContinueProcessing(SourceCode, _logger))
+                if (!Helper.ShouldContinueProcessing(SourceCode, logger))
                     yield break;
 
-                _logger.LogDebug("Extracted entry: {Headword}", entry.Headword);
+                logger.LogDebug("Extracted entry: {Headword}", entry.Headword);
                 yield return entry;
             }
         }
@@ -106,7 +100,7 @@ public sealed class Century21Extractor : IDataExtractor<Century21RawEntry>
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to parse word block");
+            logger.LogError(ex, "Failed to parse word block");
             return null;
         }
     }

@@ -3,8 +3,8 @@
 using System;
 using System.Net;
 using System.Text.RegularExpressions;
+using DictionaryImporter.Core.Domain.Models;
 using DictionaryImporter.Core.Text;
-using DictionaryImporter.Domain.Models;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Parsing;

@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Gateway.Rewriter;
+﻿using DictionaryImporter.Core.Orchestration.Pipeline;
+
+namespace DictionaryImporter.Gateway.Rewriter;
 
 public sealed class LuceneMemorySuggestionsPipelineStep(
     IAiAnnotationRepository repository,

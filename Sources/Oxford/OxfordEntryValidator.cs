@@ -1,4 +1,5 @@
-﻿using DictionaryImporter.Infrastructure.Validation;
+﻿using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Infrastructure.Validation;
 
 namespace DictionaryImporter.Sources.Oxford;
 

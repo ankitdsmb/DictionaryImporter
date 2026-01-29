@@ -1,22 +1,14 @@
-﻿using System;
-using System.Globalization;
-using System.Text;
-using System.Text.RegularExpressions;
+﻿using System.Globalization;
 using Humanizer;
 
 namespace DictionaryImporter.Core.Rewrite;
 
-public sealed class DictionaryHumanizer
+public sealed class DictionaryHumanizer(DictionaryHumanizer.HumanizerConfig? config = null)
 {
     private static readonly CultureInfo _culture = CultureInfo.InvariantCulture;
 
     // Configuration for humanization
-    private readonly HumanizerConfig _config;
-
-    public DictionaryHumanizer(HumanizerConfig? config = null)
-    {
-        _config = config ?? new HumanizerConfig();
-    }
+    private readonly HumanizerConfig _config = config ?? new HumanizerConfig();
 
     public class HumanizerConfig
     {

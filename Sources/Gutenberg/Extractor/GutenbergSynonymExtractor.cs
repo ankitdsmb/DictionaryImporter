@@ -1,17 +1,11 @@
 ﻿using DictionaryImporter.Common;
-using DictionaryImporter.Sources.Common.Helper;
+using DictionaryImporter.Common.SourceHelper;
+using DictionaryImporter.Core.Domain.Models;
 
 namespace DictionaryImporter.Sources.Gutenberg.Extractor;
 
-internal sealed class GutenbergSynonymExtractor : ISynonymExtractor
+internal sealed class GutenbergSynonymExtractor(ILogger<GutenbergSynonymExtractor> logger) : ISynonymExtractor
 {
-    private readonly ILogger<GutenbergSynonymExtractor> _logger;
-
-    public GutenbergSynonymExtractor(ILogger<GutenbergSynonymExtractor> logger)
-    {
-        _logger = logger;
-    }
-
     public string SourceCode => "GUT_WEBSTER";
 
     public IReadOnlyList<SynonymDetectionResult> Extract(
@@ -49,7 +43,7 @@ internal sealed class GutenbergSynonymExtractor : ISynonymExtractor
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to extract Gutenberg synonyms | Headword={Headword}", headword);
+            logger.LogDebug(ex, "Failed to extract Gutenberg synonyms | Headword={Headword}", headword);
         }
 
         return results;

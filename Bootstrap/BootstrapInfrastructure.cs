@@ -1,7 +1,10 @@
 ﻿using DictionaryImporter.Bootstrap.Extensions;
 using DictionaryImporter.Core.Jobs;
+using DictionaryImporter.Core.Orchestration;
+using DictionaryImporter.Core.Orchestration.Concurrency;
+using DictionaryImporter.Core.Orchestration.Pipeline;
+using DictionaryImporter.Core.Orchestration.Pipeline.Steps;
 using DictionaryImporter.Gateway.Ai.Bootstrap;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace DictionaryImporter.Bootstrap;
 
@@ -39,5 +42,76 @@ public static class BootstrapInfrastructure
             .AddIpa(connectionString)
             .AddDistributedMemoryCache()
             .AddDictionaryImporterAiGateway(configuration);
+
+        // ✅ ADD PARALLEL PROCESSING REGISTRATION
+        RegisterParallelProcessingServices(services, configuration, connectionString);
+    }
+
+    private static void RegisterParallelProcessingServices(
+        IServiceCollection services,
+        IConfiguration configuration,
+        string connectionString)
+    {
+        // Register ImportConcurrencyManager
+        services.AddSingleton<ImportConcurrencyManager>();
+
+        // Register the ImportOrchestrator with the new interface
+        services.AddScoped<IImportOrchestrator>(sp =>
+        {
+            // Get all required services
+            var validatorFactory = sp.GetRequiredService<Func<IDictionaryEntryValidator>>();
+            var mergeFactory = sp.GetRequiredService<Func<IDataMergeExecutor>>();
+            var engineRegistry = sp.GetRequiredService<IImportEngineRegistry>();
+            var canonicalResolver = sp.GetRequiredService<ICanonicalWordResolver>();
+            var parsedDefinitionProcessor = sp.GetRequiredService<IParsedDefinitionProcessor>();
+            var linguisticEnricher = sp.GetRequiredService<DictionaryEntryLinguisticEnricher>();
+            var orthographicSyllableEnricher = sp.GetRequiredService<CanonicalWordOrthographicSyllableEnricher>();
+            var graphNodeBuilder = sp.GetRequiredService<DictionaryGraphNodeBuilder>();
+            var graphBuilder = sp.GetRequiredService<DictionaryGraphBuilder>();
+            var graphValidator = sp.GetRequiredService<DictionaryGraphValidator>();
+            var conceptBuilder = sp.GetRequiredService<DictionaryConceptBuilder>();
+            var conceptMerger = sp.GetRequiredService<DictionaryConceptMerger>();
+            var conceptConfidenceCalculator = sp.GetRequiredService<DictionaryConceptConfidenceCalculator>();
+            var graphRankCalculator = sp.GetRequiredService<DictionaryGraphRankCalculator>();
+            var postMergeVerifier = sp.GetRequiredService<IPostMergeVerifier>();
+            var ipaEnricher = sp.GetRequiredService<CanonicalWordIpaEnricher>();
+            var syllableEnricher = sp.GetRequiredService<CanonicalWordSyllableEnricher>();
+            var ipaVerificationReporter = sp.GetRequiredService<IpaVerificationReporter>();
+            var ipaSources = sp.GetRequiredService<IReadOnlyList<IpaSourceConfig>>();
+            var aiEnhancementStep = sp.GetRequiredService<AiEnhancementStep>();
+            var pipelineRunner = sp.GetRequiredService<ImportPipelineRunner>();
+            var pipelineOrderResolver = sp.GetRequiredService<ImportPipelineOrderResolver>();
+            var concurrencyManager = sp.GetRequiredService<ImportConcurrencyManager>();
+            var logger = sp.GetRequiredService<ILogger<ImportOrchestrator>>();
+            var qaRunner = sp.GetRequiredService<QaRunner>();
+
+            // Create the orchestrator
+            return new ImportOrchestrator(
+                validatorFactory,
+                mergeFactory,
+                engineRegistry,
+                canonicalResolver,
+                parsedDefinitionProcessor,
+                linguisticEnricher,
+                orthographicSyllableEnricher,
+                graphNodeBuilder,
+                graphBuilder,
+                graphValidator,
+                conceptBuilder,
+                conceptMerger,
+                conceptConfidenceCalculator,
+                graphRankCalculator,
+                postMergeVerifier,
+                ipaEnricher,
+                syllableEnricher,
+                ipaVerificationReporter,
+                ipaSources,
+                aiEnhancementStep,
+                pipelineRunner,
+                pipelineOrderResolver,
+                concurrencyManager,
+                logger,
+                qaRunner);
+        });
     }
 }

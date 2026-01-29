@@ -1,19 +1,13 @@
 ﻿using DictionaryImporter.Common;
 using DictionaryImporter.Common.SourceHelper;
+using DictionaryImporter.Core.Domain.Models;
 using DictionaryImporter.Infrastructure.Source;
 
 namespace DictionaryImporter.Sources.Kaikki.Parsing;
 
-public sealed class KaikkiDefinitionParser : ISourceDictionaryDefinitionParser
+public sealed class KaikkiDefinitionParser(ILogger<KaikkiDefinitionParser> logger) : ISourceDictionaryDefinitionParser
 {
     public string SourceCode => "KAIKKI";
-
-    private readonly ILogger<KaikkiDefinitionParser> _logger;
-
-    public KaikkiDefinitionParser(ILogger<KaikkiDefinitionParser> logger)
-    {
-        _logger = logger;
-    }
 
     public IEnumerable<ParsedDefinition> Parse(DictionaryEntry? entry)
     {
@@ -32,7 +26,7 @@ public sealed class KaikkiDefinitionParser : ISourceDictionaryDefinitionParser
 
         if (!ParsingHelperKaikki.IsJsonRawFragment(raw))
         {
-            _logger.LogWarning(
+            logger.LogWarning(
                 "KaikkiDefinitionParser skipping non-JSON RawFragment. Word={Word}",
                 entry.Word);
 
@@ -45,7 +39,7 @@ public sealed class KaikkiDefinitionParser : ISourceDictionaryDefinitionParser
         // ✅ Parse safely using helper (clone root + safe fail)
         if (!ParsingHelperKaikki.TryParseJsonRoot(raw, out var root))
         {
-            _logger.LogDebug(
+            logger.LogDebug(
                 "KaikkiDefinitionParser JSON invalid/truncated. Using fallback. Word={Word} Len={Len}",
                 entry.Word,
                 raw.Length);
@@ -90,7 +84,7 @@ public sealed class KaikkiDefinitionParser : ISourceDictionaryDefinitionParser
         catch (Exception ex)
         {
             // ✅ Never crash import
-            _logger.LogDebug(
+            logger.LogDebug(
                 ex,
                 "KaikkiDefinitionParser unexpected error (fallback used). Word={Word}",
                 entry.Word);

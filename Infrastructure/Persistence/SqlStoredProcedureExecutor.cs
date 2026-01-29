@@ -9,47 +9,9 @@ using Microsoft.Data.SqlClient;
 
 namespace DictionaryImporter.Infrastructure.Persistence;
 
-public interface ISqlStoredProcedureExecutor
+public sealed class SqlStoredProcedureExecutor(string connectionString) : ISqlStoredProcedureExecutor
 {
-    Task<int> ExecuteAsync(
-        string spName,
-        object? param,
-        CancellationToken ct,
-        IDbTransaction? tx = null,
-        int? timeoutSeconds = null);
-
-    Task<T?> QuerySingleOrDefaultAsync<T>(
-        string spName,
-        object? param,
-        CancellationToken ct,
-        IDbTransaction? tx = null,
-        int? timeoutSeconds = null);
-
-    Task<T> ExecuteScalarAsync<T>(
-        string spName,
-        object? param,
-        CancellationToken ct,
-        IDbTransaction? tx = null,
-        int? timeoutSeconds = null);
-
-    Task<IReadOnlyList<T>> QueryAsync<T>(
-        string spName,
-        object? param,
-        CancellationToken ct,
-        IDbTransaction? tx = null,
-        int? timeoutSeconds = null);
-
-    Task WithConnectionAsync(Func<SqlConnection, CancellationToken, Task> action, CancellationToken ct);
-}
-
-public sealed class SqlStoredProcedureExecutor : ISqlStoredProcedureExecutor
-{
-    private readonly string _connectionString;
-
-    public SqlStoredProcedureExecutor(string connectionString)
-    {
-        _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-    }
+    private readonly string _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
 
     public async Task<int> ExecuteAsync(
         string spName,

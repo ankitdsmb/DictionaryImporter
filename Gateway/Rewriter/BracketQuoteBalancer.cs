@@ -2,18 +2,11 @@
 
 public static class BracketQuoteBalancer
 {
-    public sealed class BalanceResult
+    public sealed class BalanceResult(string text, bool changed, string? reason)
     {
-        public BalanceResult(string text, bool changed, string? reason)
-        {
-            Text = text;
-            Changed = changed;
-            Reason = reason;
-        }
-
-        public string Text { get; }
-        public bool Changed { get; }
-        public string? Reason { get; }
+        public string Text { get; } = text;
+        public bool Changed { get; } = changed;
+        public string? Reason { get; } = reason;
     }
 
     public static BalanceResult BalanceSafe(string input)

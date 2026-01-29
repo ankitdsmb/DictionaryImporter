@@ -1,4 +1,5 @@
-﻿using DictionaryImporter.Infrastructure.Source;
+﻿using DictionaryImporter.Core.Orchestration.Sources;
+using DictionaryImporter.Infrastructure.Source;
 
 namespace DictionaryImporter.Bootstrap;
 

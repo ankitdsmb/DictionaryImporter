@@ -1,11 +1,11 @@
-﻿using DictionaryImporter.Core.Rewrite;
-using DictionaryImporter.Gateway.Grammar.Core;
+﻿using DictionaryImporter.Gateway.Grammar.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using DictionaryImporter.Core.Rewrite;
 
 namespace DictionaryImporter.Core.Jobs;
 

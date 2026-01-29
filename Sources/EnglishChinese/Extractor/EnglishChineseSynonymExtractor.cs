@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Sources.EnglishChinese.Extractor;
+﻿using DictionaryImporter.Core.Domain.Models;
+
+namespace DictionaryImporter.Sources.EnglishChinese.Extractor;
 
 public sealed class EnglishChineseSynonymExtractor(ILogger<EnglishChineseSynonymExtractor> logger) : ISynonymExtractor
 {

@@ -1,13 +1,4 @@
-﻿using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
-using DictionaryImporter.Gateway.Rewriter;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
+﻿using DictionaryImporter.Gateway.Rewriter;
 
 namespace DictionaryImporter.Core.Rewrite;
 
@@ -411,17 +402,3 @@ public sealed class RewriteMapEngine(
 
     private sealed record CacheEntry<T>(T Value, DateTime ExpiresUtc);
 }
-
-public sealed record RewriteMapApplied(
-    long RuleId,
-    string FromText,
-    string ToText,
-    int Priority,
-    bool IsRegex,
-    bool WholeWord);
-
-public sealed record RewriteMapResult(
-    string OriginalText,
-    string RewrittenText,
-    IReadOnlyList<RewriteMapApplied> Applied,
-    int AppliedCount);

@@ -1,4 +1,5 @@
 ﻿using System.Text.RegularExpressions;
+using DictionaryImporter.Core.Domain.Models;
 using DictionaryImporter.Sources.EnglishChinese.Extractor;
 
 namespace DictionaryImporter.Sources.Collins.Extractor;

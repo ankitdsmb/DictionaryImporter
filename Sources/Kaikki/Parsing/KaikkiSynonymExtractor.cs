@@ -1,17 +1,11 @@
 ﻿using DictionaryImporter.Common;
 using DictionaryImporter.Common.SourceHelper;
+using DictionaryImporter.Core.Domain.Models;
 
 namespace DictionaryImporter.Sources.Kaikki.Parsing;
 
-internal class KaikkiSynonymExtractor : ISynonymExtractor
+internal class KaikkiSynonymExtractor(ILogger<KaikkiSynonymExtractor> logger) : ISynonymExtractor
 {
-    private readonly ILogger<KaikkiSynonymExtractor> _logger;
-
-    public KaikkiSynonymExtractor(ILogger<KaikkiSynonymExtractor> logger)
-    {
-        _logger = logger;
-    }
-
     public string SourceCode => "KAIKKI";
 
     public IReadOnlyList<SynonymDetectionResult> Extract(
@@ -51,11 +45,11 @@ internal class KaikkiSynonymExtractor : ISynonymExtractor
         }
         catch (Newtonsoft.Json.JsonException ex)
         {
-            _logger.LogDebug(ex, "Failed to parse Kaikki JSON for synonym extraction | Headword={Headword}", headword);
+            logger.LogDebug(ex, "Failed to parse Kaikki JSON for synonym extraction | Headword={Headword}", headword);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to extract synonyms for {Headword}", headword);
+            logger.LogDebug(ex, "Failed to extract synonyms for {Headword}", headword);
         }
 
         return results;

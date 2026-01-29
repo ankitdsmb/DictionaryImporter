@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Sources.Generic;
+﻿using DictionaryImporter.Core.Domain.Models;
+
+namespace DictionaryImporter.Sources.Generic;
 
 public sealed class GenericEtymologyExtractor(ILogger<GenericEtymologyExtractor> logger) : IEtymologyExtractor
 {

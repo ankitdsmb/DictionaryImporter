@@ -1,4 +1,5 @@
 ﻿using System.Text.RegularExpressions;
+using DictionaryImporter.Core.Domain.Models;
 using DictionaryImporter.Gateway.Grammar.Core;
 using DictionaryImporter.Gateway.Grammar.Engines;
 using Microsoft.Extensions.Logging;
@@ -6,7 +7,10 @@ using Microsoft.Extensions.Options;
 
 namespace DictionaryImporter.Core.Text;
 
-public sealed class OcrArtifactNormalizer : IOcrArtifactNormalizer
+public sealed class OcrArtifactNormalizer(
+    IOptions<OcrNormalizationOptions> options,
+    ILogger<OcrArtifactNormalizer> logger)
+    : IOcrArtifactNormalizer
 {
     private static readonly Regex TokenRegex =
         new(@"\b[a-z]{6,}\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -26,16 +30,7 @@ public sealed class OcrArtifactNormalizer : IOcrArtifactNormalizer
     private static readonly Regex SpaceBeforeCloseBracket =
         new(@"\s+([)\]])", RegexOptions.Compiled);
 
-    private readonly OcrNormalizationOptions _options;
-    private readonly ILogger<OcrArtifactNormalizer> _logger;
-
-    public OcrArtifactNormalizer(
-        IOptions<OcrNormalizationOptions> options,
-        ILogger<OcrArtifactNormalizer> logger)
-    {
-        _options = options.Value ?? new OcrNormalizationOptions();
-        _logger = logger;
-    }
+    private readonly OcrNormalizationOptions _options = options.Value ?? new OcrNormalizationOptions();
 
     public string Normalize(string text, string languageCode = "en")
     {
@@ -101,7 +96,7 @@ public sealed class OcrArtifactNormalizer : IOcrArtifactNormalizer
 
         if (_options.LogChanges && !string.Equals(original, text, StringComparison.Ordinal))
         {
-            _logger.LogInformation(
+            logger.LogInformation(
                 "OCR normalization applied | Before='{Before}' | After='{After}'",
                 Truncate(original, 200),
                 Truncate(text, 200));

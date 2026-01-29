@@ -2,7 +2,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using DictionaryImporter.Common;
-using DictionaryImporter.Domain.Models;
+using DictionaryImporter.Core.Domain.Models;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Persistence;

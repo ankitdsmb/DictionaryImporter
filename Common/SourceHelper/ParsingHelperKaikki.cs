@@ -1,5 +1,6 @@
 ﻿// KaikkiParsingHelper.cs
 using System.Net;
+using DictionaryImporter.Core.Domain.Models;
 
 namespace DictionaryImporter.Common.SourceHelper;
 

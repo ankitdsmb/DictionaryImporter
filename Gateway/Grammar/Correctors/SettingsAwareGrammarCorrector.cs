@@ -5,21 +5,15 @@ using DictionaryImporter.Gateway.Grammar.Core.Results;
 
 namespace DictionaryImporter.Gateway.Grammar.Correctors;
 
-public sealed class SettingsAwareGrammarCorrector : IGrammarCorrector
+public sealed class SettingsAwareGrammarCorrector(
+    EnhancedGrammarConfiguration settings,
+    IGrammarCorrector inner,
+    ILogger<SettingsAwareGrammarCorrector> logger)
+    : IGrammarCorrector
 {
-    private readonly EnhancedGrammarConfiguration _settings;
-    private readonly IGrammarCorrector _inner;
-    private readonly ILogger<SettingsAwareGrammarCorrector> _logger;
-
-    public SettingsAwareGrammarCorrector(
-        EnhancedGrammarConfiguration settings,
-        IGrammarCorrector inner,
-        ILogger<SettingsAwareGrammarCorrector> logger)
-    {
-        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
+    private readonly EnhancedGrammarConfiguration _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+    private readonly IGrammarCorrector _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+    private readonly ILogger<SettingsAwareGrammarCorrector> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     public Task<GrammarCheckResult> CheckAsync(
         string text,

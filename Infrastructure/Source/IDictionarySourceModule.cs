@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Infrastructure.Source;
+﻿using DictionaryImporter.Core.Orchestration.Sources;
+
+namespace DictionaryImporter.Infrastructure.Source;
 
 public interface IDictionarySourceModule
 {

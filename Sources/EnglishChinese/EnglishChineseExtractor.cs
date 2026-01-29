@@ -1,14 +1,10 @@
 ﻿namespace DictionaryImporter.Sources.EnglishChinese;
 
-public sealed class EnglishChineseExtractor : IDataExtractor<EnglishChineseRawEntry>
+public sealed class EnglishChineseExtractor(ILogger<EnglishChineseExtractor> logger)
+    : IDataExtractor<EnglishChineseRawEntry>
 {
     private const string SourceCode = "ENG_CHN";
-    private readonly ILogger<EnglishChineseExtractor> _logger;
-
-    public EnglishChineseExtractor(ILogger<EnglishChineseExtractor> logger)
-    {
-        _logger = logger;
-    }
+    private readonly ILogger<EnglishChineseExtractor> _logger = logger;
 
     // This is the CORRECT signature for IDataExtractor<T>
     public async IAsyncEnumerable<EnglishChineseRawEntry> ExtractAsync(

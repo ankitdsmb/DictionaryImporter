@@ -50,16 +50,10 @@ public static class ProtectedTokenGuard
         // For full implementation, include all patterns from original
     };
 
-    public sealed class ProtectedTokenResult
+    public sealed class ProtectedTokenResult(string protectedText, IReadOnlyDictionary<string, string> map)
     {
-        public ProtectedTokenResult(string protectedText, IReadOnlyDictionary<string, string> map)
-        {
-            ProtectedText = protectedText;
-            Map = map;
-        }
-
-        public string ProtectedText { get; }
-        public IReadOnlyDictionary<string, string> Map { get; }
+        public string ProtectedText { get; } = protectedText;
+        public IReadOnlyDictionary<string, string> Map { get; } = map;
         public bool HasTokens => Map.Count > 0;
     }
 

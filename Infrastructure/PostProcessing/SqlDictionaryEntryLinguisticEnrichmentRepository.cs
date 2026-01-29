@@ -9,14 +9,9 @@ using Microsoft.Data.SqlClient;
 
 namespace DictionaryImporter.Infrastructure.PostProcessing;
 
-public sealed class SqlDictionaryEntryLinguisticEnrichmentRepository
+public sealed class SqlDictionaryEntryLinguisticEnrichmentRepository(string connectionString)
 {
-    private readonly string _connectionString;
-
-    public SqlDictionaryEntryLinguisticEnrichmentRepository(string connectionString)
-    {
-        _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-    }
+    private readonly string _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
 
     public async Task<long> ExtractSynonymsFromCrossReferencesAsync(
         string sourceCode,

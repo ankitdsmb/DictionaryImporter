@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using DictionaryImporter.Core.Domain.Models;
 using DictionaryImporter.Infrastructure.Validation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;

@@ -1,4 +1,5 @@
 ﻿using DictionaryImporter.Common;
+using DictionaryImporter.Core.Domain.Models;
 using DictionaryImporter.Infrastructure.Source;
 
 namespace DictionaryImporter.Sources.StructuredJson.Parsing;

@@ -5,44 +5,33 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using DictionaryImporter.Core.Domain.Models;
 using DictionaryImporter.Core.Text;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Parsing;
 
-public sealed class GenericSourceProcessor : ISourceSpecificProcessor
+public sealed class GenericSourceProcessor(
+    ILogger<GenericSourceProcessor> logger,
+    IDictionaryTextFormatter formatter,
+    IGrammarEnrichedTextService grammarText,
+    IDictionaryEntryExampleWriter exampleWriter,
+    IDictionaryEntrySynonymWriter synonymWriter,
+    IEntryEtymologyWriter etymologyWriter,
+    IExampleExtractorRegistry exampleExtractorRegistry,
+    ISynonymExtractorRegistry synonymExtractorRegistry,
+    IEtymologyExtractorRegistry etymologyExtractorRegistry)
+    : ISourceSpecificProcessor
 {
-    private readonly ILogger<GenericSourceProcessor> _logger;
-    private readonly IDictionaryTextFormatter _formatter;
-    private readonly IGrammarEnrichedTextService _grammarText;
-    private readonly IDictionaryEntryExampleWriter _exampleWriter;
-    private readonly IDictionaryEntrySynonymWriter _synonymWriter;
-    private readonly IEntryEtymologyWriter _etymologyWriter;
-    private readonly IExampleExtractorRegistry _exampleExtractorRegistry;
-    private readonly ISynonymExtractorRegistry _synonymExtractorRegistry;
-    private readonly IEtymologyExtractorRegistry _etymologyExtractorRegistry;
-
-    public GenericSourceProcessor(
-        ILogger<GenericSourceProcessor> logger,
-        IDictionaryTextFormatter formatter,
-        IGrammarEnrichedTextService grammarText,
-        IDictionaryEntryExampleWriter exampleWriter,
-        IDictionaryEntrySynonymWriter synonymWriter,
-        IEntryEtymologyWriter etymologyWriter,
-        IExampleExtractorRegistry exampleExtractorRegistry,
-        ISynonymExtractorRegistry synonymExtractorRegistry,
-        IEtymologyExtractorRegistry etymologyExtractorRegistry)
-    {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _formatter = formatter ?? throw new ArgumentNullException(nameof(formatter));
-        _grammarText = grammarText ?? throw new ArgumentNullException(nameof(grammarText));
-        _exampleWriter = exampleWriter ?? throw new ArgumentNullException(nameof(exampleWriter));
-        _synonymWriter = synonymWriter ?? throw new ArgumentNullException(nameof(synonymWriter));
-        _etymologyWriter = etymologyWriter ?? throw new ArgumentNullException(nameof(etymologyWriter));
-        _exampleExtractorRegistry = exampleExtractorRegistry ?? throw new ArgumentNullException(nameof(exampleExtractorRegistry));
-        _synonymExtractorRegistry = synonymExtractorRegistry ?? throw new ArgumentNullException(nameof(synonymExtractorRegistry));
-        _etymologyExtractorRegistry = etymologyExtractorRegistry ?? throw new ArgumentNullException(nameof(etymologyExtractorRegistry));
-    }
+    private readonly ILogger<GenericSourceProcessor> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly IDictionaryTextFormatter _formatter = formatter ?? throw new ArgumentNullException(nameof(formatter));
+    private readonly IGrammarEnrichedTextService _grammarText = grammarText ?? throw new ArgumentNullException(nameof(grammarText));
+    private readonly IDictionaryEntryExampleWriter _exampleWriter = exampleWriter ?? throw new ArgumentNullException(nameof(exampleWriter));
+    private readonly IDictionaryEntrySynonymWriter _synonymWriter = synonymWriter ?? throw new ArgumentNullException(nameof(synonymWriter));
+    private readonly IEntryEtymologyWriter _etymologyWriter = etymologyWriter ?? throw new ArgumentNullException(nameof(etymologyWriter));
+    private readonly IExampleExtractorRegistry _exampleExtractorRegistry = exampleExtractorRegistry ?? throw new ArgumentNullException(nameof(exampleExtractorRegistry));
+    private readonly ISynonymExtractorRegistry _synonymExtractorRegistry = synonymExtractorRegistry ?? throw new ArgumentNullException(nameof(synonymExtractorRegistry));
+    private readonly IEtymologyExtractorRegistry _etymologyExtractorRegistry = etymologyExtractorRegistry ?? throw new ArgumentNullException(nameof(etymologyExtractorRegistry));
 
     public bool CanHandle(string sourceCode) => true;
 

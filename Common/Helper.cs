@@ -1,13 +1,15 @@
-﻿using DictionaryImporter.Core.Rewrite;
-using HtmlAgilityPack;
+﻿using HtmlAgilityPack;
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
+using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Core.Rewrite;
 
 namespace DictionaryImporter.Common;
 
 public static class Helper
 {
-    public const int MAX_RECORDS_PER_SOURCE = 100;
+    public const int MAX_RECORDS_PER_SOURCE = 1000;
 
     // =====================================================================
     // 1) REGEX (ALL AT TOP)
@@ -194,6 +196,41 @@ public static class Helper
             // safe fallback
             return NormalizeWhitespace(t);
         }
+    }
+
+    public static int? NormalizePartOfSpeechConfidence(int? confidence)
+    {
+        if (!confidence.HasValue)
+            return null;
+
+        var conf = confidence.Value;
+        if (conf < 0) return 0;
+        if (conf > 100) return 100;
+        return conf;
+    }
+
+    public static int ComputePartOfSpeechConfidence(string pos, string sourceCode)
+    {
+        if (string.IsNullOrWhiteSpace(pos) || pos == "unk")
+            return 0;
+
+        // Base confidence based on source
+        var baseConfidence = sourceCode == "ENG_OXFORD" ? 80 : 70;
+
+        // Adjust based on POS specificity
+        var specificPos = new[] { "noun", "verb", "adjective", "adverb" };
+        if (specificPos.Contains(pos))
+            return Math.Min(baseConfidence + 15, 95);
+
+        var lessCommonPos = new[] { "preposition", "conjunction", "pronoun", "interjection" };
+        if (lessCommonPos.Contains(pos))
+            return Math.Min(baseConfidence + 10, 90);
+
+        var rarePos = new[] { "determiner", "numeral", "particle", "article" };
+        if (rarePos.Contains(pos))
+            return Math.Min(baseConfidence + 5, 85);
+
+        return baseConfidence;
     }
 
     private static string RemoveDiacritics(string text)
@@ -433,6 +470,19 @@ public static class Helper
         }
 
         return true;
+    }
+
+    public static string Sha256(string input)
+    {
+        using var sha = SHA256.Create();
+        var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(input ?? ""));
+        return Convert.ToHexString(bytes);
+    }
+
+    public static byte[] Sha256Bytes(string value)
+    {
+        using var sha = SHA256.Create();
+        return sha.ComputeHash(Encoding.UTF8.GetBytes(value));
     }
 
     public static void ResetProcessingState(string sourceCode)
@@ -2155,205 +2205,5 @@ public static class Helper
                 // never throw
             }
         }
-    }
-}
-
-public static class ExampleTextExtensions
-{
-    private static readonly Regex RxMultiSpace = new(@"\s+", RegexOptions.Compiled);
-
-    private static readonly Regex RxGarbageStart =
-        new(@"^(s\s|s\s*\w+\)|[^\p{L}])", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex RxDictionaryMeta =
-        new(@"\b(defn|abbr|abbr\.|syn|syn\.|see|examples?)\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex RxOcrJunk =
-        new(@"[\(\)\[\]【】]", RegexOptions.Compiled);
-
-    private static readonly Regex RxQuantityPattern =
-        new(@"\b(one|two|three|four|five|ten|hundred|thousand|\d+)\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex RxVerbPattern =
-        new(@"\b(is|was|were|are|be|been|being|to|of|with|for|by|in|on)\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    // -------------------------------
-    // NORMALIZATION
-    // -------------------------------
-    public static string NormalizeExample(this string example)
-    {
-        if (string.IsNullOrWhiteSpace(example))
-            return string.Empty;
-
-        var t = example.Trim();
-
-        // remove ALL quotes
-        t = t.Replace("“", "")
-             .Replace("”", "")
-             .Replace("‘", "")
-             .Replace("’", "")
-             .Replace("\"", "")
-             .Replace("'", "")
-             .Replace("`", "");
-
-        // normalize whitespace
-        t = RxMultiSpace.Replace(t, " ").Trim();
-
-        // remove trailing punctuation chaos
-        t = Regex.Replace(t, @"\s*[.!?]+$", "").Trim();
-
-        if (t.Length == 0)
-            return string.Empty;
-
-        // capitalize
-        if (char.IsLower(t[0]))
-            t = char.ToUpperInvariant(t[0]) + t[1..];
-
-        return t + ".";
-    }
-
-    // -------------------------------
-    // VALIDATION
-    // -------------------------------
-    public static bool IsValidExampleSentence(this string example)
-    {
-        if (string.IsNullOrWhiteSpace(example))
-            return false;
-
-        var t = example.Trim();
-
-        if (t.Equals("NULL", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        if (t.Length < 12 || t.Length > 400)
-            return false;
-
-        // must start with letter
-        if (!char.IsLetter(t[0]))
-            return false;
-
-        // reject OCR garbage
-        if (RxGarbageStart.IsMatch(t))
-            return false;
-
-        // reject dictionary meta
-        if (RxDictionaryMeta.IsMatch(t))
-            return false;
-
-        // reject control junk
-        if (RxOcrJunk.IsMatch(t))
-            return false;
-
-        var words = t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length < 4)
-            return false;
-
-        // must contain verb OR quantity pattern
-        if (!RxVerbPattern.IsMatch(t) && !RxQuantityPattern.IsMatch(t))
-            return false;
-
-        return true;
-    }
-}
-
-public static class SynonymTextExtensions
-{
-    private static readonly Regex RxMultiSpace =
-        new(@"\s+", RegexOptions.Compiled);
-
-    private static readonly Regex RxMorphologyNoise =
-        new(@"\b(pl|sing|vb|vb\.n|imp|p\.p|p\.pr|comp|superl)\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex RxDictionaryMeta =
-        new(@"\b(syn|synonyms?|see|see also|etc|viz|cf)\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex RxAuthorNoise =
-        new(@"\b(shak|chaucer|milton|dryden|lowell|tennyson|wordsworth|bible)\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex RxInvalidChars =
-        new(@"[^A-Za-z\s\-]", RegexOptions.Compiled);
-
-    // -------------------------
-    // NORMALIZATION
-    // -------------------------
-    public static string NormalizeSynonym(this string synonym)
-    {
-        if (string.IsNullOrWhiteSpace(synonym))
-            return string.Empty;
-
-        var t = synonym.Trim();
-
-        t = t.Replace("’", "'")
-             .Replace("`", "")
-             .Replace("\"", "")
-             .Replace(".", "")
-             .Replace(",", "")
-             .Replace(";", "")
-             .Replace(":", "");
-
-        t = RxMultiSpace.Replace(t, " ").Trim();
-
-        return t;
-    }
-
-    // -------------------------
-    // VALIDATION
-    // -------------------------
-    public static bool IsValidSynonym(
-        this string synonym,
-        string headword)
-    {
-        if (string.IsNullOrWhiteSpace(synonym))
-            return false;
-
-        var t = synonym.Trim();
-
-        if (t.Length < 2 || t.Length > 40)
-            return false;
-
-        if (RxDictionaryMeta.IsMatch(t))
-            return false;
-
-        if (RxMorphologyNoise.IsMatch(t))
-            return false;
-
-        if (RxAuthorNoise.IsMatch(t))
-            return false;
-
-        if (RxInvalidChars.IsMatch(t))
-            return false;
-
-        var words = t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length > 3)
-            return false;
-
-        if (!t.Any(char.IsLetter))
-            return false;
-
-        // reject self-synonym (normalized)
-        if (!string.IsNullOrWhiteSpace(headword))
-        {
-            var a = NormalizeForCompare(headword);
-            var b = NormalizeForCompare(t);
-            if (a == b)
-                return false;
-        }
-
-        return true;
-    }
-
-    private static string NormalizeForCompare(string text)
-    {
-        return text
-            .ToLowerInvariant()
-            .Replace(" ", "")
-            .Replace("-", "")
-            .Replace("'", "");
     }
 }

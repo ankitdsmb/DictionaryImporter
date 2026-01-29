@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Core.Abstractions;
+﻿using DictionaryImporter.Core.Orchestration.Pipeline;
+
+namespace DictionaryImporter.Core.Abstractions;
 
 public interface IImportPipelineStep
 {

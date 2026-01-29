@@ -2,7 +2,7 @@
 using System.Linq;
 using DictionaryImporter.Common;
 using DictionaryImporter.Common.SourceHelper;
-using DictionaryImporter.Domain.Models;
+using DictionaryImporter.Core.Domain.Models;
 using Microsoft.Extensions.Logging;
 
 namespace DictionaryImporter.Infrastructure.Validation;

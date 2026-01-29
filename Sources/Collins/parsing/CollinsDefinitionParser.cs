@@ -1,4 +1,5 @@
 ﻿using DictionaryImporter.Common.SourceHelper;
+using DictionaryImporter.Core.Domain.Models;
 using DictionaryImporter.Infrastructure.Source;
 
 namespace DictionaryImporter.Sources.Collins.parsing;
@@ -16,18 +17,10 @@ public sealed class CollinsDefinitionParser(ILogger<CollinsDefinitionParser> log
             yield break;
         }
 
-        if (string.IsNullOrWhiteSpace(entry.Definition))
-        {
-            logger?.LogDebug("Empty definition for entry: {Word}", entry.Word);
-            yield return CreateFallbackParsedDefinition(entry);
-            yield break;
-        }
-
-        // Use a separate method to handle the try-catch and return the result
+        // Use the helper to parse the Collins entry
         ParsedDefinition parsedDefinition;
         try
         {
-            // Use the helper to parse the Collins entry
             parsedDefinition = ParsingHelperCollins.BuildParsedDefinition(entry);
 
             // Ensure we have proper sense number
@@ -36,10 +29,33 @@ public sealed class CollinsDefinitionParser(ILogger<CollinsDefinitionParser> log
                 parsedDefinition.SenseNumber = entry.SenseNumber;
             }
 
-            // Ensure we have proper POS
+            // Ensure we have proper POS - use CollinsExtractor.NormalizePos
             if (string.IsNullOrEmpty(parsedDefinition.PartOfSpeech) || parsedDefinition.PartOfSpeech == "unk")
             {
-                parsedDefinition.PartOfSpeech = entry.PartOfSpeech;
+                if (!string.IsNullOrEmpty(entry.PartOfSpeech))
+                {
+                    parsedDefinition.PartOfSpeech = CollinsExtractor.NormalizePos(entry.PartOfSpeech);
+                }
+                else
+                {
+                    parsedDefinition.PartOfSpeech = "unk";
+                }
+            }
+
+            // Ensure examples are clean
+            if (parsedDefinition.Examples?.Any() == true)
+            {
+                parsedDefinition.Examples = parsedDefinition.Examples
+                    .Select(e => CleanExample(e))
+                    .Where(e => !string.IsNullOrWhiteSpace(e))
+                    .ToList();
+            }
+
+            // Log if we found examples
+            if (parsedDefinition.Examples?.Any() == true)
+            {
+                logger?.LogDebug("Found {Count} examples for {Word} sense {Sense}",
+                    parsedDefinition.Examples.Count, entry.Word, parsedDefinition.SenseNumber);
             }
         }
         catch (Exception ex)
@@ -51,20 +67,65 @@ public sealed class CollinsDefinitionParser(ILogger<CollinsDefinitionParser> log
         yield return parsedDefinition;
     }
 
+    private string CleanExample(string example)
+    {
+        if (string.IsNullOrWhiteSpace(example))
+            return example;
+
+        // Remove Chinese characters
+        var cleaned = CollinsExtractor.RemoveChineseCharacters(example);
+
+        // Clean up
+        cleaned = cleaned.Replace("  ", " ")
+                        .Replace(".,.", ".")
+                        .Replace("...", ".")
+                        .Replace("·", "")
+                        .Trim();
+
+        // Ensure proper ending
+        if (!string.IsNullOrEmpty(cleaned) &&
+            !cleaned.EndsWith(".") &&
+            !cleaned.EndsWith("!") &&
+            !cleaned.EndsWith("?"))
+        {
+            cleaned += ".";
+        }
+
+        return cleaned;
+    }
+
     private ParsedDefinition CreateFallbackParsedDefinition(DictionaryEntry entry)
     {
+        // Try to extract examples even in fallback
+        var examples = new List<string>();
+        if (!string.IsNullOrWhiteSpace(entry.Definition))
+        {
+            examples = ParsingHelperCollins.ExtractCollinsExamples(entry.Definition)?.ToList() ?? new List<string>();
+        }
+
+        // Clean examples
+        examples = examples.Select(e => CleanExample(e))
+                          .Where(e => !string.IsNullOrWhiteSpace(e))
+                          .ToList();
+
         return new ParsedDefinition
         {
             MeaningTitle = entry.Word ?? "unnamed sense",
             Definition = entry.Definition ?? string.Empty,
-            RawFragment = entry.Definition ?? string.Empty,
+            RawFragment = entry.RawFragment ?? string.Empty,
             SenseNumber = entry.SenseNumber,
             Domain = null,
             UsageLabel = null,
             CrossReferences = new List<CrossReference>(),
-            Synonyms = null,
+            Synonyms = new List<string>(),
             Alias = null,
-            PartOfSpeech = entry.PartOfSpeech
+            Examples = examples,
+            PartOfSpeech = !string.IsNullOrEmpty(entry.PartOfSpeech)
+                ? CollinsExtractor.NormalizePos(entry.PartOfSpeech)
+                : "unk",
+            IPA = null,
+            GrammarInfo = null,
+            UsageNote = null
         };
     }
 }

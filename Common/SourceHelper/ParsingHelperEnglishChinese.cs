@@ -1,4 +1,6 @@
-﻿namespace DictionaryImporter.Sources.Common.Helper;
+﻿using DictionaryImporter.Core.Domain.Models;
+
+namespace DictionaryImporter.Common.SourceHelper;
 
 internal static class ParsingHelperEnglishChinese
 {

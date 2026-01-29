@@ -1,20 +1,16 @@
 ﻿using DictionaryImporter.Common;
+using DictionaryImporter.Core.Domain.Models;
 
 namespace DictionaryImporter.Sources.EnglishChinese;
 
-public sealed class EnglishChineseTransformer : IDataTransformer<EnglishChineseRawEntry>
+public sealed class EnglishChineseTransformer(ILogger<EnglishChineseTransformer> logger)
+    : IDataTransformer<EnglishChineseRawEntry>
 {
     private const string SourceCode = "ENG_CHN";
-    private readonly ILogger<EnglishChineseTransformer> _logger;
-
-    public EnglishChineseTransformer(ILogger<EnglishChineseTransformer> logger)
-    {
-        _logger = logger;
-    }
 
     public IEnumerable<DictionaryEntry> Transform(EnglishChineseRawEntry? raw)
     {
-        if (!Helper.ShouldContinueProcessing(SourceCode, _logger))
+        if (!Helper.ShouldContinueProcessing(SourceCode, logger))
             yield break;
 
         if (raw == null)
@@ -34,6 +30,6 @@ public sealed class EnglishChineseTransformer : IDataTransformer<EnglishChineseR
             CreatedUtc = DateTime.UtcNow
         };
 
-        _logger.LogDebug("ENG_CHN transformed: {Word}", raw.Headword);
+        logger.LogDebug("ENG_CHN transformed: {Word}", raw.Headword);
     }
 }
