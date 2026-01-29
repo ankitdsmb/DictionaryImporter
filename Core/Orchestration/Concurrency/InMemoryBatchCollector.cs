@@ -1,4 +1,9 @@
-﻿using DictionaryImporter.Core.Domain.Models;
+﻿using System.Collections.Concurrent;
+using System.Data;
+using Dapper;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Options;
+using DictionaryImporter.Core.Domain.Models;
 
 namespace DictionaryImporter.Core.Orchestration.Concurrency;
 
@@ -9,131 +14,126 @@ public sealed class InMemoryBatchCollector(
     : IBatchProcessedDataCollector, IDisposable
 {
     private readonly string _connectionString = connectionString;
-    private readonly ILogger<InMemoryBatchCollector> _logger = logger;
     private readonly BatchProcessingSettings _settings = settings?.Value ?? new();
 
-    private readonly SemaphoreSlim _lock = new(1, 1);
-    private bool _disposed;
-    private int _nextBatchItemId = 1;
+    private readonly ThreadLocal<List<ParsedBatchItem>> _localItems =
+        new(() => new List<ParsedBatchItem>(64), trackAllValues: true);
 
-    // ACTIVE buffer (written by parsers)
-    private List<ParsedBatchItem> _items = new();
+    private readonly ConcurrentQueue<List<ParsedBatchItem>> _flushQueue = new();
+    private int _count;
+    private bool _disposed;
 
     public int BatchSize => _settings.BatchSize;
 
-    // =========================
+    // =========================================================
     // ADD ROOT
-    // =========================
-    public async Task AddParsedDefinitionAsync(
-        long dictionaryEntryId,
-        ParsedDefinition parsed,
-        string sourceCode)
+    // =========================================================
+    public Task AddParsedDefinitionAsync(long entryId, ParsedDefinition parsed, string sourceCode)
     {
-        List<ParsedBatchItem>? batchToFlush = null;
+        var list = _localItems.Value!;
+        list.Add(new ParsedBatchItem(entryId, parsed, sourceCode));
 
-        await _lock.WaitAsync();
-        try
-        {
-            _items.Add(new ParsedBatchItem
-            {
-                BatchItemId = _nextBatchItemId++,
-                DictionaryEntryId = dictionaryEntryId,
-                ParentParsedId = parsed.ParentParsedId > 0 ? parsed.ParentParsedId : null,
-                MeaningTitle = parsed.MeaningTitle ?? string.Empty,
-                Definition = parsed.Definition ?? string.Empty,
-                RawFragment = parsed.RawFragment ?? string.Empty,
-                SenseNumber = parsed.SenseNumber,
-                Domain = parsed.Domain,
-                UsageLabel = parsed.UsageLabel,
-                HasNonEnglishText = parsed.HasNonEnglishText,
-                NonEnglishTextId = parsed.NonEnglishTextId,
-                SourceCode = sourceCode
-            });
+        if (Interlocked.Increment(ref _count) >= _settings.BatchSize)
+            Seal(list);
 
-            if (_items.Count >= _settings.BatchSize)
-            {
-                batchToFlush = _items;
-                _items = new List<ParsedBatchItem>();
-                _nextBatchItemId = 1;
-            }
-        }
-        finally
-        {
-            _lock.Release();
-        }
-
-        if (batchToFlush != null)
-            await FlushInternalAsync(batchToFlush, CancellationToken.None);
+        return Task.CompletedTask;
     }
 
-    public async Task AddExampleAsync(long _, string exampleText, string __)
-        => await AddTextAsync(i => i.Examples.Add(Normalize(exampleText)));
+    // =========================================================
+    // CHILD ADDERS
+    // =========================================================
+    public Task AddExampleAsync(long _, string text, string __)
+        => Add(i => i.Examples.Add(text));
 
-    public async Task AddSynonymsAsync(long _, IEnumerable<string> synonyms, string __)
-        => await AddTextAsync(i => i.Synonyms.AddRange(synonyms.Select(Normalize)));
+    public Task AddSynonymsAsync(long _, IEnumerable<string> s, string __)
+        => Add(i => i.Synonyms.AddRange(s));
 
-    public async Task AddAliasAsync(long _, string alias, long __, string ___)
-        => await AddTextAsync(i => i.Aliases.Add(Normalize(alias)));
+    public Task AddAliasAsync(long _, string a, long __, string ___)
+        => Add(i => i.Aliases.Add(a));
 
-    public async Task AddCrossReferenceAsync(long _, CrossReference cr, string __)
-        => await AddTextAsync(i => i.CrossReferences.Add(cr));
+    public Task AddCrossReferenceAsync(long _, CrossReference cr, string __)
+        => Add(i => i.CrossReferences.Add(cr));
 
-    public async Task AddEtymologyAsync(DictionaryEntryEtymology et)
-        => await AddTextAsync(i => i.Etymologies.Add(et));
+    public Task AddEtymologyAsync(DictionaryEntryEtymology et)
+        => Add(i => i.Etymologies.Add(et));
 
-    private async Task AddTextAsync(Action<ParsedBatchItem> action)
+    private Task Add(Action<ParsedBatchItem> action)
     {
-        await _lock.WaitAsync();
-        try
-        {
-            if (_items.Count == 0) return;
-            action(_items[^1]);
-        }
-        finally
-        {
-            _lock.Release();
-        }
+        var list = _localItems.Value!;
+        if (list.Count > 0)
+            action(list[^1]);
+
+        return Task.CompletedTask;
     }
 
-    // =========================
-    // FLUSH (public)
-    // =========================
+    // =========================================================
+    // BATCH SEAL + FLUSH
+    // =========================================================
+    private void Seal(List<ParsedBatchItem> list)
+    {
+        if (Interlocked.Exchange(ref _count, 0) < _settings.BatchSize)
+            return;
+
+        _flushQueue.Enqueue(list);
+        _localItems.Value = new List<ParsedBatchItem>(64);
+        _ = Task.Run(FlushAsync);
+    }
+
     public async Task FlushBatchAsync(CancellationToken ct)
     {
-        List<ParsedBatchItem> batch;
-
-        await _lock.WaitAsync(ct);
-        try
+        foreach (var list in _localItems.Values)
         {
-            if (_items.Count == 0) return;
-
-            batch = _items;
-            _items = new List<ParsedBatchItem>();
-            _nextBatchItemId = 1;
-        }
-        finally
-        {
-            _lock.Release();
+            if (list.Count > 0)
+                _flushQueue.Enqueue(list);
         }
 
-        await FlushInternalAsync(batch, ct);
+        await FlushAsync();
     }
 
-    // =========================
-    // FLUSH (internal, NO LOCK)
-    // =========================
-    private async Task FlushInternalAsync(
-        List<ParsedBatchItem> batch,
-        CancellationToken ct)
+    private async Task FlushAsync()
     {
-        var table = BuildBatchTable(batch);
+        while (_flushQueue.TryDequeue(out var batch))
+            await FlushInternal(batch);
+    }
 
-        await using var conn = new SqlConnection(_connectionString);
-        await conn.OpenAsync(ct);
+    private async Task FlushInternal(List<ParsedBatchItem> batch)
+    {
+        // 🔒 SNAPSHOT ENTIRE BATCH (deep copy)
+        var frozen = FreezeBatch(batch);
+
+        // Assign BatchItemId deterministically
+        var id = 1;
+        foreach (var item in frozen)
+            item.BatchItemId = id++;
+
+        using var conn = new SqlConnection(_connectionString);
+        await conn.OpenAsync();
 
         var p = new DynamicParameters();
-        p.Add("@Rows", table.AsTableValuedParameter(
-            "dbo.DictionaryEntryParsedBatchType"));
+
+        p.Add("@Parsed",
+            BuildParsed(frozen)
+                .AsTableValuedParameter("dbo.DictionaryEntryParsedBatchType"));
+
+        p.Add("@Aliases",
+            BuildAliases(frozen)
+                .AsTableValuedParameter("dbo.DictionaryEntryAliasBatchType"));
+
+        p.Add("@Synonyms",
+            BuildSynonyms(frozen)
+                .AsTableValuedParameter("dbo.DictionaryEntrySynonymBatchType"));
+
+        p.Add("@Examples",
+            BuildExamples(frozen)
+                .AsTableValuedParameter("dbo.DictionaryEntryExampleBatchType"));
+
+        p.Add("@CrossRefs",
+            BuildCrossRefs(frozen)
+                .AsTableValuedParameter("dbo.DictionaryEntryCrossReferenceBatchType"));
+
+        p.Add("@Etymologies",
+            BuildEtymologies(frozen)
+                .AsTableValuedParameter("dbo.DictionaryEntryEtymologyBatchType"));
 
         await conn.ExecuteAsync(
             "dbo.sp_DictionaryEntryParsed_InsertCompleteBatch",
@@ -142,11 +142,42 @@ public sealed class InMemoryBatchCollector(
             commandTimeout: 120);
     }
 
-    // =========================
-    // BUILD TVP
-    // =========================
-    private static DataTable BuildBatchTable(
-        IEnumerable<ParsedBatchItem> items)
+    private static List<ParsedBatchItem> FreezeBatch(IEnumerable<ParsedBatchItem> source)
+    {
+        var frozen = new List<ParsedBatchItem>();
+
+        foreach (var i in source)
+        {
+            var copy = new ParsedBatchItem(
+                i.DictionaryEntryId,
+                new ParsedDefinition
+                {
+                    MeaningTitle = i.MeaningTitle,
+                    Definition = i.Definition,
+                    RawFragment = i.RawFragment,
+                    SenseNumber = i.SenseNumber,
+                    Domain = i.Domain,
+                    UsageLabel = i.UsageLabel,
+                    HasNonEnglishText = i.HasNonEnglishText,
+                    NonEnglishTextId = i.NonEnglishTextId
+                },
+                i.SourceCode
+            );
+
+            // 🔒 SNAPSHOT ALL CHILD COLLECTIONS
+            copy.Aliases.AddRange(i.Aliases);
+            copy.Synonyms.AddRange(i.Synonyms);
+            copy.Examples.AddRange(i.Examples);
+            copy.CrossReferences.AddRange(i.CrossReferences);
+            copy.Etymologies.AddRange(i.Etymologies);
+
+            frozen.Add(copy);
+        }
+
+        return frozen;
+    }
+
+    private static DataTable BuildParsed(IEnumerable<ParsedBatchItem> items)
     {
         var t = new DataTable();
 
@@ -163,70 +194,148 @@ public sealed class InMemoryBatchCollector(
         t.Columns.Add("NonEnglishTextId", typeof(long));
         t.Columns.Add("SourceCode", typeof(string));
 
-        t.Columns.Add("AliasesJson", typeof(string));
-        t.Columns.Add("SynonymsJson", typeof(string));
-        t.Columns.Add("ExamplesJson", typeof(string));
-        t.Columns.Add("CrossReferencesJson", typeof(string));
-        t.Columns.Add("EtymologiesJson", typeof(string));
-
         foreach (var i in items)
         {
             t.Rows.Add(
                 i.BatchItemId,
                 i.DictionaryEntryId,
-                i.ParentParsedId ?? (object)DBNull.Value,
+                DBNull.Value,
                 i.MeaningTitle,
                 i.Definition,
                 i.RawFragment,
                 i.SenseNumber,
-                i.Domain ?? (object)DBNull.Value,
-                i.UsageLabel ?? (object)DBNull.Value,
+                i.Domain,
+                i.UsageLabel,
                 i.HasNonEnglishText,
                 i.NonEnglishTextId ?? (object)DBNull.Value,
-                i.SourceCode,
-                ToJsonArray(i.Aliases),
-                ToJsonArray(i.Synonyms),
-                ToJsonArray(i.Examples),
-                ToJsonArray(i.CrossReferences),
-                ToJsonArray(i.Etymologies)
+                i.SourceCode
             );
         }
 
         return t;
     }
 
-    private static string ToJsonArray<T>(IEnumerable<T> values)
-        => values == null ? "[]" : JsonSerializer.Serialize(values);
+    private static DataTable BuildAliases(IEnumerable<ParsedBatchItem> items)
+    {
+        var t = new DataTable();
+        t.Columns.Add("BatchItemId", typeof(int));
+        t.Columns.Add("AliasText", typeof(string));
 
-    private static string Normalize(string text)
-        => text?.Trim().Trim('"') ?? string.Empty;
+        foreach (var i in items)
+            foreach (var a in i.Aliases)
+                t.Rows.Add(i.BatchItemId, a);
+
+        return t;
+    }
+
+    private static DataTable BuildSynonyms(IEnumerable<ParsedBatchItem> items)
+    {
+        var t = new DataTable();
+        t.Columns.Add("BatchItemId", typeof(int));
+        t.Columns.Add("SynonymText", typeof(string));
+
+        foreach (var i in items)
+            foreach (var s in i.Synonyms)
+                t.Rows.Add(i.BatchItemId, s);
+
+        return t;
+    }
+
+    private static DataTable BuildExamples(IEnumerable<ParsedBatchItem> items)
+    {
+        var t = new DataTable();
+        t.Columns.Add("BatchItemId", typeof(int));
+        t.Columns.Add("ExampleText", typeof(string));
+
+        foreach (var i in items)
+            foreach (var e in i.Examples)
+                t.Rows.Add(i.BatchItemId, e);
+
+        return t;
+    }
+
+    private static DataTable BuildCrossRefs(IEnumerable<ParsedBatchItem> items)
+    {
+        var t = new DataTable();
+        t.Columns.Add("BatchItemId", typeof(int));
+        t.Columns.Add("TargetWord", typeof(string));
+        t.Columns.Add("ReferenceType", typeof(string));
+
+        foreach (var i in items)
+            foreach (var c in i.CrossReferences)
+                t.Rows.Add(i.BatchItemId, c.TargetWord, c.ReferenceType ?? "see");
+
+        return t;
+    }
+
+    private static DataTable BuildEtymologies(IEnumerable<ParsedBatchItem> items)
+    {
+        var t = new DataTable();
+        t.Columns.Add("BatchItemId", typeof(long));
+        t.Columns.Add("DictionaryEntryId", typeof(long));
+        t.Columns.Add("EtymologyText", typeof(string));
+        t.Columns.Add("LanguageCode", typeof(string));
+        t.Columns.Add("HasNonEnglishText", typeof(bool));
+        t.Columns.Add("NonEnglishTextId", typeof(long));
+        t.Columns.Add("SourceCode", typeof(string));
+
+        foreach (var i in items)
+            foreach (var e in i.Etymologies)
+                t.Rows.Add(
+                    i.BatchItemId,
+                    e.DictionaryEntryId,
+                    e.EtymologyText,
+                    e.LanguageCode,
+                    e.HasNonEnglishText,
+                    e.NonEnglishTextId ?? (object)DBNull.Value,
+                    e.SourceCode
+                );
+
+        return t;
+    }
 
     public void Dispose()
     {
         if (_disposed) return;
-        _lock.Dispose();
+        _localItems.Dispose();
         _disposed = true;
     }
 
+    // =========================================================
+    // INNER MODEL
+    // =========================================================
     internal sealed class ParsedBatchItem
     {
-        public int BatchItemId { get; init; }
-        public long DictionaryEntryId { get; init; }
-        public long? ParentParsedId { get; init; }
-        public string MeaningTitle { get; init; }
-        public string Definition { get; init; }
-        public string RawFragment { get; init; }
-        public int SenseNumber { get; init; }
-        public string Domain { get; init; }
-        public string UsageLabel { get; init; }
-        public bool HasNonEnglishText { get; init; }
-        public long? NonEnglishTextId { get; init; }
-        public string SourceCode { get; init; }
+        public ParsedBatchItem(long id, ParsedDefinition p, string s)
+        {
+            DictionaryEntryId = id;
+            MeaningTitle = p.MeaningTitle ?? string.Empty;
+            Definition = p.Definition ?? string.Empty;
+            RawFragment = p.RawFragment ?? string.Empty;
+            SenseNumber = p.SenseNumber;
+            Domain = p.Domain;
+            UsageLabel = p.UsageLabel;
+            HasNonEnglishText = p.HasNonEnglishText;
+            NonEnglishTextId = p.NonEnglishTextId;
+            SourceCode = s;
+        }
 
-        public List<string> Aliases { get; } = new();
-        public List<string> Synonyms { get; } = new();
-        public List<string> Examples { get; } = new();
-        public List<CrossReference> CrossReferences { get; } = new();
-        public List<DictionaryEntryEtymology> Etymologies { get; } = new();
+        public int BatchItemId; // 🔑 CRITICAL
+        public long DictionaryEntryId;
+        public string MeaningTitle;
+        public string Definition;
+        public string RawFragment;
+        public int SenseNumber;
+        public string? Domain;
+        public string? UsageLabel;
+        public bool HasNonEnglishText;
+        public long? NonEnglishTextId;
+        public string SourceCode;
+
+        public List<string> Aliases = new();
+        public List<string> Synonyms = new();
+        public List<string> Examples = new();
+        public List<CrossReference> CrossReferences = new();
+        public List<DictionaryEntryEtymology> Etymologies = new();
     }
 }
