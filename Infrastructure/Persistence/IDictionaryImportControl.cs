@@ -6,5 +6,5 @@ public interface IDictionaryImportControl
         string sourceCode,
         CancellationToken ct);
 
-    Task TryFinalizeAsync(CancellationToken ct);
+    Task TryFinalizeAsync(string sourceCode, CancellationToken ct);
 }

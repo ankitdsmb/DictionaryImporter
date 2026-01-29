@@ -13,7 +13,7 @@ public class DictionaryEntryStaging
     public DateTime CreatedUtc { get; set; }
 
     // EXISTING (do NOT change)
-    public string WordHash { get; internal set; } = null!;
+    public string DedupKeyHash { get; internal set; } = null!;
 
     public string DefinitionHash { get; internal set; } = null!;
 

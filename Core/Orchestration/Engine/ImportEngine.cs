@@ -87,8 +87,12 @@ public sealed class ImportEngine<TRaw>(
                 "Source import completed: {SourceCode}",
                 sourceCode);
 
-            await importControl.TryFinalizeAsync(cancellationToken)
-                               .ConfigureAwait(false);
+            using var linkedCts =
+                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+            linkedCts.CancelAfter(TimeSpan.FromMinutes(10));
+
+            await importControl.TryFinalizeAsync(sourceCode, linkedCts.Token);
         }
         catch (Exception ex)
         {

@@ -9,7 +9,7 @@ namespace DictionaryImporter.Common;
 
 public static class Helper
 {
-    public const int MAX_RECORDS_PER_SOURCE = 1000;
+    public const int MAX_RECORDS_PER_SOURCE = 10000;
 
     // =====================================================================
     // 1) REGEX (ALL AT TOP)
