@@ -1,11 +1,8 @@
-﻿using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
-using DictionaryImporter.Gateway.Grammar.Core.Models;
+﻿using DictionaryImporter.Gateway.Grammar.Core.Models;
 
 namespace DictionaryImporter.Gateway.Grammar.Engines;
 
-public  class CustomRuleEngine
+public class CustomRuleEngine
 {
     private readonly List<GrammarPatternRule> _rules = [];
     private readonly string _rulesFilePath;
@@ -111,91 +108,6 @@ public  class CustomRuleEngine
         }
     }
 
-    public void AddRule(GrammarPatternRule rule)
-    {
-        if (rule == null)
-            return;
-
-        var normalized = NormalizeAndValidateRules([rule]).FirstOrDefault();
-        if (normalized == null)
-            return;
-
-        lock (_lock)
-        {
-            _rules.Add(normalized);
-            SortRulesInPlace(_rules);
-        }
-    }
-
-    public void RemoveRule(string ruleId)
-    {
-        if (string.IsNullOrWhiteSpace(ruleId))
-            return;
-
-        lock (_lock)
-        {
-            _rules.RemoveAll(r => string.Equals(r.Id, ruleId, StringComparison.OrdinalIgnoreCase));
-        }
-    }
-
-    public async Task TrainAsync(GrammarFeedback feedback)
-    {
-        if (feedback?.OriginalIssue == null)
-            return;
-
-        if (string.IsNullOrWhiteSpace(feedback.OriginalIssue.RuleId))
-            return;
-
-        if (!feedback.OriginalIssue.RuleId.StartsWith("PATTERN_", StringComparison.Ordinal))
-            return;
-
-        var ruleId = feedback.OriginalIssue.RuleId.Replace("PATTERN_", "", StringComparison.Ordinal);
-
-        lock (_lock)
-        {
-            var rule = _rules.FirstOrDefault(r =>
-                string.Equals(r.Id, ruleId, StringComparison.OrdinalIgnoreCase));
-
-            if (rule == null)
-                return;
-
-            rule.UsageCount++;
-
-            if (feedback.IsFalsePositive)
-            {
-                rule.Confidence = Math.Max(0, rule.Confidence - 10);
-            }
-            else if (feedback.IsValidCorrection)
-            {
-                rule.SuccessCount++;
-                rule.Confidence = Math.Min(100, rule.Confidence + 5);
-            }
-
-            SortRulesInPlace(_rules);
-        }
-
-        await SaveRulesAsync();
-    }
-
-    // NEW METHOD (added)
-    public int ReloadRules()
-    {
-        LoadRules();
-        lock (_lock)
-        {
-            return _rules.Count;
-        }
-    }
-
-    // NEW METHOD (added)
-    public int GetRuleCount()
-    {
-        lock (_lock)
-        {
-            return _rules.Count;
-        }
-    }
-
     private static List<GrammarPatternRule> NormalizeAndValidateRules(List<GrammarPatternRule>? loadedRules)
     {
         if (loadedRules == null || loadedRules.Count == 0)
@@ -251,9 +163,6 @@ public  class CustomRuleEngine
 
     private static bool IsRuleValid(GrammarPatternRule rule)
     {
-        // Enabled=false rules are allowed to exist (for admin UI / future training)
-        // but should still be regex-valid so they don't crash if enabled later.
-
         if (string.IsNullOrWhiteSpace(rule.Id))
             return false;
 
@@ -273,12 +182,6 @@ public  class CustomRuleEngine
 
     private static void SortRulesInPlace(List<GrammarPatternRule> rules)
     {
-        // ✅ AI-like quality depends heavily on rule order
-        // Order strategy:
-        // 1) Enabled first
-        // 2) Higher Priority first (lower number = higher priority)
-        // 3) Higher confidence first
-        // 4) More successful rules first
         rules.Sort((a, b) =>
         {
             var enabledCompare = b.Enabled.CompareTo(a.Enabled);

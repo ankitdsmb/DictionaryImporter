@@ -8,261 +8,59 @@ namespace DictionaryImporter.Gateway.Grammar.Feature;
 public sealed class GrammarFeature(
     string connectionString,
     EnhancedGrammarConfiguration settings,
-    ILanguageDetector languageDetector,
+    INTextCatLangDetector languageDetector,
     IGrammarCorrector corrector,
     IEnumerable<IGrammarEngine> engines,
     ILogger<GrammarFeature> logger)
     : IGrammarFeature, IGrammarCorrector
 {
     private const int DbTimeoutSeconds = 180;
+    private const int BatchSize = 2000;
+    private const string SpName = "dbo.sp_Grammar_Process";
+    private const int MaxParallelism = 4;
+    private const int ClaimBatchSize = 500;
+    private static readonly Guid WorkerId = Guid.NewGuid();
 
-    private readonly string _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-    private readonly EnhancedGrammarConfiguration _settings = settings ?? throw new ArgumentNullException(nameof(settings));
-    private readonly ILanguageDetector _languageDetector = languageDetector ?? throw new ArgumentNullException(nameof(languageDetector));
-    private readonly IGrammarCorrector _corrector = corrector ?? throw new ArgumentNullException(nameof(corrector));
-    private readonly IReadOnlyCollection<IGrammarEngine> _engines = engines?.ToArray() ?? Array.Empty<IGrammarEngine>();
-    private readonly ILogger<GrammarFeature> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly string _connectionString = connectionString;
+    private readonly EnhancedGrammarConfiguration _settings = settings;
+    private readonly INTextCatLangDetector _languageDetector = languageDetector;
+    private readonly IGrammarCorrector _corrector = corrector;
+    private readonly ILogger<GrammarFeature> _logger = logger;
 
-    // ✅ Matches DI registration (6 args)
-
-    // ✅ Pipeline entry point (REAL in codebase)
     public async Task CorrectSourceAsync(string sourceCode, CancellationToken ct)
     {
         if (!_settings.Enabled || !_settings.EnabledForSource(sourceCode))
         {
-            _logger.LogInformation("Grammar correction disabled for source {Source}", sourceCode);
+            _logger.LogInformation("Grammar correction disabled | Source={Source}", sourceCode);
             return;
         }
 
-        _logger.LogInformation("Grammar correction started | Source={Source}", sourceCode);
+        await using var conn = new SqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
 
-        await CorrectDefinitionsAsync(sourceCode, ct);
-        await CorrectExamplesAsync(sourceCode, ct);
+        var languageCode = _settings.GetLanguageCode(sourceCode);
 
-        _logger.LogInformation("Grammar correction completed | Source={Source}", sourceCode);
+        await CorrectDefinitionsAsync(conn, sourceCode, languageCode, ct);
+        await CorrectExamplesAsync(conn, sourceCode, languageCode, ct);
     }
 
-    // ✅ Used by text service & parser
     public async Task<string> CleanAsync(
         string text,
         string? languageCode = null,
         bool applyAutoCorrection = true,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(text))
+        if (string.IsNullOrWhiteSpace(text) || !applyAutoCorrection)
             return text;
 
-        if (!applyAutoCorrection)
-            return text;
-
-        if (string.IsNullOrWhiteSpace(languageCode))
-        {
-            try
-            {
-                languageCode = _languageDetector.Detect(text) ?? _settings.DefaultLanguage;
-            }
-            catch
-            {
-                languageCode = _settings.DefaultLanguage;
-            }
-        }
+        languageCode ??= DetectLanguageSafe(text);
 
         var result = await _corrector.AutoCorrectAsync(text, languageCode, ct);
-        return string.IsNullOrWhiteSpace(result.CorrectedText) ? text : result.CorrectedText;
+        return string.IsNullOrWhiteSpace(result.CorrectedText)
+            ? text
+            : result.CorrectedText;
     }
 
-    // ✅ Definition correction matches original tables
-    private async Task CorrectDefinitionsAsync(string sourceCode, CancellationToken ct)
-    {
-        await using var conn = new SqlConnection(_connectionString);
-        await conn.OpenAsync(ct);
-
-        var records = await conn.QueryAsync<DefinitionRecord>(
-            """
-            SELECT p.DictionaryEntryParsedId,
-                   p.Definition,
-                   e.Word
-            FROM dbo.DictionaryEntryParsed p
-            JOIN dbo.DictionaryEntry e ON e.DictionaryEntryId = p.DictionaryEntryId
-            WHERE e.SourceCode = @SourceCode
-              AND LEN(p.Definition) > @MinLength
-              AND (p.GrammarCorrected = 0 OR p.GrammarCorrected IS NULL)
-            ORDER BY p.DictionaryEntryParsedId
-            """,
-            new { SourceCode = sourceCode, MinLength = _settings.MinDefinitionLength },
-            commandTimeout: DbTimeoutSeconds);
-
-        var total = 0;
-        var updated = 0;
-        var skipped = 0;
-        var failed = 0;
-
-        var languageCode = _settings.GetLanguageCode(sourceCode);
-
-        foreach (var r in records)
-        {
-            ct.ThrowIfCancellationRequested();
-            total++;
-
-            try
-            {
-                if (string.IsNullOrWhiteSpace(r.Definition))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                var result = await _corrector.AutoCorrectAsync(r.Definition, languageCode, ct);
-
-                var finalText = string.IsNullOrWhiteSpace(result.CorrectedText)
-                    ? r.Definition
-                    : result.CorrectedText;
-
-                var confidence = ComputeConfidenceScore(result);
-                var engines = ComputeEnginesApplied(result);
-                var correctionsJson = BuildCorrectionsJson(result);
-
-                await conn.ExecuteAsync(
-                    """
-                    UPDATE dbo.DictionaryEntryParsed
-                    SET Definition = @Definition,
-                        GrammarCorrected = 1,
-                        GrammarCorrectionDate = SYSUTCDATETIME(),
-                        GrammarConfidenceScore = @ConfidenceScore,
-                        GrammarEnginesApplied = @EnginesApplied,
-                        GrammarAppliedCorrectionsJson = @CorrectionsJson
-                    WHERE DictionaryEntryParsedId = @Id
-                    """,
-                    new
-                    {
-                        Id = r.DictionaryEntryParsedId,
-                        Definition = finalText,
-                        ConfidenceScore = confidence,
-                        EnginesApplied = engines,
-                        CorrectionsJson = correctionsJson
-                    },
-                    commandTimeout: DbTimeoutSeconds);
-
-                updated++;
-
-                if (updated % 500 == 0)
-                {
-                    _logger.LogInformation(
-                        "Definition correction progress | Source={Source} | Updated={Updated} | TotalScanned={Total}",
-                        sourceCode, updated, total);
-                }
-            }
-            catch (Exception ex)
-            {
-                failed++;
-                _logger.LogWarning(ex,
-                    "Failed to correct definition for word '{Word}' (ID: {Id})",
-                    r.Word, r.DictionaryEntryParsedId);
-            }
-        }
-
-        _logger.LogInformation(
-            "Definitions corrected | Source={Source} | Total={Total} | Updated={Updated} | Skipped={Skipped} | Failed={Failed}",
-            sourceCode, total, updated, skipped, failed);
-    }
-
-    // ✅ Example correction matches original tables
-    private async Task CorrectExamplesAsync(string sourceCode, CancellationToken ct)
-    {
-        await using var conn = new SqlConnection(_connectionString);
-        await conn.OpenAsync(ct);
-
-        var records = await conn.QueryAsync<ExampleRecord>(
-            """
-            SELECT ex.DictionaryEntryExampleId,
-                   ex.ExampleText,
-                   de.Word
-            FROM dbo.DictionaryEntryExample ex
-            JOIN dbo.DictionaryEntryParsed p ON p.DictionaryEntryParsedId = ex.DictionaryEntryParsedId
-            JOIN dbo.DictionaryEntry de ON de.DictionaryEntryId = p.DictionaryEntryId
-            WHERE de.SourceCode = @SourceCode
-              AND LEN(ex.ExampleText) > 10
-              AND (ex.GrammarCorrected = 0 OR ex.GrammarCorrected IS NULL)
-            ORDER BY ex.DictionaryEntryExampleId
-            """,
-            new { SourceCode = sourceCode },
-            commandTimeout: DbTimeoutSeconds);
-
-        var total = 0;
-        var updated = 0;
-        var skipped = 0;
-        var failed = 0;
-
-        var languageCode = _settings.GetLanguageCode(sourceCode);
-
-        foreach (var r in records)
-        {
-            ct.ThrowIfCancellationRequested();
-            total++;
-
-            try
-            {
-                if (string.IsNullOrWhiteSpace(r.ExampleText))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                var result = await _corrector.AutoCorrectAsync(r.ExampleText, languageCode, ct);
-
-                var finalText = string.IsNullOrWhiteSpace(result.CorrectedText)
-                    ? r.ExampleText
-                    : result.CorrectedText;
-
-                var confidence = ComputeConfidenceScore(result);
-                var engines = ComputeEnginesApplied(result);
-                var correctionsJson = BuildCorrectionsJson(result);
-
-                await conn.ExecuteAsync(
-                    """
-                    UPDATE dbo.DictionaryEntryExample
-                    SET ExampleText = @Example,
-                        GrammarCorrected = 1,
-                        GrammarCorrectionDate = SYSUTCDATETIME(),
-                        GrammarConfidenceScore = @ConfidenceScore,
-                        GrammarEnginesApplied = @EnginesApplied,
-                        GrammarAppliedCorrectionsJson = @CorrectionsJson
-                    WHERE DictionaryEntryExampleId = @Id
-                    """,
-                    new
-                    {
-                        Id = r.DictionaryEntryExampleId,
-                        Example = finalText,
-                        ConfidenceScore = confidence,
-                        EnginesApplied = engines,
-                        CorrectionsJson = correctionsJson
-                    },
-                    commandTimeout: DbTimeoutSeconds);
-
-                updated++;
-
-                if (updated % 500 == 0)
-                {
-                    _logger.LogInformation(
-                        "Example correction progress | Source={Source} | Updated={Updated} | TotalScanned={Total}",
-                        sourceCode, updated, total);
-                }
-            }
-            catch (Exception ex)
-            {
-                failed++;
-                _logger.LogWarning(ex,
-                    "Failed to correct example for word '{Word}' (ID: {Id})",
-                    r.Word, r.DictionaryEntryExampleId);
-            }
-        }
-
-        _logger.LogInformation(
-            "Examples corrected | Source={Source} | Total={Total} | Updated={Updated} | Skipped={Skipped} | Failed={Failed}",
-            sourceCode, total, updated, skipped, failed);
-    }
-
-    // ✅ IGrammarCorrector passthrough
     public Task<GrammarCheckResult> CheckAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
         => _corrector.CheckAsync(text, languageCode, ct);
 
@@ -272,23 +70,112 @@ public sealed class GrammarFeature(
     public Task<IReadOnlyList<GrammarSuggestion>> SuggestImprovementsAsync(string text, string languageCode = "en-US", CancellationToken ct = default)
         => _corrector.SuggestImprovementsAsync(text, languageCode, ct);
 
-    private sealed record DefinitionRecord(long DictionaryEntryParsedId, string Definition, string Word);
-
-    private sealed record ExampleRecord(long DictionaryEntryExampleId, string ExampleText, string Word);
-
-    private static int ComputeConfidenceScore(GrammarCorrectionResult result)
+    private async Task CorrectDefinitionsAsync(
+        SqlConnection conn,
+        string sourceCode,
+        string languageCode,
+        CancellationToken ct)
     {
-        if (result.AppliedCorrections is null || result.AppliedCorrections.Count == 0)
-            return 100;
+        while (true)
+        {
+            var records = await conn.QueryAsync<DefinitionRecord>(
+                SpName,
+                new
+                {
+                    Mode = 1,
+                    SourceCode = sourceCode,
+                    MinLength = _settings.MinDefinitionLength,
+                    WorkerId,
+                    BatchSize = ClaimBatchSize
+                },
+                commandType: CommandType.StoredProcedure,
+                commandTimeout: DbTimeoutSeconds);
 
-        var avg = result.AppliedCorrections.Average(x => x.Confidence);
-        return (int)Math.Clamp(Math.Round(avg), 0, 100);
+            if (!records.Any())
+                break;
+
+            await RunParallelCorrectionAsync(
+                records,
+                r => r.Definition,
+                r => r.DictionaryEntryParsedId,
+                updateMode: 5,
+                languageCode,
+                conn,
+                ct);
+        }
     }
 
-    private static string ComputeEnginesApplied(GrammarCorrectionResult result)
+    private async Task CorrectExamplesAsync(
+        SqlConnection conn,
+        string sourceCode,
+        string languageCode,
+        CancellationToken ct)
     {
-        if (result.AppliedCorrections is null || result.AppliedCorrections.Count == 0)
-            return string.Empty;
+        while (true)
+        {
+            var records = await conn.QueryAsync<ExampleRecord>(
+                SpName,
+                new
+                {
+                    Mode = 3,
+                    SourceCode = sourceCode,
+                    WorkerId,
+                    BatchSize = ClaimBatchSize
+                },
+                commandType: CommandType.StoredProcedure,
+                commandTimeout: DbTimeoutSeconds);
+
+            if (!records.Any())
+                break;
+
+            await RunParallelCorrectionAsync(
+                records,
+                r => r.ExampleText,
+                r => r.DictionaryEntryExampleId,
+                updateMode: 6,
+                languageCode,
+                conn,
+                ct);
+        }
+    }
+
+    private static DataTable CreateBatchTable()
+    {
+        var dt = new DataTable();
+        dt.Columns.Add("Id", typeof(long));
+        dt.Columns.Add("CorrectedText", typeof(string));
+        dt.Columns.Add("ConfidenceScore", typeof(int));
+        dt.Columns.Add("EnginesApplied", typeof(string));
+        dt.Columns.Add("CorrectionsJson", typeof(string));
+        return dt;
+    }
+
+    private static async Task FlushBatchAsync(
+        SqlConnection conn,
+        int mode,
+        DataTable batch,
+        CancellationToken ct)
+    {
+        if (batch.Rows.Count == 0)
+            return;
+
+        await conn.ExecuteAsync(
+            SpName,
+            new { Mode = mode, Batch = batch },
+            commandType: CommandType.StoredProcedure,
+            commandTimeout: DbTimeoutSeconds);
+
+        batch.Clear();
+    }
+
+    private static GrammarMeta BuildMeta(GrammarCorrectionResult result)
+    {
+        if (result.AppliedCorrections == null || result.AppliedCorrections.Count == 0)
+            return new GrammarMeta(100, string.Empty, "[]");
+
+        var confidence = (int)Math.Clamp(
+            Math.Round(result.AppliedCorrections.Average(x => x.Confidence)),
+            0, 100);
 
         var engines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -302,14 +189,91 @@ public sealed class GrammarFeature(
                 engines.Add("LanguageTool");
         }
 
-        return string.Join(", ", engines.OrderBy(x => x));
+        return new GrammarMeta(
+            confidence,
+            string.Join(", ", engines.OrderBy(x => x)),
+            JsonSerializer.Serialize(result.AppliedCorrections));
     }
 
-    private static string BuildCorrectionsJson(GrammarCorrectionResult result)
+    private string DetectLanguageSafe(string text)
     {
-        if (result.AppliedCorrections is null || result.AppliedCorrections.Count == 0)
-            return "[]";
-
-        return JsonSerializer.Serialize(result.AppliedCorrections);
+        try
+        {
+            return _languageDetector.Detect(text) ?? _settings.DefaultLanguage;
+        }
+        catch
+        {
+            return _settings.DefaultLanguage;
+        }
     }
+
+    private async Task RunParallelCorrectionAsync<T>(
+        IEnumerable<T> records,
+        Func<T, string> textSelector,
+        Func<T, long> idSelector,
+        int updateMode,
+        string languageCode,
+        SqlConnection conn,
+        CancellationToken ct)
+    {
+        var batch = CreateBatchTable();
+        var batchLock = new object();
+
+        await Parallel.ForEachAsync(
+            records,
+            new ParallelOptions
+            {
+                MaxDegreeOfParallelism = MaxParallelism,
+                CancellationToken = ct
+            },
+            async (record, token) =>
+            {
+                var original = textSelector(record);
+                if (string.IsNullOrWhiteSpace(original))
+                    return;
+
+                GrammarCorrectionResult result;
+
+                try
+                {
+                    result = await _corrector.AutoCorrectAsync(original, languageCode, token);
+                }
+                catch
+                {
+                    return;
+                }
+
+                var finalText = string.IsNullOrWhiteSpace(result.CorrectedText)
+                    ? original
+                    : result.CorrectedText;
+
+                var meta = BuildMeta(result);
+
+                lock (batchLock)
+                {
+                    batch.Rows.Add(
+                        idSelector(record),
+                        finalText,
+                        meta.ConfidenceScore,
+                        meta.EnginesApplied,
+                        meta.CorrectionsJson);
+
+                    if (batch.Rows.Count >= BatchSize)
+                    {
+                        FlushBatchAsync(conn, updateMode, batch, token)
+                            .GetAwaiter()
+                            .GetResult();
+                    }
+                }
+            });
+
+        await FlushBatchAsync(conn, updateMode, batch, ct);
+    }
+
+    private sealed record DefinitionRecord(long DictionaryEntryParsedId, string Definition, string Word);
+    private sealed record ExampleRecord(long DictionaryEntryExampleId, string ExampleText, string Word);
+    private sealed record GrammarMeta(
+        int ConfidenceScore,
+        string EnginesApplied,
+        string CorrectionsJson);
 }

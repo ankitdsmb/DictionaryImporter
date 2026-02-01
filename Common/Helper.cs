@@ -9,7 +9,7 @@ namespace DictionaryImporter.Common;
 
 public static class Helper
 {
-    public const int MAX_RECORDS_PER_SOURCE = 10000;
+    public const int MAX_RECORDS_PER_SOURCE = 100;
 
     // =====================================================================
     // 1) REGEX (ALL AT TOP)
@@ -1600,9 +1600,9 @@ public static class Helper
     {
         private static readonly object _lock = new();
 
-        private static DictionaryImporter.Gateway.Grammar.Core.ILanguageDetector? _detector;
+        private static DictionaryImporter.Gateway.Grammar.Core.INTextCatLangDetector? _detector;
 
-        private static DictionaryImporter.Gateway.Grammar.Core.ILanguageDetector GetDetector()
+        private static DictionaryImporter.Gateway.Grammar.Core.INTextCatLangDetector GetDetector()
         {
             if (_detector != null)
                 return _detector;
@@ -1614,7 +1614,7 @@ public static class Helper
 
                 try
                 {
-                    _detector = new DictionaryImporter.Gateway.Grammar.Engines.LanguageDetector();
+                    _detector = new DictionaryImporter.Gateway.Grammar.Engines.NTextCatLangDetector();
                 }
                 catch
                 {
