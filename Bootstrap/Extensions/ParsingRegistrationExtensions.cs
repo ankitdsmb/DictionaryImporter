@@ -1,4 +1,5 @@
 ﻿using DictionaryImporter.Core.Text;
+using DictionaryImporter.Core.Text.Experimental;
 using DictionaryImporter.Infrastructure.Parsing.ExtractorRegistry;
 using DictionaryImporter.Infrastructure.Source;
 using DictionaryImporter.Sources.Collins.Extractor;

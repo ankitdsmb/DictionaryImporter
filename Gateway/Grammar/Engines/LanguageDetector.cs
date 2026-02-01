@@ -1,35 +1,45 @@
 ﻿using DictionaryImporter.Gateway.Grammar.Core;
 using NTextCat;
+using System.Collections.Concurrent;
 
 namespace DictionaryImporter.Gateway.Grammar.Engines;
 
-public sealed class LanguageDetector : ILanguageDetector
+public sealed class NTextCatLangDetector : INTextCatLangDetector, IDisposable
 {
-    private readonly RankedLanguageIdentifier _identifier;
+    private const int DefaultPoolSize = 4;
 
-    public LanguageDetector()
+    private readonly ConcurrentBag<RankedLanguageIdentifier> _pool = new();
+    private readonly SemaphoreSlim _poolGate;
+    private readonly string? _profilePath;
+    private int _disposed;
+
+    public NTextCatLangDetector(int poolSize = DefaultPoolSize)
     {
-        try
+        if (poolSize <= 0)
+            throw new ArgumentOutOfRangeException(nameof(poolSize));
+
+        _poolGate = new SemaphoreSlim(poolSize, poolSize);
+
+        var path = Path.Combine(
+            AppContext.BaseDirectory,
+            "Gateway",
+            "Grammar",
+            "Configuration",
+            "Core14.profile.xml");
+
+        if (!File.Exists(path))
         {
-            // File must exist in output folder
-            var profilePath = Path.Combine(
-                AppContext.BaseDirectory,
-                "Gateway",
-                "Grammar",
-                "Configuration",
-                "Core14.profile.xml"
-            );
-
-            if (!File.Exists(profilePath))
-                throw new FileNotFoundException($"NTextCat profile not found: {profilePath}");
-
-            var factory = new RankedLanguageIdentifierFactory();
-            _identifier = factory.Load(profilePath);
+            _profilePath = null;
+            return;
         }
-        catch (Exception ex)
+
+        _profilePath = path;
+
+        // Warm the pool
+        var factory = new RankedLanguageIdentifierFactory();
+        for (var i = 0; i < poolSize; i++)
         {
-            Console.WriteLine($"NTextCat load failed. Falling back to en-US. Error: {ex.Message}");
-            _identifier = null;
+            _pool.Add(factory.Load(_profilePath));
         }
     }
 
@@ -38,20 +48,61 @@ public sealed class LanguageDetector : ILanguageDetector
         if (string.IsNullOrWhiteSpace(text) || text.Length < 10)
             return "en-US";
 
-        if (_identifier == null)
+        if (_profilePath == null)
             return "en-US";
 
-        var best = _identifier.Identify(text).FirstOrDefault();
-        var iso639_3 = best?.Item1?.Iso639_3;
+        ThrowIfDisposed();
 
-        return iso639_3 switch
+        _poolGate.Wait();
+        RankedLanguageIdentifier? identifier = null;
+
+        try
         {
-            "eng" => "en-US",
-            "fra" => "fr-FR",
-            "deu" => "de-DE",
-            "spa" => "es-ES",
-            "ita" => "it-IT",
-            _ => "en-US"
-        };
+            if (!_pool.TryTake(out identifier))
+            {
+                // Should be rare; safety fallback
+                var factory = new RankedLanguageIdentifierFactory();
+                identifier = factory.Load(_profilePath);
+            }
+
+            var best = identifier.Identify(text).FirstOrDefault();
+            var iso639_3 = best?.Item1?.Iso639_3;
+
+            return iso639_3 switch
+            {
+                "eng" => "en-US",
+                "fra" => "fr-FR",
+                "deu" => "de-DE",
+                "spa" => "es-ES",
+                "ita" => "it-IT",
+                _ => "en-US"
+            };
+        }
+        catch
+        {
+            return "en-US";
+        }
+        finally
+        {
+            if (identifier != null)
+                _pool.Add(identifier);
+
+            _poolGate.Release();
+        }
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (Volatile.Read(ref _disposed) == 1)
+            throw new ObjectDisposedException(nameof(NTextCatLangDetector));
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;
+
+        _poolGate.Dispose();
+        _pool.Clear();
     }
 }

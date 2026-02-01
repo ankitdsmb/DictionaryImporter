@@ -6,7 +6,6 @@ using DictionaryImporter.Gateway.Grammar.Engines;
 using DictionaryImporter.Gateway.Grammar.Feature;
 using DictionaryImporter.Gateway.Rewriter;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using LanguageDetector = DictionaryImporter.Gateway.Grammar.Engines.LanguageDetector;
 
 namespace DictionaryImporter.Gateway.Grammar.Extensions;
 
@@ -22,12 +21,12 @@ internal static class GrammarRegistrationExtensions
         configuration.GetSection("Grammar").Bind(settings);
 
         services.TryAddSingleton(settings);
-        services.TryAddSingleton<ILanguageDetector, LanguageDetector>();
 
         var connectionString = configuration.GetConnectionString("DictionaryImporter")
-                               ?? throw new InvalidOperationException("Connection string 'DictionaryImporter' not configured");
+            ?? throw new InvalidOperationException(
+                "Connection string 'DictionaryImporter' not configured");
 
-        //RewriteMap options
+        // RewriteMap options
         services.Configure<RewriteMapEngineOptions>(
             configuration.GetSection("RewriteMap"));
 
@@ -39,10 +38,10 @@ internal static class GrammarRegistrationExtensions
 
         services.TryAddSingleton<RewriteMapEngine>();
 
-        //Humanizer-safe dictionary formatter
+        // Humanizer-safe dictionary formatter
         services.TryAddSingleton<DictionaryHumanizer>();
 
-        //Ambient rewrite context (AsyncLocal)
+        // Ambient rewrite context (AsyncLocal)
         services.TryAddSingleton<IRewriteContextAccessor, RewriteContextAccessor>();
 
         if (!enabled)
@@ -52,20 +51,40 @@ internal static class GrammarRegistrationExtensions
             return services;
         }
 
-        var languageToolUrl = configuration["Grammar:LanguageToolUrl"] ?? "http://localhost:2026";
-        var patternRulesPath = configuration["Grammar:PatternRulesPath"] ?? "Gateway/Grammar/Configuration/grammar-rules.json";
-        var dictionaryRewriteRulesPath = configuration["Grammar:DictionaryRewriteRulesPath"] ?? "Gateway/Grammar/Configuration/dictionary-rewrite-rules.json";
+        var languageToolUrl =
+            configuration["Grammar:LanguageToolUrl"] ?? "http://localhost:2026";
+
+        var patternRulesPath =
+            configuration["Grammar:PatternRulesPath"]
+            ?? "Gateway/Grammar/Configuration/grammar-rules.json";
+
+        var dictionaryRewriteRulesPath =
+            configuration["Grammar:DictionaryRewriteRulesPath"]
+            ?? "Gateway/Grammar/Configuration/dictionary-rewrite-rules.json";
+
+        // ---------- Grammar engines ----------
 
         services.TryAddSingleton<ICustomGrammarRuleEngine>(_ =>
-            new CustomGrammarRuleEngine(new CustomRuleEngine(patternRulesPath)));
+            new CustomGrammarRuleEngine(
+                new CustomRuleEngine(patternRulesPath)));
 
         services.TryAddSingleton<ICustomDictionaryRewriteRuleEngine>(_ =>
-            new CustomDictionaryRewriteRuleEngine(new CustomRuleEngine(dictionaryRewriteRulesPath)));
+            new CustomDictionaryRewriteRuleEngine(
+                new CustomRuleEngine(dictionaryRewriteRulesPath)));
+
+        // Hunspell (thread-safe wrapper)
+        services.AddSingleton<ISpellChecker>(
+            _ => new NHunspellSpellChecker("en-US"));
+
+        // Language detector (pooled, thread-safe)
+        services.AddSingleton<INTextCatLangDetector>(
+            _ => new NTextCatLangDetector(
+                poolSize: Environment.ProcessorCount));
 
         services.TryAddSingleton<CustomRuleCorrectorAdapter>();
         services.TryAddSingleton<HunspellCorrectorAdapter>();
 
-        //LanguageTool corrector (patched constructor - optional DI dependencies)
+        // LanguageTool corrector
         services.TryAddSingleton<LanguageToolGrammarCorrector>(sp =>
             new LanguageToolGrammarCorrector(
                 languageToolUrl: languageToolUrl,
@@ -73,7 +92,7 @@ internal static class GrammarRegistrationExtensions
                 rewriteContextAccessor: sp.GetService<IRewriteContextAccessor>(),
                 rewriteRuleHitRepository: sp.GetService<IRewriteRuleHitRepository>()));
 
-        //Dictionary rewrite corrector (JsonRegex hit tracking + optional hit repo)
+        // Dictionary rewrite corrector
         services.TryAddSingleton<DictionaryRewriteCorrectorAdapter>(sp =>
             new DictionaryRewriteCorrectorAdapter(
                 engineWrapper: sp.GetRequiredService<ICustomDictionaryRewriteRuleEngine>(),
@@ -83,27 +102,31 @@ internal static class GrammarRegistrationExtensions
                 logger: sp.GetRequiredService<ILogger<DictionaryRewriteCorrectorAdapter>>(),
                 hitRepository: sp.GetService<IRewriteRuleHitRepository>()));
 
+        // Grammar chain
         services.TryAddSingleton(sp => new GrammarCorrectorChain(
-            [
+            new IGrammarCorrector[]
+            {
                 sp.GetRequiredService<CustomRuleCorrectorAdapter>(),
                 sp.GetRequiredService<HunspellCorrectorAdapter>(),
                 sp.GetRequiredService<LanguageToolGrammarCorrector>(),
                 sp.GetRequiredService<DictionaryRewriteCorrectorAdapter>()
-            ],
+            },
             sp.GetRequiredService<ILogger<GrammarCorrectorChain>>()));
 
-        services.TryAddSingleton<IGrammarCorrector>(sp => new SettingsAwareGrammarCorrector(
-            sp.GetRequiredService<EnhancedGrammarConfiguration>(),
-            sp.GetRequiredService<GrammarCorrectorChain>(),
-            sp.GetRequiredService<ILogger<SettingsAwareGrammarCorrector>>()));
+        services.TryAddSingleton<IGrammarCorrector>(sp =>
+            new SettingsAwareGrammarCorrector(
+                sp.GetRequiredService<EnhancedGrammarConfiguration>(),
+                sp.GetRequiredService<GrammarCorrectorChain>(),
+                sp.GetRequiredService<ILogger<SettingsAwareGrammarCorrector>>()));
 
-        services.TryAddSingleton<IGrammarFeature>(sp => new GrammarFeature(
-            connectionString,
-            sp.GetRequiredService<EnhancedGrammarConfiguration>(),
-            sp.GetRequiredService<ILanguageDetector>(),
-            sp.GetRequiredService<IGrammarCorrector>(),
-            sp.GetServices<IGrammarEngine>(),
-            sp.GetRequiredService<ILogger<GrammarFeature>>()));
+        services.TryAddSingleton<IGrammarFeature>(sp =>
+            new GrammarFeature(
+                connectionString,
+                sp.GetRequiredService<EnhancedGrammarConfiguration>(),
+                sp.GetRequiredService<INTextCatLangDetector>(),
+                sp.GetRequiredService<IGrammarCorrector>(),
+                sp.GetServices<IGrammarEngine>(),
+                sp.GetRequiredService<ILogger<GrammarFeature>>()));
 
         return services;
     }

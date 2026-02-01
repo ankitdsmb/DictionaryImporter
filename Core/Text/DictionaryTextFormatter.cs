@@ -1,8 +1,5 @@
-﻿using System.Text.RegularExpressions;
-using System.Net;
+﻿using System.Net;
 using DictionaryImporter.Core.Domain.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace DictionaryImporter.Core.Text;
 

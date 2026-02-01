@@ -6,7 +6,9 @@ using DictionaryImporter.Core.Orchestration.Pipeline;
 using DictionaryImporter.Core.Orchestration.Pipeline.Steps;
 using DictionaryImporter.Core.Orchestration.Sources;
 using DictionaryImporter.Core.Rewrite;
+using DictionaryImporter.Gateway.Grammar.Core.Models;
 using DictionaryImporter.Gateway.Rewriter;
+using DictionaryImporter.HostedService;
 using DictionaryImporter.Infrastructure.OneTimeTasks;
 using DictionaryImporter.Infrastructure.Source;
 using DictionaryImporter.Infrastructure.Validation;
@@ -38,6 +40,7 @@ public static class BootstrapPipeline
         // ------------------------------------------------------------
         services.Configure<BatchProcessingSettings>(configuration.GetSection("BatchProcessing"));
         services.Configure<ParallelProcessingSettings>(configuration.GetSection("ParallelProcessing"));
+        services.Configure<GrammarOptions>(configuration.GetSection("Grammar"));
 
         services.AddSingleton<ImportConcurrencyManager>();
 
@@ -445,6 +448,8 @@ public static class BootstrapPipeline
                 logger,
                 qaRunner);
         });
+
+        services.AddHostedService<StartupCleanupHostedService>();
 
         // ------------------------------------------------------------
         // ✅ REGISTER SOURCE MODULES

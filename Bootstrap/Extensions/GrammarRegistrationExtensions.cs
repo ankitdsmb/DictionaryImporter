@@ -1,5 +1,8 @@
 ﻿using DictionaryImporter.Core.Domain.Models;
 using DictionaryImporter.Core.Text;
+using DictionaryImporter.Core.Text.Experimental;
+using DictionaryImporter.Gateway.Grammar.Core;
+using DictionaryImporter.Gateway.Grammar.Engines;
 using DictionaryImporter.Gateway.Grammar.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,7 +25,6 @@ internal static class GrammarRegistrationExtensions
         services.AddSingleton<IDictionaryTextFormatter, DictionaryTextFormatter>();
 
         services.AddSingleton<IGrammarEnrichedTextService, GrammarEnrichedTextService>();
-
         return services;
     }
 }
