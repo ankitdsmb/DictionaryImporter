@@ -416,6 +416,24 @@ public static class Helper
     // 9) Generic Text Checks
     // =====================================================================
 
+    public static bool IsPureEnglish(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        // Check for Chinese characters
+        if (Regex.IsMatch(text, @"[\u4e00-\u9fff]"))
+            return false;
+
+        // Check for Chinese punctuation markers
+        if (text.Contains('〔') || text.Contains('〕') ||
+            text.Contains('〈') || text.Contains('〉'))
+            return false;
+
+        // Must contain English letters
+        return Regex.IsMatch(text, @"[A-Za-z]");
+    }
+
     public static bool ContainsLanguageMarker(string text, params string[] languages)
     {
         if (string.IsNullOrWhiteSpace(text))

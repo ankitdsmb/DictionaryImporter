@@ -196,7 +196,6 @@ public sealed class Century21Extractor(ILogger<Century21Extractor> logger) : IDa
         if (string.IsNullOrWhiteSpace(text))
             return string.Empty;
 
-        // Use the helper from Century21HtmlTextHelper
         return ParsingHelperCentury21.CleanText(text);
     }
 }

@@ -7,6 +7,7 @@ using DictionaryImporter.Core.Orchestration.Pipeline.Steps;
 using DictionaryImporter.Core.Orchestration.Sources;
 using DictionaryImporter.Core.Rewrite;
 using DictionaryImporter.Gateway.Grammar.Core.Models;
+using DictionaryImporter.Gateway.Redis;
 using DictionaryImporter.Gateway.Rewriter;
 using DictionaryImporter.HostedService;
 using DictionaryImporter.Infrastructure.OneTimeTasks;
@@ -23,6 +24,7 @@ using DictionaryImporter.Sources.Oxford.Extractor;
 using DictionaryImporter.Sources.Oxford.Parsing;
 using DictionaryImporter.Sources.StructuredJson.Parsing;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using StackExchange.Redis;
 
 namespace DictionaryImporter.Bootstrap;
 
@@ -34,6 +36,35 @@ public static class BootstrapPipeline
             configuration.GetConnectionString("DictionaryImporter")
             ?? throw new InvalidOperationException(
                 "Connection string 'DictionaryImporter' not configured");
+        // ------------------------------------------------------------
+        // ✅ REDIS (OPTIONAL, SAFE)
+        // ------------------------------------------------------------
+        // ------------------------------------------------------------
+        // ✅ REDIS (SAFE, NON-BLOCKING)
+        // ------------------------------------------------------------
+        var redisEnabled = configuration.GetValue<bool>("Redis:Enabled");
+
+        if (redisEnabled)
+        {
+            services.AddSingleton<IConnectionMultiplexer>(sp =>
+            {
+                var cfg = ConfigurationOptions.Parse(
+                    configuration.GetValue<string>("Redis:ConnectionString"));
+
+                cfg.AbortOnConnectFail = false; // 🔑 IMPORTANT
+                cfg.ConnectRetry = 5;
+                cfg.ConnectTimeout = 5000;
+                cfg.ReconnectRetryPolicy = new ExponentialRetry(1000);
+
+                return ConnectionMultiplexer.Connect(cfg);
+            });
+
+            services.AddSingleton<IDistributedCacheStore, RedisCacheStore>();
+        }
+        else
+        {
+            services.AddSingleton<IDistributedCacheStore?>(_ => null);
+        }
 
         // ------------------------------------------------------------
         // ✅ PARALLEL PROCESSING SERVICES
@@ -201,9 +232,10 @@ public static class BootstrapPipeline
         services.AddSingleton<RewriteMapEngine>(sp =>
             new RewriteMapEngine(
                 sp.GetRequiredService<IRewriteMapRepository>(),
-                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RewriteMapEngineOptions>>(),
+                sp.GetRequiredService<IOptions<RewriteMapEngineOptions>>(),
                 sp.GetRequiredService<ILogger<RewriteMapEngine>>(),
-                sp.GetRequiredService<IRewriteRuleHitRepository>()));
+                sp.GetRequiredService<IRewriteRuleHitRepository>(),
+                sp.GetService<IDistributedCacheStore>()));
 
         services.AddSingleton<IRewriteMapCandidateRepository>(sp =>
             new SqlRewriteMapCandidateRepository(

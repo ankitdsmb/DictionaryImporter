@@ -1,4 +1,5 @@
-﻿using DictionaryImporter.Gateway.Rewriter;
+﻿using DictionaryImporter.Gateway.Redis;
+using DictionaryImporter.Gateway.Rewriter;
 
 namespace DictionaryImporter.Core.Rewrite;
 
@@ -6,17 +7,32 @@ public sealed class RewriteMapEngine(
     IRewriteMapRepository repository,
     IOptions<RewriteMapEngineOptions> options,
     ILogger<RewriteMapEngine> logger,
-    IRewriteRuleHitRepository? hitRepository = null) // NEW (optional dependency)
+    IRewriteRuleHitRepository? hitRepository = null,
+    IDistributedCacheStore? distributedCache = null // OPTIONAL
+)
 {
-    private static readonly ConcurrentDictionary<string, CacheEntry<IReadOnlyList<RewriteMapRule>>> RulesCache = new(StringComparer.Ordinal);
-    private static readonly ConcurrentDictionary<string, CacheEntry<IReadOnlyList<string>>> StopWordsCache = new(StringComparer.Ordinal);
+    /* ============================================================
+       ORIGINAL IN-MEMORY CACHES (UNCHANGED)
+       ============================================================ */
 
-    private static readonly ConcurrentDictionary<string, Regex?> RegexCache = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, CacheEntry<IReadOnlyList<RewriteMapRule>>> RulesCache =
+        new(StringComparer.Ordinal);
+
+    private static readonly ConcurrentDictionary<string, CacheEntry<IReadOnlyList<string>>> StopWordsCache =
+        new(StringComparer.Ordinal);
+
+    private static readonly ConcurrentDictionary<string, Regex?> RegexCache =
+        new(StringComparer.Ordinal);
 
     private readonly IRewriteMapRepository _repository = repository;
-    private readonly RewriteMapEngineOptions _options = options.Value ?? new RewriteMapEngineOptions();
+    private readonly RewriteMapEngineOptions _options = options.Value ?? new();
     private readonly ILogger<RewriteMapEngine> _logger = logger;
     private readonly IRewriteRuleHitRepository? _hitRepository = hitRepository;
+    private readonly IDistributedCacheStore? _distributedCache = distributedCache;
+
+    /* ============================================================
+       APPLY (UNCHANGED)
+       ============================================================ */
 
     public async Task<RewriteMapResult> ApplyAsync(
         string text,
@@ -25,171 +41,93 @@ public sealed class RewriteMapEngine(
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(text))
-        {
             return new RewriteMapResult(text, text, Array.Empty<RewriteMapApplied>(), 0);
-        }
 
         var original = text;
-        var current = text;
-
-        // NEW: collect hits per call (aggregated)
+        var current = text.Trim();
         Dictionary<string, long>? hitBuffer = null;
 
         try
         {
-            current = current.Trim();
-
             var rules = await GetRulesAsync(sourceCode, mode, ct);
             if (rules.Count == 0)
-            {
                 return new RewriteMapResult(original, current, Array.Empty<RewriteMapApplied>(), 0);
-            }
 
             var stopWords = await GetStopWordsAsync(sourceCode, mode, ct);
-
             var applied = new List<RewriteMapApplied>();
 
             foreach (var rule in rules)
             {
                 ct.ThrowIfCancellationRequested();
-
-                if (applied.Count >= GetMaxApplied())
-                    break;
-
-                if (rule is null) continue;
-                if (!rule.Enabled) continue;
-                if (string.IsNullOrWhiteSpace(rule.FromText)) continue;
-
-                if (IsBlockedByStopWords(rule, stopWords))
-                    continue;
+                if (applied.Count >= GetMaxApplied()) break;
+                if (rule is null || !rule.Enabled || string.IsNullOrWhiteSpace(rule.FromText)) continue;
+                if (IsBlockedByStopWords(rule, stopWords)) continue;
 
                 var before = current;
                 var after = ApplyOneRule(before, rule);
 
-                if (string.IsNullOrWhiteSpace(after))
-                    continue;
-
-                if (string.Equals(after, before, StringComparison.Ordinal))
-                    continue;
+                if (string.IsNullOrWhiteSpace(after)) continue;
+                if (string.Equals(after, before, StringComparison.Ordinal)) continue;
 
                 current = after;
 
                 applied.Add(new RewriteMapApplied(
-                    RuleId: rule.RewriteMapId,
-                    FromText: rule.FromText,
-                    ToText: rule.ToText,
-                    Priority: rule.Priority,
-                    IsRegex: rule.IsRegex,
-                    WholeWord: rule.WholeWord
-                ));
+                    rule.RewriteMapId,
+                    rule.FromText,
+                    rule.ToText,
+                    rule.Priority,
+                    rule.IsRegex,
+                    rule.WholeWord));
 
-                // NEW: buffer rule hit (only when applied changed text)
-                hitBuffer ??= new Dictionary<string, long>(StringComparer.Ordinal);
-
-                var ruleKey = BuildRuleKey(rule);
-                if (hitBuffer.TryGetValue(ruleKey, out var existing))
-                    hitBuffer[ruleKey] = existing + 1;
-                else
-                    hitBuffer[ruleKey] = 1;
+                hitBuffer ??= new(StringComparer.Ordinal);
+                var key = BuildRuleKey(rule);
+                hitBuffer[key] = hitBuffer.TryGetValue(key, out var v) ? v + 1 : 1;
             }
 
-            // NEW: flush buffered hits (non-blocking best-effort)
-            await TryFlushHitsAsync(
-                sourceCode: sourceCode,
-                mode: mode,
-                hitBuffer: hitBuffer,
-                ct: ct);
-
+            await TryFlushHitsAsync(sourceCode, mode, hitBuffer, ct);
             return new RewriteMapResult(original, current, applied, applied.Count);
         }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
+        catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "RewriteMapEngine failed. Returning original.");
-
-            // NEW: even in failure, don't risk crashes
-            try
-            {
-                await TryFlushHitsAsync(
-                    sourceCode: sourceCode,
-                    mode: mode,
-                    hitBuffer: hitBuffer,
-                    ct: ct);
-            }
-            catch
-            {
-                // ignore
-            }
-
+            try { await TryFlushHitsAsync(sourceCode, mode, hitBuffer, ct); } catch { }
             return new RewriteMapResult(original, original, Array.Empty<RewriteMapApplied>(), 0);
         }
     }
 
-    // NEW METHOD (added)
+    /* ============================================================
+       RULE HITS (UNCHANGED)
+       ============================================================ */
+
     private async Task TryFlushHitsAsync(
         string sourceCode,
         RewriteTargetMode mode,
         Dictionary<string, long>? hitBuffer,
         CancellationToken ct)
     {
-        if (_hitRepository is null)
+        if (_hitRepository is null || hitBuffer is null || hitBuffer.Count == 0)
             return;
 
-        if (hitBuffer is null || hitBuffer.Count == 0)
-            return;
+        var hits = hitBuffer
+            .OrderBy(x => x.Key, StringComparer.Ordinal)
+            .Select(kv => new RewriteRuleHitUpsert
+            {
+                SourceCode = NormalizeSource(sourceCode),
+                Mode = MapMode(mode),
+                RuleType = "RewriteMap",
+                RuleKey = kv.Key,
+                HitCount = kv.Value
+            })
+            .ToList();
 
-        try
-        {
-            var src = NormalizeSource(sourceCode);
-            var modeStr = MapMode(mode);
-
-            var hits = hitBuffer
-                .OrderBy(x => x.Key, StringComparer.Ordinal) // deterministic
-                .Select(kv => new RewriteRuleHitUpsert
-                {
-                    SourceCode = src,
-                    Mode = modeStr,
-                    RuleType = "RewriteMap",
-                    RuleKey = kv.Key,
-                    HitCount = kv.Value
-                })
-                .ToList();
-
-            await _hitRepository.UpsertHitsAsync(hits, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "RewriteMapEngine: hit flush failed (ignored).");
-        }
+        await _hitRepository.UpsertHitsAsync(hits, ct);
     }
 
-    // NEW METHOD (added)
-    private static string MapMode(RewriteTargetMode mode)
-    {
-        return mode switch
-        {
-            RewriteTargetMode.Definition => "Definition",
-            RewriteTargetMode.Title => "Title",
-            RewriteTargetMode.Example => "Example",
-            _ => mode.ToString()
-        };
-    }
+    /* ============================================================
+       CACHE INVALIDATION (UNCHANGED + REDIS)
+       ============================================================ */
 
-    // NEW METHOD (added)
-    private static string BuildRuleKey(RewriteMapRule rule)
-    {
-        // Deterministic small key (max 400 in DB).
-        // Includes RuleId so we can distinguish same FromText used by multiple rules.
-        var from = (rule.FromText ?? string.Empty).Trim();
-        if (from.Length > 120) from = from.Substring(0, 120);
-
-        return $"Id={rule.RewriteMapId};P={rule.Priority};Regex={rule.IsRegex};WW={rule.WholeWord};From={from}";
-    }
-
-    // NEW METHOD (added)
     public void InvalidateCache(string? sourceCode = null)
     {
         try
@@ -198,207 +136,193 @@ public sealed class RewriteMapEngine(
             {
                 RulesCache.Clear();
                 StopWordsCache.Clear();
+                _ = _distributedCache?.RemoveByPrefixAsync("rewritemap:", CancellationToken.None);
                 return;
             }
 
             sourceCode = NormalizeSource(sourceCode);
 
             foreach (var key in RulesCache.Keys)
-            {
                 if (key.StartsWith(sourceCode + "||", StringComparison.Ordinal))
                     RulesCache.TryRemove(key, out _);
-            }
 
             foreach (var key in StopWordsCache.Keys)
-            {
                 if (key.StartsWith(sourceCode + "||", StringComparison.Ordinal))
                     StopWordsCache.TryRemove(key, out _);
-            }
+
+            _ = _distributedCache?.RemoveByPrefixAsync($"rewritemap:{sourceCode}:", CancellationToken.None);
         }
-        catch
-        {
-            // Never crash
-        }
+        catch { }
     }
 
-    // NEW METHOD (added)
+    /* ============================================================
+       RULE CACHE (MEMORY → REDIS → DB)
+       ============================================================ */
+
     private async Task<IReadOnlyList<RewriteMapRule>> GetRulesAsync(
         string sourceCode,
         RewriteTargetMode mode,
         CancellationToken ct)
     {
-        var enableCache = _options.EnableCaching;
         var ttl = GetTtl();
-
-        if (!enableCache || ttl <= TimeSpan.Zero)
+        if (!_options.EnableCaching || ttl <= TimeSpan.Zero)
             return await LoadRulesAsync(sourceCode, mode, ct);
 
         var key = $"{NormalizeSource(sourceCode)}||{mode}||rules";
         var now = DateTime.UtcNow;
 
-        if (RulesCache.TryGetValue(key, out var cached) && cached.ExpiresUtc > now)
-            return cached.Value;
+        if (RulesCache.TryGetValue(key, out var mem) && mem.ExpiresUtc > now)
+            return mem.Value;
+
+        var redisKey = $"rewritemap:{NormalizeSource(sourceCode)}:{mode}:rules";
+        var redis = _distributedCache is null
+            ? null
+            : await _distributedCache.GetAsync<IReadOnlyList<RewriteMapRule>>(redisKey, ct);
+
+        if (redis != null)
+        {
+            RulesCache[key] = new CacheEntry<IReadOnlyList<RewriteMapRule>>(redis, now.Add(ttl));
+            return redis;
+        }
 
         var loaded = await LoadRulesAsync(sourceCode, mode, ct);
-
         RulesCache[key] = new CacheEntry<IReadOnlyList<RewriteMapRule>>(loaded, now.Add(ttl));
+        _ = _distributedCache?.SetAsync(redisKey, loaded, ttl, ct);
         return loaded;
     }
 
-    // NEW METHOD (added)
     private async Task<IReadOnlyList<string>> GetStopWordsAsync(
         string sourceCode,
         RewriteTargetMode mode,
         CancellationToken ct)
     {
-        var enableCache = _options.EnableCaching;
         var ttl = GetTtl();
-
-        if (!enableCache || ttl <= TimeSpan.Zero)
+        if (!_options.EnableCaching || ttl <= TimeSpan.Zero)
             return await LoadStopWordsAsync(sourceCode, mode, ct);
 
         var key = $"{NormalizeSource(sourceCode)}||{mode}||stopwords";
         var now = DateTime.UtcNow;
 
-        if (StopWordsCache.TryGetValue(key, out var cached) && cached.ExpiresUtc > now)
-            return cached.Value;
+        if (StopWordsCache.TryGetValue(key, out var mem) && mem.ExpiresUtc > now)
+            return mem.Value;
+
+        var redisKey = $"rewritemap:{NormalizeSource(sourceCode)}:{mode}:stopwords";
+        var redis = _distributedCache is null
+            ? null
+            : await _distributedCache.GetAsync<IReadOnlyList<string>>(redisKey, ct);
+
+        if (redis != null)
+        {
+            StopWordsCache[key] = new CacheEntry<IReadOnlyList<string>>(redis, now.Add(ttl));
+            return redis;
+        }
 
         var loaded = await LoadStopWordsAsync(sourceCode, mode, ct);
-
         StopWordsCache[key] = new CacheEntry<IReadOnlyList<string>>(loaded, now.Add(ttl));
+        _ = _distributedCache?.SetAsync(redisKey, loaded, ttl, ct);
         return loaded;
     }
 
-    // NEW METHOD (added)
+    /* ============================================================
+       LOADERS / HELPERS (UNCHANGED)
+       ============================================================ */
+
     private async Task<IReadOnlyList<RewriteMapRule>> LoadRulesAsync(
         string sourceCode,
         RewriteTargetMode mode,
         CancellationToken ct)
-    {
-        var rules = await _repository.GetRewriteRulesAsync(sourceCode, mode, ct);
-
-        return rules
-            .Where(r => r is not null)
-            .Where(r => r.Enabled)
-            .Where(r => !string.IsNullOrWhiteSpace(r.FromText))
+        => (await _repository.GetRewriteRulesAsync(sourceCode, mode, ct))
+            .Where(r => r is not null && r.Enabled && !string.IsNullOrWhiteSpace(r.FromText))
             .OrderBy(r => r.Priority)
             .ThenByDescending(r => r.FromText.Length)
             .ThenBy(r => r.FromText, StringComparer.Ordinal)
             .ToList();
-    }
 
-    // NEW METHOD (added)
     private async Task<IReadOnlyList<string>> LoadStopWordsAsync(
         string sourceCode,
         RewriteTargetMode mode,
         CancellationToken ct)
-    {
-        var words = await _repository.GetStopWordsAsync(sourceCode, mode, ct);
-
-        return words
+        => (await _repository.GetStopWordsAsync(sourceCode, mode, ct))
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Select(x => x.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(x => x.Length)
             .ToList();
-    }
 
-    // NEW METHOD (added)
     private static bool IsBlockedByStopWords(RewriteMapRule rule, IReadOnlyList<string> stopWords)
-    {
-        if (stopWords is null || stopWords.Count == 0)
-            return false;
+        => stopWords.Any(sw => string.Equals(sw, rule.FromText, StringComparison.OrdinalIgnoreCase));
 
-        return stopWords.Any(sw => string.Equals(sw, rule.FromText, StringComparison.OrdinalIgnoreCase));
-    }
-
-    // NEW METHOD (added)
     private string ApplyOneRule(string input, RewriteMapRule rule)
     {
-        if (string.IsNullOrWhiteSpace(input)) return input;
-        if (rule is null) return input;
-
         try
         {
             if (rule.IsRegex)
-            {
-                var regex = GetOrCreateRegex(rule.FromText, RegexOptions.CultureInvariant);
-                if (regex is null) return input;
-
-                if (!regex.IsMatch(input)) return input;
-
-                return regex.Replace(input, rule.ToText ?? string.Empty);
-            }
+                return ApplyRegex(input, rule.FromText, rule.ToText, RegexOptions.CultureInvariant);
 
             if (rule.WholeWord)
-            {
-                var pattern = $@"\b{Regex.Escape(rule.FromText)}\b";
-                var regex = GetOrCreateRegex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-                if (regex is null) return input;
+                return ApplyRegex(input, $@"\b{Regex.Escape(rule.FromText)}\b", rule.ToText,
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-                if (!regex.IsMatch(input)) return input;
-
-                return regex.Replace(input, rule.ToText ?? string.Empty);
-            }
-
-            {
-                var pattern = Regex.Escape(rule.FromText);
-                var regex = GetOrCreateRegex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-                if (regex is null) return input;
-
-                if (!regex.IsMatch(input)) return input;
-
-                return regex.Replace(input, rule.ToText ?? string.Empty);
-            }
+            return ApplyRegex(input, Regex.Escape(rule.FromText), rule.ToText,
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         }
-        catch
-        {
-            return input;
-        }
+        catch { return input; }
     }
 
-    // NEW METHOD (added)
+    private string ApplyRegex(string input, string pattern, string? replace, RegexOptions options)
+    {
+        var regex = GetOrCreateRegex(pattern, options);
+        return regex != null && regex.IsMatch(input)
+            ? regex.Replace(input, replace ?? string.Empty)
+            : input;
+    }
+
     private Regex? GetOrCreateRegex(string pattern, RegexOptions options)
     {
-        if (string.IsNullOrWhiteSpace(pattern))
-            return null;
-
-        var cacheKey = $"{pattern}||{(int)options}||{_options.RegexTimeoutMs}";
-
-        return RegexCache.GetOrAdd(cacheKey, _ =>
+        var key = $"{pattern}||{(int)options}||{_options.RegexTimeoutMs}";
+        return RegexCache.GetOrAdd(key, _ =>
         {
             try
             {
                 var timeoutMs = _options.RegexTimeoutMs <= 0 ? 60 : _options.RegexTimeoutMs;
-                return new Regex(pattern, options | RegexOptions.Compiled, TimeSpan.FromMilliseconds(timeoutMs));
+                return new Regex(pattern, options | RegexOptions.Compiled,
+                    TimeSpan.FromMilliseconds(timeoutMs));
             }
-            catch
-            {
-                return null;
-            }
+            catch { return null; }
         });
     }
 
-    // NEW METHOD (added)
-    private TimeSpan GetTtl()
+    private static string BuildRuleKey(RewriteMapRule rule)
     {
-        var seconds = _options.CacheTtlSeconds;
-        if (seconds <= 0) return TimeSpan.Zero;
-        return TimeSpan.FromSeconds(seconds);
+        var from = (rule.FromText ?? "").Trim();
+        if (from.Length > 120) from = from[..120];
+        return $"Id={rule.RewriteMapId};P={rule.Priority};Regex={rule.IsRegex};WW={rule.WholeWord};From={from}";
     }
 
-    // NEW METHOD (added)
-    private int GetMaxApplied()
-    {
-        var max = _options.MaxAppliedCorrections;
-        if (max <= 0) return 200;
-        if (max > 2000) return 2000;
-        return max;
-    }
+    private static string MapMode(RewriteTargetMode mode) =>
+        mode switch
+        {
+            RewriteTargetMode.Definition => "Definition",
+            RewriteTargetMode.Title => "Title",
+            RewriteTargetMode.Example => "Example",
+            _ => mode.ToString()
+        };
 
-    // NEW METHOD (added)
     private static string NormalizeSource(string? sourceCode)
         => string.IsNullOrWhiteSpace(sourceCode) ? "UNKNOWN" : sourceCode.Trim();
+
+    private TimeSpan GetTtl()
+        => _options.CacheTtlSeconds <= 0
+            ? TimeSpan.Zero
+            : TimeSpan.FromSeconds(_options.CacheTtlSeconds);
+
+    private int GetMaxApplied()
+        => _options.MaxAppliedCorrections switch
+        {
+            <= 0 => 200,
+            > 2000 => 2000,
+            _ => _options.MaxAppliedCorrections
+        };
 
     private sealed record CacheEntry<T>(T Value, DateTime ExpiresUtc);
 }

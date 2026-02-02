@@ -10,12 +10,10 @@ public sealed class Century21DefinitionParser(ILogger<Century21DefinitionParser>
     : ISourceDictionaryDefinitionParser
 {
     private readonly ILogger<Century21DefinitionParser> _logger = logger;
-
     public string SourceCode => "CENTURY21";
 
     public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
     {
-        // ✅ Never return empty list
         if (string.IsNullOrWhiteSpace(entry.RawFragment))
         {
             yield return CreateFallback(entry);
@@ -26,11 +24,9 @@ public sealed class Century21DefinitionParser(ILogger<Century21DefinitionParser>
 
         try
         {
-            // Use helper to parse HTML
             var parsedData = ParsingHelperCentury21.ParseCentury21Html(
                 entry.RawFragment, entry.Word);
 
-            // Get domain and usage label
             var htmlDoc = new HtmlDocument();
             htmlDoc.LoadHtml(entry.RawFragment);
             var wordBlock = htmlDoc.DocumentNode.SelectSingleNode("//div[@class='word_block']");
@@ -43,7 +39,6 @@ public sealed class Century21DefinitionParser(ILogger<Century21DefinitionParser>
                 ? ParsingHelperCentury21.ExtractUsageLabel(wordBlock)
                 : null;
 
-            // Create main definition
             if (parsedData.Definitions.Any())
             {
                 var senseNumber = entry.SenseNumber;
@@ -64,11 +59,9 @@ public sealed class Century21DefinitionParser(ILogger<Century21DefinitionParser>
             }
             else
             {
-                // Still return something
                 results.Add(CreateFallback(entry));
             }
 
-            // Create variant definitions
             var variantSenseNumber = entry.SenseNumber + parsedData.Definitions.Count();
             foreach (var variant in parsedData.Variants)
             {
@@ -90,7 +83,6 @@ public sealed class Century21DefinitionParser(ILogger<Century21DefinitionParser>
                 }
             }
 
-            // Create idiom definitions
             foreach (var idiom in parsedData.Idioms)
             {
                 if (!string.IsNullOrWhiteSpace(idiom.Headword) &&
@@ -165,13 +157,26 @@ public sealed class Century21DefinitionParser(ILogger<Century21DefinitionParser>
 
         if (examples.Count > 0)
             parsed.Examples = examples.ToList();
-
-        if (!string.IsNullOrWhiteSpace(ipaPronunciation))
-            parsed.Definition = $"Pronunciation: {ipaPronunciation}\n" + parsed.Definition;
-
-        if (!string.IsNullOrWhiteSpace(partOfSpeech) && partOfSpeech != "unk")
-            parsed.Definition = $"({partOfSpeech}) " + parsed.Definition;
+        parsed.Definition = BuildFullDefinition(parsed);
 
         return parsed;
+    }
+
+    private string BuildFullDefinition(ParsedDefinition data)
+    {
+        var parts = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(data.IPA))
+            parts.Add($"Pronunciation: /{data.IPA}/");
+
+        if (!string.IsNullOrWhiteSpace(data.PartOfSpeech) && Helper.IsPureEnglish(data.PartOfSpeech))
+            parts.Add($"POS: {data.PartOfSpeech}");
+
+        if (data.Definition != null) parts.Add(data.Definition);
+
+        if (!string.IsNullOrWhiteSpace(data.Etymology) && Helper.IsPureEnglish(data.Etymology))
+            parts.Add($"Etymology: {data.Etymology}");
+
+        return string.Join("\n", parts.Where(p => !string.IsNullOrWhiteSpace(p))).Trim();
     }
 }
