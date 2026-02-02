@@ -261,7 +261,7 @@ public sealed class DictionaryParsedDefinitionProcessor : IParsedDefinitionProce
 
         await using var reader = await conn.ExecuteReaderAsync(
             """
-            SELECT DictionaryEntryId, Word, Definition, RawFragment, SenseNumber, SourceCode
+            SELECT DISTINCT DictionaryEntryId, Word, Definition, RawFragment, SenseNumber, SourceCode
             FROM dbo.DictionaryEntry
             WHERE SourceCode = @SourceCode
             ORDER BY DictionaryEntryId

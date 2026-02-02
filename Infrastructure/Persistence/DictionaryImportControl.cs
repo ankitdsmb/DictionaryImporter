@@ -33,7 +33,7 @@ public sealed class DictionaryImportControl(
         return p.Get<bool>("@AllCompleted");
     }
 
-    private const int MaxFinalizeRetries = 10;
+    private const int MaxFinalizeRetries = 20;
 
     public async Task TryFinalizeAsync(string sourceCode, CancellationToken ct)
     {
@@ -43,6 +43,15 @@ public sealed class DictionaryImportControl(
             {
                 await ExecuteFinalizeOnceAsync(sourceCode, ct);
                 return;
+            }
+            catch (SqlException ex) when (ex.Number == 56002)
+            {
+                // Global finalize lock busy — EXPECTED
+                logger.LogInformation(
+                    "Finalize already running for source | Attempt={Attempt}/{Max} | Source={Source}",
+                    attempt, MaxFinalizeRetries, sourceCode);
+
+                await Task.Delay(1000, ct);
             }
             catch (SqlException ex) when (ex.Number == 56020)
             {

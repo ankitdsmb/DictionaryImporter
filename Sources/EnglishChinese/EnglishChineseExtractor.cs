@@ -24,6 +24,7 @@ public sealed class EnglishChineseExtractor(ILogger<EnglishChineseExtractor> log
 
             // SIMPLIFIED: Extract headword - take everything before first space or ⬄
             var headword = ExtractSimpleHeadword(trimmedLine);
+            headword = string.IsNullOrEmpty(headword) ? ExtractHeadwordFromEngChnLine(trimmedLine) : headword;
             if (headword == null)
                 continue;
 

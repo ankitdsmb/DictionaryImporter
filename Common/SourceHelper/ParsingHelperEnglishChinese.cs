@@ -1,4 +1,7 @@
-﻿using DictionaryImporter.Core.Domain.Models;
+﻿using System.Text.RegularExpressions;
+using System.Collections.Generic;
+using System.Linq;
+using DictionaryImporter.Core.Domain.Models;
 
 namespace DictionaryImporter.Common.SourceHelper;
 
@@ -94,7 +97,7 @@ internal static class ParsingHelperEnglishChinese
         data.Etymology = ExtractEtymology(chineseText);
 
         // Extract main definition - ONLY ENGLISH TEXT
-        data.MainDefinition = ExtractEnglishDefinition(chineseText);
+        data.MainDefinition = ExtractEnglishDefinitionOnly(chineseText);
 
         // Extract examples - ONLY ENGLISH TEXT
         data.Examples = ExtractExamples(chineseText);
@@ -103,24 +106,93 @@ internal static class ParsingHelperEnglishChinese
         data.AdditionalSenses = ExtractAdditionalSenses(chineseText);
     }
 
+    // NEW: Extract only English definition text (fixed)
+    public static string ExtractEnglishDefinitionOnly(string chineseText)
+    {
+        if (string.IsNullOrWhiteSpace(chineseText))
+            return string.Empty;
+
+        // Remove all Chinese markers and text
+        var englishParts = new List<string>();
+
+        // 1. Extract content in parentheses (often English)
+        var parenMatches = Regex.Matches(chineseText, @"\(([^)]+)\)");
+        foreach (Match match in parenMatches)
+        {
+            var content = match.Groups[1].Value.Trim();
+            if (Helper.IsPureEnglish(content))
+            {
+                englishParts.Add(content);
+            }
+        }
+
+        // 2. Extract content after = sign
+        var equalsMatches = Regex.Matches(chineseText, @"＝\s*([^。，；]+)");
+        foreach (Match match in equalsMatches)
+        {
+            var content = match.Groups[1].Value.Trim();
+            if (Helper.IsPureEnglish(content))
+            {
+                englishParts.Add(content);
+            }
+        }
+
+        // 3. Extract standalone English words
+        var wordPattern = @"\b(?:[A-Z][a-zA-Z0-9]*\s*)+";
+        var wordMatches = Regex.Matches(chineseText, wordPattern);
+        foreach (Match match in wordMatches)
+        {
+            var word = match.Value.Trim();
+            if (Helper.IsPureEnglish(word) && word.Length > 1)
+            {
+                englishParts.Add(word);
+            }
+        }
+
+        // Remove duplicates and join
+        var uniqueParts = englishParts.Distinct().Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+        return string.Join("; ", uniqueParts);
+    }
+
+    // UPDATED: Extract part of speech with proper mapping
     public static string? ExtractPartOfSpeech(string chineseText)
     {
         if (string.IsNullOrWhiteSpace(chineseText))
             return null;
 
-        // Look for POS patterns at the beginning
-        var posPattern = @"^\s*(n\.|v\.|vt\.|vi\.|adj\.|a\.|adv\.|ad\.|prep\.|conj\.|pron\.|int\.|interj\.|abbr\.|phr\.|phrase|pl\.|sing\.|comb\.form|suffix|prefix|num\.|det\.|exclam\.)\b";
-        var match = Regex.Match(chineseText, posPattern, RegexOptions.IgnoreCase);
+        // Look for English POS patterns
+        var englishPosPattern = @"^\s*(n\.|v\.|vt\.|vi\.|adj\.|a\.|adv\.|ad\.|prep\.|conj\.|pron\.|int\.|interj\.|abbr\.|phr\.|phrase)\b";
+        var match = Regex.Match(chineseText, englishPosPattern, RegexOptions.IgnoreCase);
 
         if (match.Success)
         {
-            var pos = match.Value.Trim().ToLowerInvariant();
-            return NormalizeEngChnPartOfSpeech(pos);
+            return NormalizePartOfSpeech(match.Value.Trim().ToLowerInvariant());
         }
+
+        // Check for Chinese POS markers
+        if (chineseText.Contains("名") || chineseText.StartsWith("名"))
+            return "noun";
+        if (chineseText.Contains("动") || chineseText.Contains("动词"))
+            return "verb";
+        if (chineseText.Contains("形") || chineseText.Contains("形容词"))
+            return "adjective";
+        if (chineseText.Contains("副") || chineseText.Contains("副词"))
+            return "adverb";
+        if (chineseText.Contains("介") || chineseText.Contains("介词"))
+            return "preposition";
+        if (chineseText.Contains("连") || chineseText.Contains("连词"))
+            return "conjunction";
+        if (chineseText.Contains("代") || chineseText.Contains("代词"))
+            return "pronoun";
+        if (chineseText.Contains("叹") || chineseText.Contains("叹词"))
+            return "interjection";
+        if (chineseText.Contains("缩") || chineseText.Contains("缩写"))
+            return "abbreviation";
 
         return null;
     }
 
+    // UPDATED: Extract domain labels with mapping
     public static IReadOnlyList<string> ExtractDomainLabels(string chineseText)
     {
         var domains = new List<string>();
@@ -132,16 +204,19 @@ internal static class ParsingHelperEnglishChinese
         var domainMatches = Regex.Matches(chineseText, @"〔([^〕]+)〕");
         foreach (Match match in domainMatches)
         {
-            var domain = match.Groups[1].Value.Trim();
-            if (!string.IsNullOrWhiteSpace(domain))
+            var chineseDomain = match.Groups[1].Value.Trim();
+            var englishDomain = MapChineseDomainToEnglish(chineseDomain);
+
+            if (!string.IsNullOrWhiteSpace(englishDomain) && !domains.Contains(englishDomain))
             {
-                domains.Add(domain);
+                domains.Add(englishDomain);
             }
         }
 
         return domains;
     }
 
+    // UPDATED: Extract register labels with mapping
     public static IReadOnlyList<string> ExtractRegisterLabels(string chineseText)
     {
         var registers = new List<string>();
@@ -153,22 +228,63 @@ internal static class ParsingHelperEnglishChinese
         var registerMatches = Regex.Matches(chineseText, @"〈([^〉]+)〉");
         foreach (Match match in registerMatches)
         {
-            var register = match.Groups[1].Value.Trim();
-            if (!string.IsNullOrWhiteSpace(register))
+            var chineseRegister = match.Groups[1].Value.Trim();
+            var englishRegister = MapChineseRegisterToEnglish(chineseRegister);
+
+            if (!string.IsNullOrWhiteSpace(englishRegister) && !registers.Contains(englishRegister))
             {
-                registers.Add(register);
+                registers.Add(englishRegister);
             }
         }
 
         return registers;
     }
 
+    // Domain mapping
+    private static string MapChineseDomainToEnglish(string chineseDomain)
+    {
+        return chineseDomain switch
+        {
+            "医" => "medical",
+            "化" => "chemistry",
+            "农" => "agriculture",
+            "物" => "physics",
+            "数" => "mathematics",
+            "生" => "biology",
+            "史" => "history",
+            "地" => "geography",
+            "商" => "commerce",
+            "体" => "sports",
+            "牌" => "cards",
+            "纹章学" => "heraldry",
+            _ => chineseDomain
+        };
+    }
+
+    // Register mapping
+    private static string MapChineseRegisterToEnglish(string chineseRegister)
+    {
+        return chineseRegister switch
+        {
+            "口" => "informal",
+            "美" => "American",
+            "英" => "British",
+            "正式" => "formal",
+            "俚" => "slang",
+            "古" => "archaic",
+            "方" => "dialect",
+            "苏格兰" => "Scottish",
+            "拉" => "Latin",
+            _ => chineseRegister
+        };
+    }
+
+    // EXISTING METHOD: Extract etymology (unchanged)
     public static string? ExtractEtymology(string chineseText)
     {
         if (string.IsNullOrWhiteSpace(chineseText))
             return null;
 
-        // Extract etymology marked with brackets
         var etymologyPattern = @"\[\s*(?:<|字面意义：)([^\]]+)\]";
         var match = Regex.Match(chineseText, etymologyPattern);
         if (match.Success)
@@ -179,149 +295,7 @@ internal static class ParsingHelperEnglishChinese
         return null;
     }
 
-    // FIXED: This method should return ONLY ENGLISH TEXT for the definition
-    public static string ExtractEnglishDefinition(string chineseText)
-    {
-        if (string.IsNullOrWhiteSpace(chineseText))
-            return string.Empty;
-
-        // Clean the text: remove domain labels, register labels, etymology, POS
-        var cleaned = chineseText;
-
-        // Remove domain labels
-        cleaned = Regex.Replace(cleaned, @"〔[^〕]+〕", "");
-
-        // Remove register labels
-        cleaned = Regex.Replace(cleaned, @"〈[^〉]+〉", "");
-
-        // Remove etymology
-        cleaned = Regex.Replace(cleaned, @"\[\s*(?:<|字面意义：)[^\]]+\]", "");
-
-        // Remove POS markers at the beginning
-        var posPattern = @"^\s*\b(?:n\.|v\.|vt\.|vi\.|adj\.|a\.|adv\.|ad\.|prep\.|conj\.|pron\.|int\.|interj\.|abbr\.|phr\.|phrase|pl\.|sing\.|comb\.form|suffix|prefix|num\.|det\.|exclam\.)\b\.?\s*";
-        cleaned = Regex.Replace(cleaned, posPattern, "", RegexOptions.IgnoreCase);
-
-        // Remove Chinese text and extract ONLY ENGLISH
-        var englishText = ExtractPureEnglishText(cleaned);
-
-        // Clean up the English text
-        englishText = CleanEnglishText(englishText);
-
-        return englishText;
-    }
-
-    // NEW: Extract only pure English text from mixed content
-    private static string ExtractPureEnglishText(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return string.Empty;
-
-        var result = new System.Text.StringBuilder();
-
-        // Strategy 1: Look for quoted English text
-        var quoteMatches = Regex.Matches(text, @"[""']([^""']+)[""']");
-        foreach (Match match in quoteMatches)
-        {
-            var content = match.Groups[1].Value.Trim();
-            if (IsPureEnglish(content))
-            {
-                AddUniqueToResult(result, content);
-            }
-        }
-
-        // Strategy 2: Look for English in parentheses
-        var parenMatches = Regex.Matches(text, @"\(([^)]+)\)");
-        foreach (Match match in parenMatches)
-        {
-            var content = match.Groups[1].Value.Trim();
-            if (IsPureEnglish(content))
-            {
-                AddUniqueToResult(result, content);
-            }
-        }
-
-        // Strategy 3: Look for English words/phrases
-        // Match words starting with capital letters, abbreviations, numbers with letters, etc.
-        var patternMatches = Regex.Matches(text, @"\b([A-Z][A-Za-z0-9\-/\.]*(?:\s+[A-Z][A-Za-z0-9\-/\.]*)*)\b");
-        foreach (Match match in patternMatches)
-        {
-            var word = match.Groups[1].Value.Trim();
-            if (IsPureEnglish(word) && word.Length > 1)
-            {
-                AddUniqueToResult(result, word);
-            }
-        }
-
-        // Strategy 4: Look for common English patterns
-        // Like "A5", "9/11", "24-7", "AA", "AAA", etc.
-        var specialPatterns = new[]
-        {
-            @"\b(?:A\d+|AA\d*|AAA\d*|A-?\d+)\b",  // A5, A-1, AAA, etc.
-            @"\b\d+[-/]\d+\b",                    // 9/11, 24/7
-            @"\b(?:[A-Z]\.)+[A-Z]?\b",            // A.A., A.A.A., etc.
-            @"\b(?:[a-zA-Z]+-?)+[a-zA-Z]+\b",     // hyphenated words
-        };
-
-        foreach (var pattern in specialPatterns)
-        {
-            var matches = Regex.Matches(text, pattern);
-            foreach (Match match in matches)
-            {
-                var word = match.Value;
-                if (IsPureEnglish(word))
-                {
-                    AddUniqueToResult(result, word);
-                }
-            }
-        }
-
-        return result.ToString().Trim();
-    }
-
-    private static void AddUniqueToResult(System.Text.StringBuilder result, string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return;
-
-        var cleanText = text.Trim();
-        if (cleanText.Length == 0)
-            return;
-
-        // Don't add duplicates
-        var current = result.ToString();
-        if (!current.Contains(cleanText))
-        {
-            if (result.Length > 0)
-                result.Append(" ");
-            result.Append(cleanText);
-        }
-    }
-
-    private static bool IsPureEnglish(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return false;
-
-        // Check if contains any Chinese characters
-        if (ContainsChinese(text))
-            return false;
-
-        // Check for English letters, numbers, common punctuation
-        foreach (char c in text)
-        {
-            if (!((c >= 'A' && c <= 'Z') ||
-                  (c >= 'a' && c <= 'z') ||
-                  (c >= '0' && c <= '9') ||
-                  c == ' ' || c == '-' || c == '/' || c == '.' ||
-                  c == '(' || c == ')' || c == '"' || c == '\''))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
+    // UPDATED: Extract examples - only English
     public static IReadOnlyList<string> ExtractExamples(string chineseText)
     {
         var examples = new List<string>();
@@ -329,27 +303,23 @@ internal static class ParsingHelperEnglishChinese
         if (string.IsNullOrWhiteSpace(chineseText))
             return examples;
 
-        // Split by sentences
-        var sentences = chineseText.Split(new[] { '。', '；', '!', '?', '.', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        // Look for English sentences
+        var sentencePattern = @"([A-Z][^。!?]*[.!?])";
+        var matches = Regex.Matches(chineseText, sentencePattern);
 
-        foreach (var sentence in sentences)
+        foreach (Match match in matches)
         {
-            var trimmed = sentence.Trim();
-
-            // Check if it's an English example sentence
-            if (trimmed.Length > 10 &&
-                char.IsUpper(trimmed[0]) &&
-                IsPureEnglish(trimmed) &&
-                !trimmed.Contains("例如") &&
-                !trimmed.Contains("例句"))
+            var sentence = match.Value.Trim();
+            if (Helper.IsPureEnglish(sentence) && sentence.Split(' ').Length > 1)
             {
-                examples.Add(CleanEnglishText(trimmed));
+                examples.Add(CleanEnglishText(sentence));
             }
         }
 
         return examples;
     }
 
+    // UPDATED: Extract numbered senses
     public static IReadOnlyList<EnglishChineseParsedData> ExtractAdditionalSenses(string chineseText)
     {
         var additionalSenses = new List<EnglishChineseParsedData>();
@@ -357,7 +327,7 @@ internal static class ParsingHelperEnglishChinese
         if (string.IsNullOrWhiteSpace(chineseText))
             return additionalSenses;
 
-        // Extract numbered senses: 1., 2., etc.
+        // Extract numbered senses
         var senseMatches = Regex.Matches(chineseText, @"(\d+)\.\s*(.+?)(?=(?:\d+\.|$))", RegexOptions.Singleline);
 
         for (int i = 0; i < senseMatches.Count; i++)
@@ -367,10 +337,7 @@ internal static class ParsingHelperEnglishChinese
 
             if (!string.IsNullOrWhiteSpace(senseDefinition))
             {
-                // Extract ONLY ENGLISH from this sense
-                var englishDefinition = ExtractPureEnglishText(senseDefinition);
-
-                // Only add if we have actual English content
+                var englishDefinition = ExtractEnglishDefinitionOnly(senseDefinition);
                 if (!string.IsNullOrWhiteSpace(englishDefinition))
                 {
                     var senseData = new EnglishChineseParsedData
@@ -378,7 +345,6 @@ internal static class ParsingHelperEnglishChinese
                         MainDefinition = CleanEnglishText(englishDefinition),
                         SenseNumber = i + 1
                     };
-
                     additionalSenses.Add(senseData);
                 }
             }
@@ -387,45 +353,37 @@ internal static class ParsingHelperEnglishChinese
         return additionalSenses;
     }
 
-    // FIXED: Extract domain separately (not mixed with definition)
+    // BACKWARD COMPATIBILITY METHODS
+
+    // Method called by EnglishChineseParser.cs line 79
     public static string? ExtractDomain(string chineseText)
     {
-        var domainLabels = ExtractDomainLabels(chineseText);
-        if (domainLabels.Count > 0)
-        {
-            // Return first domain label
-            return domainLabels.FirstOrDefault();
-        }
-
-        return null;
+        var domains = ExtractDomainLabels(chineseText);
+        return domains.Count > 0 ? domains.FirstOrDefault() : null;
     }
 
-    // FIXED: Extract usage label separately (not mixed with definition)
+    // Method called by EnglishChineseParser.cs line 82
     public static string? ExtractUsageLabel(string chineseText)
     {
-        var partOfSpeech = ExtractPartOfSpeech(chineseText);
-        var registerLabels = ExtractRegisterLabels(chineseText);
-
         var usageParts = new List<string>();
 
-        if (!string.IsNullOrWhiteSpace(partOfSpeech))
-            usageParts.Add(partOfSpeech);
+        var pos = ExtractPartOfSpeech(chineseText);
+        if (!string.IsNullOrWhiteSpace(pos))
+            usageParts.Add(pos);
 
-        if (registerLabels.Count > 0)
-        {
-            // Add register labels to usage
-            usageParts.AddRange(registerLabels);
-        }
+        var registers = ExtractRegisterLabels(chineseText);
+        if (registers.Count > 0)
+            usageParts.AddRange(registers);
 
         return usageParts.Count > 0 ? string.Join(", ", usageParts) : null;
     }
 
+    // Method called by EnglishChineseEtymologyExtractor.cs line 113
     public static string ExtractChineseDefinition(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return string.Empty;
 
-        // Handle ⬄ separator - extract the Chinese part
         if (text.Contains('⬄'))
         {
             var parts = text.Split('⬄', 2);
@@ -435,12 +393,12 @@ internal static class ParsingHelperEnglishChinese
             }
         }
 
-        // If no separator, return the text as is
         return text.Trim();
     }
 
     // HELPER METHODS
-    private static string NormalizeEngChnPartOfSpeech(string pos)
+
+    private static string NormalizePartOfSpeech(string pos)
     {
         return pos.ToLowerInvariant().TrimEnd('.') switch
         {
@@ -456,14 +414,6 @@ internal static class ParsingHelperEnglishChinese
             "int" or "interj" or "interjection" => "interjection",
             "abbr" or "abbreviation" => "abbreviation",
             "phr" or "phrase" => "phrase",
-            "pl" or "plural" => "plural",
-            "sing" or "singular" => "singular",
-            "comb" or "comb.form" or "combining form" => "combining_form",
-            "suffix" => "suffix",
-            "prefix" => "prefix",
-            "num" or "numeral" => "numeral",
-            "det" or "determiner" => "determiner",
-            "exclam" or "exclamation" => "exclamation",
             _ => pos
         };
     }
@@ -475,70 +425,12 @@ internal static class ParsingHelperEnglishChinese
 
         var cleaned = text;
 
-        // Remove excessive whitespace
+        // Normalize whitespace
         cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
 
         // Remove trailing punctuation
-        cleaned = cleaned.TrimEnd('。', '，', '；', '：', '？', '！', '.', ',', ';', ':', '!', '?');
-
-        // Remove any non-English characters
-        var englishOnly = new System.Text.StringBuilder();
-        foreach (char c in cleaned)
-        {
-            if ((c >= 'A' && c <= 'Z') ||
-                (c >= 'a' && c <= 'z') ||
-                (c >= '0' && c <= '9') ||
-                c == ' ' || c == '-' || c == '/' || c == '.' ||
-                c == '(' || c == ')' || c == '"' || c == '\'')
-            {
-                englishOnly.Append(c);
-            }
-        }
-
-        cleaned = englishOnly.ToString().Trim();
-
-        // Final cleanup
-        cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
+        cleaned = cleaned.TrimEnd('.', ',', ';', ':', '!', '?');
 
         return cleaned;
-    }
-
-    private static bool ContainsChinese(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return false;
-
-        foreach (char c in text)
-        {
-            if (IsChineseCharacter(c) || IsChinesePunctuation(c))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsChinesePunctuation(char c)
-    {
-        var chinesePunctuation = new HashSet<char>
-        {
-            '〔', '〕', '【', '】', '（', '）', '《', '》',
-            '「', '」', '『', '』', '〖', '〗', '〈', '〉',
-            '。', '；', '，', '、', '・', '…', '‥', '—',
-            '～', '・', '‧', '﹑', '﹒', '﹔', '﹕', '﹖',
-            '﹗', '﹘', '﹙', '﹚', '﹛', '﹜', '﹝', '﹞'
-        };
-
-        return chinesePunctuation.Contains(c);
-    }
-
-    private static bool IsChineseCharacter(char c)
-    {
-        int code = (int)c;
-        return (code >= 0x4E00 && code <= 0x9FFF) ||   // CJK Unified Ideographs
-               (code >= 0x3400 && code <= 0x4DBF) ||   // CJK Extension A
-               (code >= 0x20000 && code <= 0x2A6DF) || // CJK Extension B
-               (code >= 0x2A700 && code <= 0x2B73F) || // CJK Extension C
-               (code >= 0x2B740 && code <= 0x2B81F) || // CJK Extension D
-               (code >= 0x2B820 && code <= 0x2CEAF);   // CJK Extension E
     }
 }
