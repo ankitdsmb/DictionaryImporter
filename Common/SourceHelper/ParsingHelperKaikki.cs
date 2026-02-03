@@ -750,13 +750,23 @@ public static class ParsingHelperKaikki
 
     #region NEW METHODS (added)
 
+    private static readonly char[] JsonLeadingTrimChars = { '\uFEFF', ' ', '\t', '\r', '\n' };
+
+    private static string TrimJsonStart(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return string.Empty;
+
+        return raw.TrimStart(JsonLeadingTrimChars);
+    }
+
     // NEW METHOD (added)
     public static bool IsJsonRawFragment(string raw)
     {
         if (string.IsNullOrWhiteSpace(raw))
             return false;
 
-        raw = raw.TrimStart();
+        raw = TrimJsonStart(raw);
         return raw.StartsWith("{", StringComparison.Ordinal) || raw.StartsWith("[", StringComparison.Ordinal);
     }
 
@@ -765,6 +775,7 @@ public static class ParsingHelperKaikki
     {
         root = default;
 
+        raw = TrimJsonStart(raw);
         if (!IsJsonRawFragment(raw))
             return false;
 
@@ -1089,7 +1100,7 @@ public static class ParsingHelperKaikki
         if (string.IsNullOrWhiteSpace(text))
             return false;
 
-        var trimmed = text.TrimStart();
+        var trimmed = TrimJsonStart(text);
         return trimmed.StartsWith("{", StringComparison.Ordinal) || trimmed.StartsWith("[", StringComparison.Ordinal);
     }
 
