@@ -1,5 +1,6 @@
 ﻿using DictionaryImporter.Common;
 using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Infrastructure.FragmentStore;
 
 namespace DictionaryImporter.Sources.Collins;
 
@@ -56,7 +57,7 @@ public sealed class CollinsTransformer(ILogger<CollinsTransformer> logger)
                     NormalizedWord = normalizedWord,
                     PartOfSpeech = pos,
                     Definition = cleanDefinition,
-                    RawFragment = rawFragment,
+                    RawFragment = RawFragments.Save(SourceCode, rawFragment, Encoding.UTF8, raw.Headword),
                     SenseNumber = sense.SenseNumber,
                     SourceCode = SourceCode,
                     CreatedUtc = DateTime.UtcNow,
@@ -65,7 +66,7 @@ public sealed class CollinsTransformer(ILogger<CollinsTransformer> logger)
                     DomainLabel = domainLabel,
                     GrammarInfo = CleanGrammarInfo(sense.GrammarInfo),
                     CrossReference = sense.CrossReference,
-                    IPA = ipa
+                    Ipa = ipa
                 });
             }
 

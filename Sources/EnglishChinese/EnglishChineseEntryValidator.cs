@@ -31,10 +31,10 @@ public sealed class EnglishChineseEntryValidator : IDictionaryEntryValidator
         if (string.IsNullOrWhiteSpace(entry.Word))
             return ValidationResult.Invalid("Word missing");
 
-        if (string.IsNullOrWhiteSpace(entry.Definition) && string.IsNullOrWhiteSpace(entry.RawFragment))
+        if (string.IsNullOrWhiteSpace(entry.Definition) && string.IsNullOrWhiteSpace(entry.RawFragmentLine))
             return ValidationResult.Invalid("No content for ENG_CHN entry");
 
-        var content = entry.RawFragment ?? entry.Definition ?? string.Empty;
+        var content = entry.RawFragmentLine ?? entry.Definition ?? string.Empty;
 
         if (!content.Contains('⬄') && !ContainsChineseCharacters(content))
         {

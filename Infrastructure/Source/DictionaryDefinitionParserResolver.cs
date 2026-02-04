@@ -94,7 +94,7 @@ public sealed class DictionaryDefinitionParserResolver : IDictionaryDefinitionPa
 
             // Preserve ALL content for bilingual sources
             var definition = entry.Definition;
-            var rawFragment = entry.RawFragment ?? entry.Definition ?? string.Empty;
+            var rawFragment = entry.RawFragmentLine ?? entry.Definition ?? string.Empty;
 
             // For ENG_CHN with ⬄ separator
             if (entry.SourceCode == "ENG_CHN" && rawFragment.Contains('⬄'))

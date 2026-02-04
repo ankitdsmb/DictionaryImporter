@@ -112,7 +112,7 @@ public sealed class CollinsDefinitionParser(ILogger<CollinsDefinitionParser> log
         {
             MeaningTitle = entry.Word ?? "unnamed sense",
             Definition = entry.Definition ?? string.Empty,
-            RawFragment = entry.RawFragment ?? string.Empty,
+            RawFragment = entry.RawFragmentLine ?? string.Empty,
             SenseNumber = entry.SenseNumber,
             Domain = null,
             UsageLabel = null,

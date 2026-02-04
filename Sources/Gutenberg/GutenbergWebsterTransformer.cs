@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Infrastructure.FragmentStore;
 
 namespace DictionaryImporter.Sources.Gutenberg;
 
@@ -67,7 +68,7 @@ public sealed class GutenbergWebsterTransformer(ILogger<GutenbergWebsterTransfor
                     Word = headword,
                     NormalizedWord = normalizedWord,
                     Definition = cleanedDef,
-                    RawFragment = rawFragment,
+                    RawFragment = RawFragments.Save(SourceCode, rawFragment, Encoding.UTF8, raw.Headword),
                     SenseNumber = def.SenseNumber > 0 ? def.SenseNumber : sense,
                     SourceCode = SourceCode,
                     PartOfSpeech = partOfSpeech, // Ensure POS is set

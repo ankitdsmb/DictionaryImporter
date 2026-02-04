@@ -9,11 +9,7 @@ namespace DictionaryImporter.Common;
 
 public static class Helper
 {
-    public const int MAX_RECORDS_PER_SOURCE = int.MaxValue;
-
-    // =====================================================================
-    // 1) REGEX (ALL AT TOP)
-    // =====================================================================
+    internal const int MaxRecordsPerSource = 2;
 
     private static readonly Regex RxWhitespace =
         new(@"\s+", RegexOptions.Compiled);
@@ -113,12 +109,7 @@ public static class Helper
     private static readonly Regex RxIpaBritishMarkers =
         new(@"[ɒəʊː]", RegexOptions.Compiled);
 
-    // =====================================================================
-    // 2) LOOKUPS / CONSTANT LISTS
-    // =====================================================================
-
-    private static readonly HashSet<string> BilingualSources =
-        new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> BilingualSources = new(StringComparer.OrdinalIgnoreCase)
         {
             "ENG_CHN",
             "CENTURY21",
@@ -154,10 +145,6 @@ public static class Helper
         "ate"
     };
 
-    // =====================================================================
-    // 4) CORE NORMALIZATION (Shared building blocks)
-    // =====================================================================
-
     private static string NormalizeWhitespace(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -173,11 +160,9 @@ public static class Helper
 
         var t = input;
 
-        // decode entities first (helps HtmlAgilityPack)
         if (t.Contains('&'))
             t = WebUtility.HtmlDecode(t);
 
-        // HtmlAgilityPack (robust to broken HTML)
         try
         {
             var doc = new HtmlDocument
@@ -193,7 +178,6 @@ public static class Helper
         }
         catch
         {
-            // safe fallback
             return NormalizeWhitespace(t);
         }
     }
@@ -214,10 +198,8 @@ public static class Helper
         if (string.IsNullOrWhiteSpace(pos) || pos == "unk")
             return 0;
 
-        // Base confidence based on source
         var baseConfidence = sourceCode == "ENG_OXFORD" ? 80 : 70;
 
-        // Adjust based on POS specificity
         var specificPos = new[] { "noun", "verb", "adjective", "adverb" };
         if (specificPos.Contains(pos))
             return Math.Min(baseConfidence + 15, 95);
@@ -305,10 +287,6 @@ public static class Helper
         return result.ToString();
     }
 
-    // =====================================================================
-    // 5) Bilingual / Non-English Preservation
-    // =====================================================================
-
     public static bool ShouldPreserveNonEnglishText(string? sourceCode)
     {
         if (string.IsNullOrWhiteSpace(sourceCode))
@@ -324,14 +302,8 @@ public static class Helper
 
         if (!ShouldPreserveNonEnglishText(sourceCode))
             return text;
-
-        // Use HtmlAgilityPack here as well (Collins/CHN sources may carry HTML fragments)
         return NormalizeHtmlToPlainText(text);
     }
-
-    // =====================================================================
-    // 6) Definition Normalization
-    // =====================================================================
 
     public static string NormalizeDefinitionForSource(string definition, string sourceCode)
     {
@@ -351,14 +323,8 @@ public static class Helper
 
         if (!string.IsNullOrWhiteSpace(sourceCode))
             return NormalizeDefinitionForSource(definition, sourceCode);
-
-        // use HTML-safe normalization always (better than regex)
         return NormalizeHtmlToPlainText(definition);
     }
-
-    // =====================================================================
-    // 7) JSON Helpers
-    // =====================================================================
 
     public static string? ExtractJsonString(JsonElement element, string propertyName)
     {
@@ -383,18 +349,12 @@ public static class Helper
         return null;
     }
 
-    // =====================================================================
-    // 8) Tokenization (Lightweight, no Lucene dependency)
-    // =====================================================================
-
     public static IReadOnlyList<string> TokenizeWords(string? text, bool keepApostrophes = true)
     {
         if (string.IsNullOrWhiteSpace(text))
             return Array.Empty<string>();
 
         var t = NormalizeWhitespace(text);
-
-        // Remove punctuation except apostrophe (optional)
         if (keepApostrophes)
         {
             t = Regex.Replace(t, @"[^\p{L}\p{N}\s'\-]", " ");
@@ -412,25 +372,15 @@ public static class Helper
         return t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
     }
 
-    // =====================================================================
-    // 9) Generic Text Checks
-    // =====================================================================
-
     public static bool IsPureEnglish(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return false;
-
-        // Check for Chinese characters
         if (Regex.IsMatch(text, @"[\u4e00-\u9fff]"))
             return false;
-
-        // Check for Chinese punctuation markers
         if (text.Contains('〔') || text.Contains('〕') ||
             text.Contains('〈') || text.Contains('〉'))
             return false;
-
-        // Must contain English letters
         return Regex.IsMatch(text, @"[A-Za-z]");
     }
 
@@ -453,10 +403,6 @@ public static class Helper
         return !string.IsNullOrWhiteSpace(text) && RxHasEnglishLetter.IsMatch(text);
     }
 
-    // =====================================================================
-    // 10) Source Processing Control
-    // =====================================================================
-
     private static readonly ConcurrentDictionary<string, ProcessingState> _sourceProcessingState =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -473,7 +419,7 @@ public static class Helper
 
         var state = _sourceProcessingState.GetOrAdd(sourceCode, _ => new ProcessingState());
 
-        if (Volatile.Read(ref state.Count) >= MAX_RECORDS_PER_SOURCE)
+        if (Volatile.Read(ref state.Count) >= MaxRecordsPerSource)
         {
             LogLimitOnce(logger, sourceCode);
             return false;
@@ -481,7 +427,7 @@ public static class Helper
 
         var newCount = Interlocked.Increment(ref state.Count);
 
-        if (newCount > MAX_RECORDS_PER_SOURCE)
+        if (newCount > MaxRecordsPerSource)
         {
             LogLimitOnce(logger, sourceCode);
             return false;
@@ -533,12 +479,8 @@ public static class Helper
 
         logger.LogInformation(
             "Reached maximum of {MaxRecords} records for {Source} source",
-            MAX_RECORDS_PER_SOURCE, sourceCode);
+            MaxRecordsPerSource, sourceCode);
     }
-
-    // =====================================================================
-    // 11) Webster and General Parser
-    // =====================================================================
 
     public static string? ExtractSection(string definition, string marker)
     {
@@ -561,17 +503,12 @@ public static class Helper
         return definition.Substring(startIndex, endIndex - startIndex).Trim();
     }
 
-    // =====================================================================
-    // 12) Helper Creation
-    // =====================================================================
-
     public static ParsedDefinition CreateFallbackParsedDefinition(DictionaryEntry entry)
     {
         return new ParsedDefinition
         {
             MeaningTitle = entry?.Word ?? "unnamed sense",
             Definition = entry?.Definition ?? string.Empty,
-            RawFragment = entry?.RawFragment ?? string.Empty,
             SenseNumber = entry?.SenseNumber ?? 1,
             Domain = null,
             UsageLabel = null,
@@ -580,10 +517,6 @@ public static class Helper
             Alias = null
         };
     }
-
-    // =====================================================================
-    // 13) Logging and Error Handling
-    // =====================================================================
 
     public static void LogProgress(ILogger logger, string sourceCode, int count)
     {
@@ -603,10 +536,6 @@ public static class Helper
         logger.LogError(ex, "Error {Operation} for {Source} entry", operation, sourceCode);
         ResetProcessingState(sourceCode);
     }
-
-    // =====================================================================
-    // 14) Domain Extraction
-    // =====================================================================
 
     public static string? ExtractProperDomain(string sourceCode, string? rawDomain, string definition)
     {

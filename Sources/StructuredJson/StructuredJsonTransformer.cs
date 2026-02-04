@@ -1,5 +1,6 @@
 ﻿using DictionaryImporter.Common;
 using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Infrastructure.FragmentStore;
 
 namespace DictionaryImporter.Sources.StructuredJson;
 
@@ -8,7 +9,7 @@ public sealed class StructuredJsonTransformer(ILogger<StructuredJsonTransformer>
 {
     private const string SourceCode = "STRUCT_JSON";
 
-    public IEnumerable<DictionaryEntry> Transform(StructuredJsonRawEntry raw)
+    public IEnumerable<DictionaryEntry> Transform(StructuredJsonRawEntry? raw)
     {
         if (raw == null)
             yield break;
@@ -39,7 +40,7 @@ public sealed class StructuredJsonTransformer(ILogger<StructuredJsonTransformer>
                 Word = word,
                 NormalizedWord = normalizedWord,
                 Definition = raw.Definition,
-                RawFragment = raw.Definition, // safe fallback
+                RawFragment = RawFragments.Save(SourceCode, raw.Definition, Encoding.UTF8, word),
                 PartOfSpeech = Helper.NormalizePartOfSpeech(raw.PartOfSpeech),
                 SenseNumber = raw.SenseNumber > 0 ? raw.SenseNumber : 1,
                 CreatedUtc = DateTime.UtcNow

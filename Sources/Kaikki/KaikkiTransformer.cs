@@ -1,7 +1,8 @@
-﻿using System.Text.Json;
-using DictionaryImporter.Common;
+﻿using DictionaryImporter.Common;
 using DictionaryImporter.Common.SourceHelper;
 using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Infrastructure.FragmentStore;
+using System.Text.Json;
 using JsonException = Newtonsoft.Json.JsonException;
 
 namespace DictionaryImporter.Sources.Kaikki;
@@ -82,7 +83,7 @@ public sealed class KaikkiTransformer(ILogger<KaikkiTransformer> logger) : IData
                 Definition = normalizedDefinition,
                 SenseNumber = senseNumber++,
                 SourceCode = SourceCode,
-                RawFragment = raw.RawJson,
+                RawFragment = RawFragments.Save(SourceCode, raw.RawJson, Encoding.UTF8, word),
                 CreatedUtc = DateTime.UtcNow
             };
         }

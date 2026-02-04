@@ -3,6 +3,7 @@ using DictionaryImporter.Core.Jobs;
 using DictionaryImporter.Core.Orchestration;
 using DictionaryImporter.Core.Orchestration.Sources;
 using DictionaryImporter.Gateway.Grammar.Infrastructure;
+using DictionaryImporter.Infrastructure.FragmentStore;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 
@@ -19,24 +20,44 @@ BootstrapLogging.Register(services);
 
 services.AddSingleton(configuration);
 
-// Infrastructure
+// ------------------------------------------------------------
+// Infrastructure registrations
+// ------------------------------------------------------------
 BootstrapInfrastructure.Register(services, configuration);
 BootstrapSources.Register(services, configuration);
 BootstrapPipeline.Register(services, configuration);
 
-// ✅ Grammar startup cleanup — SINGLE registration
+// ------------------------------------------------------------
+// Grammar startup cleanup — SINGLE registration
+// ------------------------------------------------------------
 services.AddScoped<GrammarStartupCleanup>(sp =>
     new GrammarStartupCleanup(
         connectionString,
         sp.GetRequiredService<ILogger<GrammarStartupCleanup>>()));
 
+// ------------------------------------------------------------
 // Rewrite job
+// ------------------------------------------------------------
 services.Configure<RuleBasedRewriteJobOptions>(
     configuration.GetSection("RuleBasedRewriteJob"));
 services.AddScoped<RuleBasedRewriteJob>();
 
+// ------------------------------------------------------------
+// BUILD PROVIDER
+// ------------------------------------------------------------
 using var provider = services.BuildServiceProvider();
 
+// ------------------------------------------------------------
+// ✅ INITIALIZE RAW FRAGMENT STATIC FACADE (CRITICAL)
+// ------------------------------------------------------------
+var rawFragmentStore =
+    provider.GetRequiredService<IRawFragmentStore>();
+
+RawFragments.Initialize(rawFragmentStore);
+
+// ------------------------------------------------------------
+// EXECUTION
+// ------------------------------------------------------------
 using var cts = new CancellationTokenSource();
 
 try

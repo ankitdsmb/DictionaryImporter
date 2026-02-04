@@ -1,12 +1,12 @@
 ﻿using DictionaryImporter.Common;
 using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Infrastructure.FragmentStore;
 
 namespace DictionaryImporter.Infrastructure.Persistence;
 
-public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
+public sealed class SqlDictionaryEntryStagingLoader(string connectionString, ILogger<SqlDictionaryEntryStagingLoader> logger) : IStagingLoader
 {
-    private readonly string _connectionString;
-    private readonly ILogger<SqlDictionaryEntryStagingLoader> _logger;
+    private readonly ILogger<SqlDictionaryEntryStagingLoader> _logger = logger;
 
     private int _adaptiveBatchSize = 2000;
 
@@ -19,14 +19,6 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
     private static readonly ConcurrentDictionary<string, bool> EnsuredSources = new();
 
     private static readonly DataTable TableTemplate = CreateTableTemplate();
-
-    public SqlDictionaryEntryStagingLoader(
-        string connectionString,
-        ILogger<SqlDictionaryEntryStagingLoader> logger)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-    }
 
     public async Task LoadAsync(
         IEnumerable<DictionaryEntryStaging> entries,
@@ -116,7 +108,7 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
         p.Add("@Entries", table.AsTableValuedParameter("dbo.DictionaryEntryStagingType"));
         p.Add("@Finalize", 0);
 
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct).ConfigureAwait(false);
 
         await conn.ExecuteAsync(
@@ -138,7 +130,7 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
         var tableName = $"dbo.DictionaryEntry_Staging_Source_{sourceCode}";
         var dt = BuildDataTable(batch);
 
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct).ConfigureAwait(false);
 
         using var bulk = new SqlBulkCopy(
@@ -161,7 +153,7 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
         if (EnsuredSources.ContainsKey(sourceCode))
             return;
 
-        await using var conn = new SqlConnection(_connectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync(ct).ConfigureAwait(false);
 
         await conn.ExecuteAsync(
@@ -173,9 +165,7 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
         EnsuredSources[sourceCode] = true;
     }
 
-    private static DictionaryEntryStaging? Sanitize(
-        DictionaryEntryStaging e,
-        DateTime now)
+    private static DictionaryEntryStaging? Sanitize(DictionaryEntryStaging e, DateTime now)
     {
         if (string.IsNullOrWhiteSpace(e.Word) ||
             string.IsNullOrWhiteSpace(e.Definition))
@@ -193,16 +183,14 @@ public sealed class SqlDictionaryEntryStagingLoader : IStagingLoader
         return new DictionaryEntryStaging
         {
             Word = word,
-            NormalizedWord = Helper.SqlRepository.SafeTruncateOrEmpty(
-                string.IsNullOrWhiteSpace(e.NormalizedWord) ? word : e.NormalizedWord, 200),
-            PartOfSpeech = Helper.SqlRepository.SafeTruncateOrNull(e.PartOfSpeech, 50),
             Definition = definition,
-            Etymology = Helper.SqlRepository.SafeTruncateOrNull(e.Etymology, 4000),
-            RawFragment = Helper.SqlRepository.SafeTruncateOrNull(e.RawFragment, 8000),
             SenseNumber = e.SenseNumber,
+            NormalizedWord = Helper.SqlRepository.SafeTruncateOrEmpty(string.IsNullOrWhiteSpace(e.NormalizedWord) ? word : e.NormalizedWord, 200),
+            PartOfSpeech = Helper.SqlRepository.SafeTruncateOrNull(e.PartOfSpeech, 50),
+            Etymology = Helper.SqlRepository.SafeTruncateOrNull(e.Etymology, 4000),
+            RawFragment = RawFragments.Save(e.SourceCode, e.RawFragmentLine, Encoding.UTF8, word),
             SourceCode = Helper.SqlRepository.SafeTruncateOrEmpty(e.SourceCode, 30),
             CreatedUtc = Helper.SqlRepository.FixSqlMinDateUtc(e.CreatedUtc, now),
-
             WordHashBytes = wordBytes,
             DefinitionHashBytes = defBytes
         };

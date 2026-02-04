@@ -1,10 +1,10 @@
 ﻿using DictionaryImporter.Common;
 using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Infrastructure.FragmentStore;
 
 namespace DictionaryImporter.Sources.EnglishChinese;
 
-public sealed class EnglishChineseTransformer(ILogger<EnglishChineseTransformer> logger)
-    : IDataTransformer<EnglishChineseRawEntry>
+public sealed class EnglishChineseTransformer(ILogger<EnglishChineseTransformer> logger) : IDataTransformer<EnglishChineseRawEntry>
 {
     private const string SourceCode = "ENG_CHN";
 
@@ -22,9 +22,9 @@ public sealed class EnglishChineseTransformer(ILogger<EnglishChineseTransformer>
         {
             Word = raw.Headword,
             NormalizedWord = normalizedWord,
-            PartOfSpeech = null, // Let parser extract
-            Definition = raw.RawLine, // Full line for parsing
-            RawFragment = raw.RawLine, // CRITICAL for parser
+            PartOfSpeech = null,
+            Definition = raw.RawLine,
+            RawFragment = RawFragments.Save(SourceCode, raw.RawLine, Encoding.UTF8, raw.Headword),
             SenseNumber = 1,
             SourceCode = SourceCode,
             CreatedUtc = DateTime.UtcNow

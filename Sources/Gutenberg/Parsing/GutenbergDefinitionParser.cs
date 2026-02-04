@@ -20,7 +20,7 @@ public sealed class GutenbergDefinitionParser(ILogger<GutenbergDefinitionParser>
 
         try
         {
-            var rawFragment = entry.RawFragment ?? entry.Definition;
+            var rawFragment = entry.RawFragmentLine ?? entry.Definition;
             var blocks = ParsingHelperGutenberg.SplitIntoEntryBlocks(rawFragment);
 
             if (blocks.Count == 0 && !string.IsNullOrWhiteSpace(rawFragment))

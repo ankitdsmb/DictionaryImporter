@@ -1,10 +1,16 @@
-﻿namespace DictionaryImporter.Core.Orchestration.Engine;
+﻿using DictionaryImporter.Core.Orchestration.Engine;
+using DictionaryImporter.Infrastructure.FragmentStore;
+using DictionaryImporter.Infrastructure.Validation;
+using Microsoft.Extensions.Logging;
 
-public class ImportEngineFactory<TRaw>(
+namespace DictionaryImporter.Core.Orchestration.Engine;
+
+public sealed class ImportEngineFactory<TRaw>(
     IDataExtractor<TRaw> extractor,
     IDataTransformer<TRaw> transformer,
     IDataLoader loader,
-    IDictionaryImportControl importControl,   // ✅ ADD THIS
+    IDictionaryImportControl importControl,
+    IRawFragmentStore rawFragmentStore,
     ILogger<ImportEngine<TRaw>> logger)
 {
     public ImportEngine<TRaw> Create(
@@ -20,7 +26,8 @@ public class ImportEngineFactory<TRaw>(
             transformer,
             loader,
             validator,
-            importControl,   // ✅ PASS IT HERE
+            importControl,
+            rawFragmentStore,
             logger);
     }
 }

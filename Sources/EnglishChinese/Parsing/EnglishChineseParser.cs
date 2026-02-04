@@ -15,7 +15,7 @@ public sealed class EnglishChineseParser(ILogger<EnglishChineseParser>? logger =
         logger?.LogDebug(
             "EnglishChineseEnhancedParser.Parse called | Word={Word} | RawFragmentPreview={RawFragmentPreview}",
             entry?.Word ?? "null",
-            entry?.RawFragment?.Substring(0, Math.Min(50, entry.RawFragment.Length)) ?? "null");
+            entry?.RawFragmentLine?.Substring(0, Math.Min(50, entry.RawFragmentLine.Length)) ?? "null");
 
         if (entry == null)
         {
@@ -24,8 +24,8 @@ public sealed class EnglishChineseParser(ILogger<EnglishChineseParser>? logger =
             yield break;
         }
 
-        var rawLine = !string.IsNullOrWhiteSpace(entry.RawFragment)
-            ? entry.RawFragment
+        var rawLine = !string.IsNullOrWhiteSpace(entry.RawFragmentLine)
+            ? entry.RawFragmentLine
             : entry.Definition;
 
         if (string.IsNullOrWhiteSpace(rawLine))
@@ -127,7 +127,7 @@ public sealed class EnglishChineseParser(ILogger<EnglishChineseParser>? logger =
         {
             MeaningTitle = entry?.Word ?? "unnamed sense",
             Definition = entry?.Definition ?? string.Empty,
-            RawFragment = entry?.RawFragment ?? entry?.Definition ?? string.Empty,
+            RawFragment = entry?.RawFragmentLine ?? entry?.Definition ?? string.Empty,
             SenseNumber = entry?.SenseNumber ?? 1,
             Domain = null,
             UsageLabel = null,

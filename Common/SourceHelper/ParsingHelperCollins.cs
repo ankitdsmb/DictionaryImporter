@@ -1,4 +1,5 @@
-﻿using DictionaryImporter.Core.Domain.Models;
+﻿using System.Text.RegularExpressions;
+using DictionaryImporter.Core.Domain.Models;
 using DictionaryImporter.Sources.Collins;
 
 namespace DictionaryImporter.Common.SourceHelper;
@@ -14,7 +15,7 @@ internal static class ParsingHelperCollins
             return BuildFallbackParsedDefinition(entry);
 
         // Parse the Collins entry
-        var parsed = ParseCollinsEntry(entry.RawFragment ?? entry.Definition);
+        var parsed = ParseCollinsEntry(entry.RawFragmentLine);
 
         // Extract examples from multiple sources
         var examples = ExtractAllExamples(entry, parsed);
@@ -35,7 +36,7 @@ internal static class ParsingHelperCollins
         {
             MeaningTitle = entry.Word ?? "unnamed sense",
             Definition = cleanDefinition,
-            RawFragment = entry.RawFragment,
+            RawFragment = entry.RawFragmentLine,
             SenseNumber = senseNumber,
             Domain = domain,
             UsageLabel = BuildUsageLabel(parsed),
@@ -44,7 +45,7 @@ internal static class ParsingHelperCollins
             Alias = parsed.Alias,
             Examples = examples, // Store examples separately
             PartOfSpeech = partOfSpeech,
-            IPA = parsed.IPA ?? ExtractIPAFromText(entry.RawFragment ?? entry.Definition),
+            IPA = parsed.IPA ?? ExtractIpaFromText(entry.RawFragmentLine ?? entry.Definition),
             GrammarInfo = parsed.GrammarInfo,
             UsageNote = parsed.UsageNote
         };
@@ -58,7 +59,7 @@ internal static class ParsingHelperCollins
             return data;
 
         // Parse sense number and POS - FIXED: Use improved parsing
-        ParseSenseNumberAndPOS(definition, data);
+        ParseSenseNumberAndPos(definition, data);
 
         // Extract ALL components
         data.DomainLabels = ExtractDomainLabels(definition)?.ToList() ?? new List<string>();
@@ -69,7 +70,7 @@ internal static class ParsingHelperCollins
         data.Synonyms = ExtractSynonyms(definition)?.ToList() ?? new List<string>();
         data.GrammarInfo = ExtractGrammarInfo(definition);
         data.UsageNote = ExtractUsageNote(definition);
-        data.IPA = ExtractIPA(definition);
+        data.IPA = ExtractIpa(definition);
 
         // Set primary domain
         if (data.DomainLabels.Any())
@@ -84,7 +85,7 @@ internal static class ParsingHelperCollins
         return data;
     }
 
-    private static void ParseSenseNumberAndPOS(string text, CollinsParsedData data)
+    private static void ParseSenseNumberAndPos(string text, CollinsParsedData data)
     {
         if (string.IsNullOrWhiteSpace(text))
             return;
@@ -123,17 +124,17 @@ internal static class ParsingHelperCollins
         }
 
         // 3. Finally extract from raw fragment if still empty
-        if (examples.Count == 0 && !string.IsNullOrWhiteSpace(entry.RawFragment))
+        if (examples.Count == 0 && !string.IsNullOrWhiteSpace(entry.RawFragmentLine))
         {
-            var extracted = ExtractCollinsExamples(entry.RawFragment);
+            var extracted = ExtractCollinsExamples(entry.RawFragmentLine);
             examples.AddRange(extracted);
         }
 
         // Clean and validate examples
-        return examples.Select(e => CleanExample(e))
+        return examples.Select(CleanExample)
                       .Where(e => !string.IsNullOrWhiteSpace(e))
                       .Where(e => e.Length > 10)
-                      .Where(e => IsValidExample(e))
+                      .Where(IsValidExample)
                       .Distinct(StringComparer.OrdinalIgnoreCase)
                       .ToList();
     }
@@ -176,7 +177,7 @@ internal static class ParsingHelperCollins
         return null;
     }
 
-    private static string ExtractCleanDefinition(DictionaryEntry entry, CollinsParsedData parsed, List<string> examples)
+    private static string? ExtractCleanDefinition(DictionaryEntry entry, CollinsParsedData parsed, List<string> examples)
     {
         var definition = entry.Definition;
 
@@ -380,7 +381,7 @@ internal static class ParsingHelperCollins
         return cleaned;
     }
 
-    public static IReadOnlyList<string> ExtractDomainLabels(string text)
+    private static IReadOnlyList<string> ExtractDomainLabels(string text)
     {
         var labels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -406,7 +407,7 @@ internal static class ParsingHelperCollins
         return labels.ToList();
     }
 
-    public static IReadOnlyList<string> ExtractUsagePatterns(string text)
+    private static IReadOnlyList<string> ExtractUsagePatterns(string text)
     {
         var patterns = new List<string>();
 
@@ -443,14 +444,14 @@ internal static class ParsingHelperCollins
         return synonyms.ToList();
     }
 
-    public static string ExtractAlias(string text)
+    public static string? ExtractAlias(string text)
     {
         var match = Regex.Match(text, @"also\s+(?:called|known as|spelled)\s+['""]?(?<alias>[A-Za-z0-9\-']+)['""]?",
             RegexOptions.IgnoreCase);
         return match.Success ? match.Groups["alias"].Value : null;
     }
 
-    public static string ExtractGrammarInfo(string text)
+    private static string? ExtractGrammarInfo(string text)
     {
         var patterns = new List<string>();
 
@@ -463,27 +464,27 @@ internal static class ParsingHelperCollins
         return patterns.Any() ? string.Join("; ", patterns) : null;
     }
 
-    public static string ExtractUsageNote(string text)
+    private static string? ExtractUsageNote(string text)
     {
         var match = Regex.Match(text, @"【注意】：\s*(.+)");
         return match.Success ? CleanPattern(match.Groups[1].Value) : null;
     }
 
-    public static string ExtractIPA(string text)
+    private static string? ExtractIpa(string text)
     {
         // Look for IPA in slashes
         var match = Regex.Match(text, @"/([^/]+)/");
         return match.Success ? match.Groups[1].Value.Trim() : null;
     }
 
-    private static string ExtractIPAFromText(string text)
+    private static string? ExtractIpaFromText(string text)
     {
         // Look for IPA in slashes
         var match = Regex.Match(text, @"/([^/]+)/");
         return match.Success ? match.Groups[1].Value.Trim() : null;
     }
 
-    public static IReadOnlyList<CrossReference> ExtractCrossReferences(string text)
+    private static IReadOnlyList<CrossReference> ExtractCrossReferences(string text)
     {
         var refs = new List<CrossReference>();
 
@@ -506,14 +507,14 @@ internal static class ParsingHelperCollins
         return refs;
     }
 
-    private static string BuildUsageLabel(CollinsParsedData data)
+    private static string? BuildUsageLabel(CollinsParsedData data)
     {
         return data.UsagePatterns?.Any() == true
             ? string.Join(", ", data.UsagePatterns.Distinct())
             : null;
     }
 
-    public static ParsedDefinition BuildFallbackParsedDefinition(DictionaryEntry entry)
+    private static ParsedDefinition BuildFallbackParsedDefinition(DictionaryEntry entry)
     {
         // Try to extract examples even in fallback
         var examples = new List<string>();
@@ -523,7 +524,7 @@ internal static class ParsingHelperCollins
         }
 
         // Clean examples
-        examples = examples.Select(e => CleanExample(e))
+        examples = examples.Select(CleanExample)
                           .Where(e => !string.IsNullOrWhiteSpace(e))
                           .ToList();
 
@@ -531,7 +532,7 @@ internal static class ParsingHelperCollins
         {
             MeaningTitle = entry.Word ?? "unnamed sense",
             Definition = CleanDefinitionText(entry.Definition ?? string.Empty),
-            RawFragment = entry.RawFragment ?? string.Empty,
+            RawFragment = entry.RawFragmentLine ?? string.Empty,
             SenseNumber = entry.SenseNumber,
             Domain = null,
             UsageLabel = null,

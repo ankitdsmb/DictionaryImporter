@@ -22,7 +22,7 @@ public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logge
             // Use Definition as primary source, RawFragment as fallback
             var sourceText = !string.IsNullOrWhiteSpace(entry.Definition)
                 ? entry.Definition
-                : entry.RawFragment ?? string.Empty;
+                : entry.RawFragmentLine ?? string.Empty;
 
             var parsedData = ParseOxfordDefinition(sourceText, entry);
             return new[] { parsedData };
@@ -40,9 +40,9 @@ public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logge
             ExtractAllComponents(definition, entry.Word);
 
         // Ensure we have a definition - use RawFragment as last resort
-        if (string.IsNullOrWhiteSpace(cleanDefinition) && !string.IsNullOrWhiteSpace(entry.RawFragment))
+        if (string.IsNullOrWhiteSpace(cleanDefinition) && !string.IsNullOrWhiteSpace(entry.RawFragmentLine))
         {
-            cleanDefinition = ExtractDefinitionFromRawFragment(entry.RawFragment);
+            cleanDefinition = ExtractDefinitionFromRawFragment(entry.RawFragmentLine);
         }
 
         // Ensure sense number is at least 1
@@ -52,7 +52,7 @@ public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logge
         {
             MeaningTitle = entry.Word ?? "unnamed sense",
             Definition = cleanDefinition ?? string.Empty,
-            RawFragment = entry.RawFragment,
+            RawFragment = entry.RawFragmentLine,
             SenseNumber = senseNumber,
             Domain = domain,
             UsageLabel = usage ?? entry.PartOfSpeech,
@@ -361,9 +361,9 @@ public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logge
         string definition = string.Empty;
 
         // Try to get definition from RawFragment
-        if (!string.IsNullOrWhiteSpace(entry?.RawFragment))
+        if (!string.IsNullOrWhiteSpace(entry?.RawFragmentLine))
         {
-            definition = ExtractDefinitionFromRawFragment(entry.RawFragment);
+            definition = ExtractDefinitionFromRawFragment(entry.RawFragmentLine);
         }
 
         // Ensure sense number is at least 1
@@ -373,7 +373,7 @@ public sealed class OxfordDefinitionParser(ILogger<OxfordDefinitionParser> logge
         {
             MeaningTitle = entry?.Word ?? "unnamed sense",
             Definition = definition,
-            RawFragment = entry?.RawFragment ?? string.Empty,
+            RawFragment = entry?.RawFragmentLine ?? string.Empty,
             SenseNumber = senseNumber,
             Domain = null,
             UsageLabel = entry?.PartOfSpeech,

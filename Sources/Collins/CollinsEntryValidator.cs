@@ -14,8 +14,8 @@ public sealed class CollinsEntryValidator : IDictionaryEntryValidator
             return ValidationResult.Invalid("Definition missing");
 
         // Collins entries should have special formatting
-        if (!string.IsNullOrWhiteSpace(entry.RawFragment) &&
-            (entry.RawFragment.Contains("★") || entry.RawFragment.Contains("●")))
+        if (!string.IsNullOrWhiteSpace(entry.RawFragmentLine) &&
+            (entry.RawFragmentLine.Contains("★") || entry.RawFragmentLine.Contains("●")))
             return ValidationResult.Valid();
 
         return ValidationResult.Valid(); // Be lenient

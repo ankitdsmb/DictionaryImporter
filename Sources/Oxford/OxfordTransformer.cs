@@ -1,7 +1,8 @@
-﻿using System.Globalization;
-using DictionaryImporter.Common;
+﻿using DictionaryImporter.Common;
 using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Infrastructure.FragmentStore;
 using DictionaryImporter.Sources.Oxford.Parsing;
+using System.Globalization;
 
 namespace DictionaryImporter.Sources.Oxford;
 
@@ -62,7 +63,7 @@ public sealed class OxfordTransformer(ILogger<OxfordTransformer> logger)
                     SenseNumber = sense.SenseNumber > 0 ? sense.SenseNumber : globalSenseNumber,
                     SourceCode = SourceCode,
                     CreatedUtc = DateTime.UtcNow,
-                    RawFragment = cleanRawFragment
+                    RawFragment = RawFragments.Save(SourceCode, cleanRawFragment, Encoding.UTF8, raw.Headword)
                 };
 
                 entries.Add(entry);

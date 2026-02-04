@@ -14,7 +14,7 @@ public sealed class Century21DefinitionParser(ILogger<Century21DefinitionParser>
 
     public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
     {
-        if (string.IsNullOrWhiteSpace(entry.RawFragment))
+        if (string.IsNullOrWhiteSpace(entry.RawFragmentLine))
         {
             yield return CreateFallback(entry);
             yield break;
@@ -25,10 +25,10 @@ public sealed class Century21DefinitionParser(ILogger<Century21DefinitionParser>
         try
         {
             var parsedData = ParsingHelperCentury21.ParseCentury21Html(
-                entry.RawFragment, entry.Word);
+                entry.RawFragmentLine, entry.Word);
 
             var htmlDoc = new HtmlDocument();
-            htmlDoc.LoadHtml(entry.RawFragment);
+            htmlDoc.LoadHtml(entry.RawFragmentLine);
             var wordBlock = htmlDoc.DocumentNode.SelectSingleNode("//div[@class='word_block']");
 
             var domain = wordBlock != null
@@ -53,7 +53,7 @@ public sealed class Century21DefinitionParser(ILogger<Century21DefinitionParser>
                         usageLabel,
                         parsedData.Examples,
                         senseNumber++,
-                        entry.RawFragment,
+                        entry.RawFragmentLine,
                         domain));
                 }
             }
@@ -77,7 +77,7 @@ public sealed class Century21DefinitionParser(ILogger<Century21DefinitionParser>
                             variant.GrammarInfo,
                             variant.Examples,
                             variantSenseNumber++,
-                            entry.RawFragment,
+                            entry.RawFragmentLine,
                             domain));
                     }
                 }
@@ -121,7 +121,7 @@ public sealed class Century21DefinitionParser(ILogger<Century21DefinitionParser>
         {
             MeaningTitle = entry.Word ?? "unnamed sense",
             Definition = entry.Definition ?? string.Empty,
-            RawFragment = entry.RawFragment ?? entry.Definition ?? string.Empty,
+            RawFragment = entry.RawFragmentLine ?? entry.Definition ?? string.Empty,
             SenseNumber = entry.SenseNumber,
             Domain = null,
             UsageLabel = null,

@@ -90,6 +90,6 @@ public sealed class DictionaryImportControl(
             "dbo.sp_DictionaryEntryStaging_InsertFast",
             p,
             commandType: CommandType.StoredProcedure,
-            commandTimeout: 600);
+            commandTimeout: 600000);
     }
 }

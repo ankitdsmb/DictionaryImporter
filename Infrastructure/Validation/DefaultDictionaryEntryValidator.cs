@@ -42,10 +42,10 @@ public sealed class DefaultDictionaryEntryValidator(ILogger<DefaultDictionaryEnt
         {
             // For Kaikki, RawFragment might contain the definition
             if (string.Equals(entry.SourceCode, "KAIKKI", StringComparison.OrdinalIgnoreCase) &&
-                !string.IsNullOrWhiteSpace(entry.RawFragment))
+                !string.IsNullOrWhiteSpace(entry.RawFragmentLine))
             {
                 // Try to extract definition from RawFragment
-                var definitions = ParsingHelperKaikki.ExtractEnglishDefinitions(entry.RawFragment);
+                var definitions = ParsingHelperKaikki.ExtractEnglishDefinitions(entry.RawFragmentLine);
                 if (definitions.Count > 0)
                     entry.Definition = definitions.First();
             }

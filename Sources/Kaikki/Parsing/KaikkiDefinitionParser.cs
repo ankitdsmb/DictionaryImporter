@@ -14,7 +14,7 @@ public sealed class KaikkiDefinitionParser(ILogger<KaikkiDefinitionParser> logge
         if (entry is null)
             yield break;
 
-        var raw = entry.RawFragment;
+        var raw = entry.RawFragmentLine;
 
         if (string.IsNullOrWhiteSpace(raw))
         {
@@ -113,7 +113,7 @@ public sealed class KaikkiDefinitionParser(ILogger<KaikkiDefinitionParser> logge
         {
             MeaningTitle = entry.Word ?? "unnamed sense",
             Definition = definition,
-            RawFragment = entry.RawFragment,
+            RawFragment = entry.RawFragmentLine,
             SenseNumber = senseNumber,
             Domain = ParsingHelperKaikki.ExtractDomain(sense),
             UsageLabel = ParsingHelperKaikki.ExtractUsageLabel(sense),

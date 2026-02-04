@@ -10,7 +10,7 @@ public sealed class DefaultDefinitionParser : IDictionaryDefinitionParser
         {
             MeaningTitle = entry.Word ?? "unnamed sense",
             Definition = entry.Definition,
-            RawFragment = entry.RawFragment,
+            RawFragment = entry.RawFragmentLine,
             SenseNumber = entry.SenseNumber,
             Domain = null,
             UsageLabel = null,

@@ -13,7 +13,7 @@ public sealed class StructuredJsonDefinitionParser(
     public IEnumerable<ParsedDefinition> Parse(DictionaryEntry entry)
     {
         // ✅ Always return exactly 1 ParsedDefinition
-        if (string.IsNullOrWhiteSpace(entry.RawFragment) &&
+        if (string.IsNullOrWhiteSpace(entry.RawFragmentLine) &&
             string.IsNullOrWhiteSpace(entry.Definition))
         {
             return new List<ParsedDefinition>
@@ -24,8 +24,8 @@ public sealed class StructuredJsonDefinitionParser(
 
         try
         {
-            var raw = !string.IsNullOrWhiteSpace(entry.RawFragment)
-                ? entry.RawFragment
+            var raw = !string.IsNullOrWhiteSpace(entry.RawFragmentLine)
+                ? entry.RawFragmentLine
                 : entry.Definition;
 
             if (string.IsNullOrWhiteSpace(raw))

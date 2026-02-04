@@ -11,11 +11,11 @@ public sealed class KaikkiEntryValidator(ILogger<KaikkiEntryValidator> logger) :
             return ValidationResult.Invalid("Word missing");
 
         // If RawFragment exists, use it as the source of truth
-        if (!string.IsNullOrWhiteSpace(entry.RawFragment))
+        if (!string.IsNullOrWhiteSpace(entry.RawFragmentLine))
         {
             var isEnglish =
-                entry.RawFragment.Contains("\"lang_code\":\"en\"", StringComparison.OrdinalIgnoreCase) ||
-                entry.RawFragment.Contains("\"lang_code\": \"en\"", StringComparison.OrdinalIgnoreCase);
+                entry.RawFragmentLine.Contains("\"lang_code\":\"en\"", StringComparison.OrdinalIgnoreCase) ||
+                entry.RawFragmentLine.Contains("\"lang_code\": \"en\"", StringComparison.OrdinalIgnoreCase);
 
             if (isEnglish)
                 return ValidationResult.Valid();

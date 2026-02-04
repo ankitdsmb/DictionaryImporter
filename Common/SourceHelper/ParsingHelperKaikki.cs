@@ -300,7 +300,7 @@ public static class ParsingHelperKaikki
         return false;
     }
 
-    #endregion
+    #endregion Kaikki-Specific Methods
 
     #region Additional JSON Processing Methods
 
@@ -497,7 +497,7 @@ public static class ParsingHelperKaikki
             .ToList();
     }
 
-    #endregion
+    #endregion Additional JSON Processing Methods
 
     #region Synonym Validation (kept signatures)
 
@@ -542,7 +542,7 @@ public static class ParsingHelperKaikki
         return Regex.IsMatch(word, @"^[a-z\s\-']+$");
     }
 
-    #endregion
+    #endregion Synonym Validation (kept signatures)
 
     #region Sense Helpers
 
@@ -623,7 +623,7 @@ public static class ParsingHelperKaikki
         return DedupeAndNormalizeTextList(synonyms);
     }
 
-    #endregion
+    #endregion Sense Helpers
 
     #region Private Helper Methods
 
@@ -695,7 +695,7 @@ public static class ParsingHelperKaikki
                argName.Contains("etyl", StringComparison.OrdinalIgnoreCase);
     }
 
-    #endregion
+    #endregion Private Helper Methods
 
     #region Advanced JSON Processing Methods (kept signatures)
 
@@ -746,17 +746,26 @@ public static class ParsingHelperKaikki
         return current.ValueKind == JsonValueKind.String ? current.GetString() : null;
     }
 
-    #endregion
+    #endregion Advanced JSON Processing Methods (kept signatures)
 
     #region NEW METHODS (added)
 
-    // NEW METHOD (added)
+    private static readonly char[] JsonLeadingTrimChars = { '\uFEFF', ' ', '\t', '\r', '\n' };
+
+    private static string TrimJsonStart(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return string.Empty;
+
+        return raw.TrimStart(JsonLeadingTrimChars);
+    }
+
     public static bool IsJsonRawFragment(string raw)
     {
         if (string.IsNullOrWhiteSpace(raw))
             return false;
 
-        raw = raw.TrimStart();
+        raw = TrimJsonStart(raw);
         return raw.StartsWith("{", StringComparison.Ordinal) || raw.StartsWith("[", StringComparison.Ordinal);
     }
 
@@ -1083,6 +1092,7 @@ public static class ParsingHelperKaikki
 
         return t;
     }
+
     // NEW METHOD (added)
     public static bool IsLikelyJson(string text)
     {
@@ -1115,6 +1125,7 @@ public static class ParsingHelperKaikki
             return false;
         }
     }
+
     // NEW METHOD (added)
     public static bool TryParseEnglishRoot(string rawFragment, out JsonElement root)
     {
@@ -1126,8 +1137,7 @@ public static class ParsingHelperKaikki
         return IsEnglishEntry(root);
     }
 
-    #endregion
-
+    #endregion NEW METHODS (added)
 
     private static readonly char[] _quoteChars = { '"', '\'', '`', '«', '»', '「', '」', '『', '』' };
     private static readonly string[] _templateMarkers = { "{{", "}}", "[[", "]]" };

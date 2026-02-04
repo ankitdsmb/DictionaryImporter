@@ -10,6 +10,7 @@ using DictionaryImporter.Gateway.Grammar.Core.Models;
 using DictionaryImporter.Gateway.Redis;
 using DictionaryImporter.Gateway.Rewriter;
 using DictionaryImporter.HostedService;
+using DictionaryImporter.Infrastructure.FragmentStore;
 using DictionaryImporter.Infrastructure.OneTimeTasks;
 using DictionaryImporter.Infrastructure.Source;
 using DictionaryImporter.Infrastructure.Validation;
@@ -36,12 +37,16 @@ public static class BootstrapPipeline
             configuration.GetConnectionString("DictionaryImporter")
             ?? throw new InvalidOperationException(
                 "Connection string 'DictionaryImporter' not configured");
-        // ------------------------------------------------------------
-        // ✅ REDIS (OPTIONAL, SAFE)
-        // ------------------------------------------------------------
-        // ------------------------------------------------------------
-        // ✅ REDIS (SAFE, NON-BLOCKING)
-        // ------------------------------------------------------------
+
+        services.Configure<FileRawFragmentStoreOptions>(configuration.GetSection("FragmentStore"));
+
+        services.AddSingleton<IRawFragmentStore>(sp =>
+            new FileRawFragmentStore(
+                configuration["FragmentStore:RootPath"] ?? @"E:\Project\Data Importer\DictionaryRawFragments",
+                sp.GetRequiredService<IOptions<FileRawFragmentStoreOptions>>().Value));
+
+        services.AddHostedService<FragmentStoreInitializer>();
+
         var redisEnabled = configuration.GetValue<bool>("Redis:Enabled");
 
         if (redisEnabled)
@@ -51,7 +56,7 @@ public static class BootstrapPipeline
                 var cfg = ConfigurationOptions.Parse(
                     configuration.GetValue<string>("Redis:ConnectionString"));
 
-                cfg.AbortOnConnectFail = false; // 🔑 IMPORTANT
+                cfg.AbortOnConnectFail = false;
                 cfg.ConnectRetry = 5;
                 cfg.ConnectTimeout = 5000;
                 cfg.ReconnectRetryPolicy = new ExponentialRetry(1000);
@@ -66,41 +71,25 @@ public static class BootstrapPipeline
             services.AddSingleton<IDistributedCacheStore?>(_ => null);
         }
 
-        // ------------------------------------------------------------
-        // ✅ PARALLEL PROCESSING SERVICES
-        // ------------------------------------------------------------
         services.Configure<BatchProcessingSettings>(configuration.GetSection("BatchProcessing"));
         services.Configure<ParallelProcessingSettings>(configuration.GetSection("ParallelProcessing"));
         services.Configure<GrammarOptions>(configuration.GetSection("Grammar"));
 
         services.AddSingleton<ImportConcurrencyManager>();
 
-        // Add batch collector
         services.AddScoped<IBatchProcessedDataCollector, InMemoryBatchCollector>();
 
-        // ------------------------------------------------------------
-        // ✅ PARALLEL PROCESSING SERVICES (NEW)
-        // ------------------------------------------------------------
         services.AddSingleton<ImportConcurrencyManager>();
         services.AddSingleton<Func<IDataMergeExecutor>>(sp => sp.GetRequiredService<IDataMergeExecutor>);
 
-        // ------------------------------------------------------------
-        // ✅ REQUIRED: GenericSqlBatcher (used by multiple writers)
-        // ------------------------------------------------------------
         services.AddSingleton<GenericSqlBatcher>(sp =>
             new GenericSqlBatcher(
                 connectionString,
                 sp.GetRequiredService<ILogger<GenericSqlBatcher>>()));
 
-        // ------------------------------------------------------------
-        // ✅ REQUIRED: Stored Procedure Executor
-        // ------------------------------------------------------------
         services.AddSingleton<ISqlStoredProcedureExecutor>(_ =>
             new SqlStoredProcedureExecutor(connectionString));
 
-        // ------------------------------------------------------------
-        // ✅ Options Bindings
-        // ------------------------------------------------------------
         services.Configure<RuleBasedRewriteExamplesOptions>(
             configuration.GetSection("RuleBasedRewrite:RewriteExamples"));
         services.Configure<RuleBasedRewriteDefinitionsOptions>(
@@ -108,9 +97,6 @@ public static class BootstrapPipeline
         services.Configure<LuceneSuggestionsOptions>(
             configuration.GetSection("LuceneSuggestions"));
 
-        // ------------------------------------------------------------
-        // ✅ FACTORY DELEGATE REGISTRATIONS (keep these)
-        // ------------------------------------------------------------
         services.AddSingleton<Func<ImportEngineFactory<KaikkiRawEntry>>>(sp => sp.GetRequiredService<ImportEngineFactory<KaikkiRawEntry>>);
         services.AddSingleton<Func<ImportEngineFactory<GutenbergRawEntry>>>(sp => sp.GetRequiredService<ImportEngineFactory<GutenbergRawEntry>>);
         services.AddSingleton<Func<ImportEngineFactory<StructuredJsonRawEntry>>>(sp => sp.GetRequiredService<ImportEngineFactory<StructuredJsonRawEntry>>);
@@ -121,9 +107,6 @@ public static class BootstrapPipeline
 
         services.AddSingleton<IImportEngineRegistry, ImportEngineRegistry>();
 
-        // ------------------------------------------------------------
-        // ✅ EXTRACTOR REGISTRATIONS (keep these)
-        // ------------------------------------------------------------
         services.AddSingleton<IEtymologyExtractor, OxfordEtymologyExtractor>();
         services.AddSingleton<IExampleExtractor, OxfordExampleExtractor>();
         services.AddSingleton<ISynonymExtractor, OxfordSynonymExtractor>();
@@ -144,9 +127,6 @@ public static class BootstrapPipeline
         services.AddSingleton<IExampleExtractor, KaikkiExampleExtractor>();
         services.AddSingleton<ISynonymExtractor, KaikkiSynonymExtractor>();
 
-        // ------------------------------------------------------------
-        // ✅ KEEP: Register default validator (for fallback)
-        // ------------------------------------------------------------
         services.AddSingleton<IDictionaryEntryValidator, DefaultDictionaryEntryValidator>();
         services.AddSingleton<Func<IDictionaryEntryValidator>>(sp => () => sp.GetRequiredService<IDictionaryEntryValidator>());
 
@@ -156,14 +136,10 @@ public static class BootstrapPipeline
                 sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                 sp.GetRequiredService<ILogger<SqlDictionaryEntryMergeExecutor>>()));
 
-        // ------------------------------------------------------------
-        // ✅ POS REPOSITORY (ONLY ONCE)
-        // ------------------------------------------------------------
         services.AddSingleton<IDictionaryEntryPartOfSpeechRepository>(sp =>
             new SqlDictionaryEntryPartOfSpeechRepository(
                 sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
                 sp.GetRequiredService<ILogger<SqlDictionaryEntryPartOfSpeechRepository>>()));
-        // Program.cs or Startup.cs
 
         services.AddSingleton<ImportConcurrencyManager>();
         services.AddScoped<IBatchProcessedDataCollector>(sp =>
@@ -176,9 +152,6 @@ public static class BootstrapPipeline
         });
 
         services.AddScoped<DictionaryParsedDefinitionProcessor>();
-        // ------------------------------------------------------------
-        // ✅ PARSER REGISTRATIONS (keep these)
-        // ------------------------------------------------------------
         services.AddSingleton<ISourceDictionaryDefinitionParser, KaikkiDefinitionParser>();
         services.AddSingleton<ISourceDictionaryDefinitionParser, GutenbergDefinitionParser>();
         services.AddSingleton<ISourceDictionaryDefinitionParser, Century21DefinitionParser>();
@@ -189,16 +162,10 @@ public static class BootstrapPipeline
 
         services.AddSingleton<IDictionaryDefinitionParserResolver, DictionaryDefinitionParserResolver>();
 
-        // ------------------------------------------------------------
-        // ✅ ONE-TIME TASKS
-        // ------------------------------------------------------------
         services.AddSingleton<IOneTimeDatabaseTask>(new EditorialIpaMigrationTask(connectionString));
         services.AddSingleton<IOneTimeDatabaseTask>(new PromoteIpaFromNotesTask(connectionString));
         services.AddSingleton<OneTimeTaskRunner>();
 
-        // ------------------------------------------------------------
-        // ✅ LINGUISTIC SERVICES
-        // ------------------------------------------------------------
         services.AddSingleton<OrthographicSyllableRuleResolver>();
 
         services.AddSingleton<CanonicalWordIpaEnricher>(sp => new CanonicalWordIpaEnricher(
@@ -218,9 +185,6 @@ public static class BootstrapPipeline
             connectionString,
             sp.GetRequiredService<ILogger<IpaVerificationReporter>>()));
 
-        // ------------------------------------------------------------
-        // ✅ REWRITE SERVICES
-        // ------------------------------------------------------------
         services.AddSingleton<IRewriteMapRepository>(sp =>
             new SqlRewriteMapRepository(
                 sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
@@ -256,9 +220,6 @@ public static class BootstrapPipeline
 
         services.AddScoped<RewriteRuleHitBuffer>();
 
-        // ------------------------------------------------------------
-        // ✅ LUCENE SUGGESTIONS SERVICES
-        // ------------------------------------------------------------
         services.AddSingleton<ILuceneSuggestionIndexRepository>(sp =>
             new SqlLuceneSuggestionIndexRepository(
                 sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
@@ -278,9 +239,6 @@ public static class BootstrapPipeline
 
         services.AddSingleton<LuceneIndexBuilder>();
 
-        // ------------------------------------------------------------
-        // ✅ AI ENHANCEMENT SERVICES
-        // ------------------------------------------------------------
         services.AddSingleton<IAiAnnotationRepository>(sp =>
             new SqlAiAnnotationRepository(
                 sp.GetRequiredService<ISqlStoredProcedureExecutor>(),
@@ -293,16 +251,10 @@ public static class BootstrapPipeline
 
         services.AddScoped<AiEnhancementStep>();
 
-        // ------------------------------------------------------------
-        // ✅ IMPORT PIPELINE CORE
-        // ------------------------------------------------------------
         services.Configure<ImportPipelineOptions>(configuration.GetSection("ImportPipeline"));
         services.AddScoped<ImportPipelineOrderResolver>();
         services.AddScoped<ImportPipelineRunner>();
 
-        // ------------------------------------------------------------
-        // ✅ PIPELINE STEP REGISTRATIONS (ORDER MATTERS)
-        // ------------------------------------------------------------
         services.AddScoped<IImportPipelineStep, CanonicalizationPipelineStep>();
         services.AddScoped<IImportPipelineStep, ParsingPipelineStep>();
         services.AddScoped<IImportPipelineStep, LinguisticsPipelineStep>();
@@ -328,9 +280,6 @@ public static class BootstrapPipeline
         services.AddScoped<IImportPipelineStep, IpaSyllablesPipelineStep>();
         services.AddScoped<IImportPipelineStep, VerificationPipelineStep>();
 
-        // ------------------------------------------------------------
-        // ✅ CORE PROCESSING SERVICES
-        // ------------------------------------------------------------
         services.AddScoped<DictionaryParsedDefinitionProcessor>(sp =>
             ActivatorUtilities.CreateInstance<DictionaryParsedDefinitionProcessor>(sp, connectionString));
 
@@ -339,17 +288,11 @@ public static class BootstrapPipeline
 
         services.AddTransient<DictionaryImporter.Sources.Generic.GenericExampleExtractor>();
 
-        // ------------------------------------------------------------
-        // ✅ QA SERVICES
-        // ------------------------------------------------------------
         foreach (var qa in KnownQaChecks.CreateAll(connectionString))
             services.AddSingleton<IQaCheck>(qa);
 
         services.AddSingleton<QaRunner>();
 
-        // ------------------------------------------------------------
-        // ✅ WRITERS USING BATCHER
-        // ------------------------------------------------------------
         services.AddTransient<IDictionaryEntryExampleWriter>(sp =>
         {
             var log = sp.GetRequiredService<ILogger<SqlDictionaryEntryExampleWriter>>();
@@ -418,12 +361,8 @@ public static class BootstrapPipeline
             );
         });
 
-        // ------------------------------------------------------------
-        // ✅ IMPORT ORCHESTRATOR WITH ALL DEPENDENCIES
-        // ------------------------------------------------------------
         services.AddScoped<ImportOrchestrator>(sp =>
         {
-            // Resolve all required dependencies
             var validatorFactory = sp.GetRequiredService<Func<IDictionaryEntryValidator>>();
             var mergeFactory = sp.GetRequiredService<Func<IDataMergeExecutor>>();
             var engineRegistry = sp.GetRequiredService<IImportEngineRegistry>();
@@ -476,16 +415,13 @@ public static class BootstrapPipeline
                 aiEnhancementStep,
                 pipelineRunner,
                 pipelineOrderResolver,
-                concurrencyManager, // NEW
+                concurrencyManager,
                 logger,
                 qaRunner);
         });
 
         services.AddHostedService<StartupCleanupHostedService>();
 
-        // ------------------------------------------------------------
-        // ✅ REGISTER SOURCE MODULES
-        // ------------------------------------------------------------
         var sourceModules = SourceRegistry.CreateSources().ToList();
         foreach (var module in sourceModules)
         {

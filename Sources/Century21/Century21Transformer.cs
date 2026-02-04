@@ -2,6 +2,7 @@
 using HtmlAgilityPack;
 using System.Net;
 using DictionaryImporter.Core.Domain.Models;
+using DictionaryImporter.Infrastructure.FragmentStore;
 
 namespace DictionaryImporter.Sources.Century21;
 
@@ -32,25 +33,22 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger)
 
             var normalizedHeadword = Helper.NormalizeWordWithSourceContext(raw.Headword, SourceCode);
 
-            // ✅ Build proper RawFragment (HTML structure for parser)
-            var rawFragment = BuildHtmlRawFragment(raw);
-
+            var rawFragmentLine = BuildHtmlRawFragment(raw);
             entries.Add(new DictionaryEntry
             {
                 Word = raw.Headword,
                 NormalizedWord = normalizedHeadword,
                 PartOfSpeech = Helper.NormalizePartOfSpeech(raw.PartOfSpeech),
                 Definition = BuildDefinition(raw),
-                RawFragment = rawFragment,
+                RawFragment = RawFragments.Save(SourceCode, rawFragmentLine, Encoding.UTF8, raw.Headword),
                 SenseNumber = senseNumber++,
                 SourceCode = SourceCode,
                 CreatedUtc = DateTime.UtcNow
             });
 
-            // Add variants with proper RawFragment
             foreach (var variant in raw.Variants)
             {
-                var variantRawFragment = BuildVariantHtmlFragment(raw.Headword, variant);
+                var variantRawFragmentLine = BuildVariantHtmlFragment(raw.Headword, variant);
 
                 entries.Add(new DictionaryEntry
                 {
@@ -58,18 +56,17 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger)
                     NormalizedWord = normalizedHeadword,
                     PartOfSpeech = Helper.NormalizePartOfSpeech(variant.PartOfSpeech),
                     Definition = BuildVariantDefinition(variant),
-                    RawFragment = variantRawFragment,
+                    RawFragment = RawFragments.Save(SourceCode, variantRawFragmentLine, Encoding.UTF8, raw.Headword),
                     SenseNumber = senseNumber++,
                     SourceCode = SourceCode,
                     CreatedUtc = DateTime.UtcNow
                 });
             }
 
-            // Add idioms with proper RawFragment
             foreach (var idiom in raw.Idioms)
             {
                 var normalizedIdiomWord = Helper.NormalizeWord(idiom.Headword);
-                var idiomRawFragment = BuildIdiomHtmlFragment(idiom);
+                var idiomRawFragmentLine = BuildIdiomHtmlFragment(idiom);
 
                 entries.Add(new DictionaryEntry
                 {
@@ -77,7 +74,7 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger)
                     NormalizedWord = normalizedIdiomWord,
                     PartOfSpeech = "phrase",
                     Definition = BuildIdiomDefinition(idiom),
-                    RawFragment = idiomRawFragment,
+                    RawFragment = RawFragments.Save(SourceCode, idiomRawFragmentLine, Encoding.UTF8, raw.Headword),
                     SenseNumber = 1,
                     SourceCode = SourceCode,
                     CreatedUtc = DateTime.UtcNow
@@ -90,8 +87,8 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger)
                 "Century21Transformer processed entry | Word={Word} | EntriesCreated={Count} | RawFragmentLength={Length} | HasHtml={HasHtml}",
                 raw.Headword,
                 entries.Count,
-                entries.FirstOrDefault()?.RawFragment?.Length ?? 0,
-                entries.FirstOrDefault()?.RawFragment?.Contains("<div") ?? false);
+                entries.FirstOrDefault()?.RawFragmentLine?.Length ?? 0,
+                entries.FirstOrDefault()?.RawFragmentLine?.Contains("<div") ?? false);
         }
         catch (Exception ex)
         {
@@ -102,15 +99,10 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger)
             yield return entry;
     }
 
-    // ✅ HtmlAgilityPack HtmlEntity does not provide Encode()
-    // ✅ Use WebUtility.HtmlEncode for safe encoding in .NET 8
-    private static string HtmlEncode(string? value)
-        => WebUtility.HtmlEncode(value ?? string.Empty);
+    private static string HtmlEncode(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
 
-    // ✅ Build HTML structure that Century21DefinitionParser expects
     private static string BuildHtmlRawFragment(Century21RawEntry raw)
     {
-        // Create proper HTML structure
         var html = new StringBuilder();
         html.AppendLine("<div class=\"word_block\">");
 
@@ -286,10 +278,10 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger)
         var parts = new List<string>();
 
         if (!string.IsNullOrWhiteSpace(raw.Phonetics))
-            parts.Add($"【Pronunciation】{raw.Phonetics}");
+            parts.Add($"POS: {raw.Phonetics}");
 
         if (!string.IsNullOrWhiteSpace(raw.GrammarInfo))
-            parts.Add($"【Grammar】{raw.GrammarInfo}");
+            parts.Add($"Grammar: {raw.GrammarInfo}");
 
         var definition = Helper.NormalizeDefinitionForSource(raw.Definition, SourceCode);
         parts.Add(definition);
@@ -318,8 +310,6 @@ public sealed class Century21Transformer(ILogger<Century21Transformer> logger)
         var country21Examples = examples as Country21Example[] ?? examples.ToArray();
         if (!country21Examples.Any())
             return;
-
-        parts.Add("【Examples】");
 
         foreach (var example in country21Examples)
         {
