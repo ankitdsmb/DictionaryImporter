@@ -30,3 +30,6 @@ Thumbs.db
 Data/*
 Dictionaries/*
 Query/*
+
+# Packaging artifacts
+cinematic-renderer.zip
