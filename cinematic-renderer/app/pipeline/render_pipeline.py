@@ -5,18 +5,13 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-import numpy as np
-from moviepy.editor import CompositeVideoClip, concatenate_videoclips
-
 from app.config import get_settings
-from app.engines.audio_engine import AudioEngine
-from app.engines.beat_engine import BeatEngine
 from app.engines.export_engine import ExportEngine
-from app.engines.motion_engine import MotionEngine
-from app.engines.style_engine import StyleEngine
-from app.models.schemas import RenderMetrics, RenderRequest, RenderResponse
+from app.models.render_contract import RenderMetrics, RenderRequest, RenderResponse
+from app.services.audio_mixer import AudioMixerService
 from app.services.media_validation_service import MediaValidationService
 from app.services.storage_service import StorageService
+from app.services.video_composer import VideoComposerService
 
 
 class RenderPipeline:
@@ -24,61 +19,36 @@ class RenderPipeline:
         self.settings = get_settings()
         self.validator = MediaValidationService()
         self.storage = StorageService()
-        self.beats = BeatEngine()
-        self.motion = MotionEngine()
-        self.audio = AudioEngine()
-        self.style = StyleEngine()
+        self.video_composer = VideoComposerService()
+        self.audio_mixer = AudioMixerService()
         self.exporter = ExportEngine()
 
     def run(self, request: RenderRequest) -> RenderResponse:
         started = time.perf_counter()
         self.validator.validate(request)
+
         if len(request.scenes) > self.settings.max_scenes:
             raise ValueError(f"Scene count exceeds limit ({self.settings.max_scenes})")
+
+        timeline_seconds = sum(scene.duration_seconds for scene in request.scenes)
+        if timeline_seconds > self.settings.max_total_duration_seconds:
+            raise ValueError(
+                f"Timeline duration {timeline_seconds:.2f}s exceeds limit {self.settings.max_total_duration_seconds:.2f}s"
+            )
 
         workdir = self.storage.create_workdir(request.request_id)
         output_path = self.storage.output_path(request.request_id)
 
-        beat_times: list[float] = []
-        if request.music is not None:
-            beat_times = self.beats.detect_beats(Path(request.music.path)).tolist()
+        clip = self.video_composer.compose(request)
+        mixed_audio = self.audio_mixer.mix(clip.duration, request.audio)
+        final_clip = clip.set_audio(mixed_audio)
 
-        durations = [scene.duration_seconds for scene in request.scenes]
-        aligned_durations = self.beats.align_durations_to_beats(durations, np.array(beat_times)) if beat_times else durations
-
-        total_duration = sum(aligned_durations)
-        if total_duration > self.settings.max_total_duration_seconds:
-            raise ValueError(
-                f"Timeline duration {total_duration:.2f}s exceeds limit {self.settings.max_total_duration_seconds:.2f}s"
-            )
-
-        clips = []
-        width, height = request.width, request.height
-        for idx, (scene, duration) in enumerate(zip(request.scenes, aligned_durations)):
-            clip = self.motion.build_scene_clip(scene, request.seed, f"scene-{idx}", width, height, duration)
-            clips.append(clip)
-
-        transition = request.transition_seconds
-        if transition > 0:
-            clips = [clip.crossfadein(transition) if idx > 0 else clip for idx, clip in enumerate(clips)]
-            video = concatenate_videoclips(clips, method="compose", padding=-transition)
-        else:
-            video = concatenate_videoclips(clips, method="compose")
-
-        video = CompositeVideoClip([video.set_position("center")], size=(width, height)).set_duration(video.duration)
-        audio_mix = self.audio.mix_audio(video.duration, request.narration, request.music)
-        video = video.set_audio(audio_mix)
-        styled = self.style.apply_cinematic_style(
-            video, request.seed, width, height, request.letterbox_ratio, request.apply_film_grain
-        )
-
-        self.exporter.export(styled, output_path, request.fps)
+        self.exporter.export(final_clip, output_path, request.video.fps)
 
         render_seconds = round(time.perf_counter() - started, 3)
         metrics = RenderMetrics(
             render_seconds=render_seconds,
-            timeline_seconds=round(video.duration, 3),
-            beat_count=len(beat_times),
+            timeline_seconds=round(final_clip.duration, 3),
             scene_count=len(request.scenes),
         )
 
