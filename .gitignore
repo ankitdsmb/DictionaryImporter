@@ -23,6 +23,7 @@ Thumbs.db
 *.json
 *.jsonl
 *.txt
+!cinematic-renderer/requirements.txt
 *.patch
 *.editorconfig
 *.xml
