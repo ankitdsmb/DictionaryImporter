@@ -13,7 +13,13 @@ class TransitionService:
         started = []
         current_start = 0.0
         for idx, clip in enumerate(clips):
-            started.append(clip.set_start(current_start))
+            placed_clip = clip
+            if idx > 0:
+                transition = scenes[idx].transition
+                if transition.type == "crossfade" and transition.duration > 0:
+                    fade_duration = min(transition.duration, clip.duration * 0.8)
+                    placed_clip = clip.crossfadein(fade_duration)
+            started.append(placed_clip.set_start(current_start))
             current_start += clip.duration
             if idx < len(clips) - 1:
                 transition = scenes[idx + 1].transition
