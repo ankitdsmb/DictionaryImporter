@@ -34,6 +34,8 @@ from app.pipeline.render_pipeline import RenderPipeline
 router = APIRouter(tags=["ui"])
 templates = Jinja2Templates(directory=Path(__file__).resolve().parents[1] / "templates")
 
+_MAX_RENDER_SEED = 2_147_483_647
+
 _REQUESTS_LOCK = threading.Lock()
 _REQUESTS: dict[str, dict[str, object]] = {}
 
@@ -95,9 +97,11 @@ def _run_generation(request_id: str, payload: GenerateVideoPayload) -> None:
         width, height = (1920, 1080) if payload.resolution == "1080p" else (1280, 720)
         camera_type = "kenburns" if payload.ken_burns else "static"
 
+        seed = int(request_id[:8], 16) % (_MAX_RENDER_SEED + 1)
+
         render_request = RenderRequest(
             request_id=request_id,
-            seed=int(request_id[:8], 16),
+            seed=seed,
             video=VideoConfig(
                 width=width,
                 height=height,
