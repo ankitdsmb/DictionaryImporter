@@ -8,10 +8,11 @@ import urllib.request
 import uuid
 import wave
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from PIL import Image, ImageDraw, ImageFont
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -39,11 +40,32 @@ _REQUESTS: dict[str, dict[str, object]] = {}
 
 
 class GenerateVideoPayload(BaseModel):
-    topic: str = Field(..., min_length=3, max_length=280)
+    topic: str = Field(default="Cinematic devotional video", min_length=3, max_length=280)
     style: str = Field(default="Devotional")
     resolution: str = Field(default="1080p")
     film_grain: bool = Field(default=False)
     ken_burns: bool = Field(default=True)
+    audio_path: str | None = Field(default=None, description="Legacy field accepted for backwards compatibility")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _upgrade_legacy_payload(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        upgraded = dict(data)
+        provided_topic = str(upgraded.get("topic", "")).strip()
+        if provided_topic:
+            return upgraded
+
+        audio_path = upgraded.get("audio_path")
+        if isinstance(audio_path, str) and audio_path.strip():
+            topic_from_audio = Path(audio_path).stem.replace("_", " ").replace("-", " ").strip()
+            upgraded["topic"] = topic_from_audio or "Cinematic devotional video"
+        else:
+            upgraded["topic"] = "Cinematic devotional video"
+
+        return upgraded
 
 
 @router.get("/", response_class=HTMLResponse)
