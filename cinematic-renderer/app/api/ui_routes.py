@@ -95,9 +95,10 @@ def _run_generation(request_id: str, payload: GenerateVideoPayload) -> None:
         width, height = (1920, 1080) if payload.resolution == "1080p" else (1280, 720)
         camera_type = "kenburns" if payload.ken_burns else "static"
 
+        render_seed = int(request_id[:8], 16) % (2_147_483_647 + 1)
         render_request = RenderRequest(
             request_id=request_id,
-            seed=int(request_id[:8], 16),
+            seed=render_seed,
             video=VideoConfig(
                 width=width,
                 height=height,
