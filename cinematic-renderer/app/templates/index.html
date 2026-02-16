@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cinematic Studio AI</title>
+    <link rel="stylesheet" href="/static/css/styles.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="panel">
+        <h1>Cinematic Studio AI</h1>
+        <p class="subtitle">Generate cinematic AI videos from a single topic prompt using local free AI.</p>
+
+        <form id="generator-form">
+          <label for="topic">Enter your video topic</label>
+          <textarea id="topic" name="topic" rows="4" placeholder="Lord Krishna devotional video" required></textarea>
+
+          <div class="grid-two">
+            <div>
+              <label for="style">Video Style</label>
+              <select id="style" name="style">
+                <option>Devotional</option>
+                <option>Mythological</option>
+                <option>Motivational</option>
+              </select>
+            </div>
+            <div>
+              <label for="resolution">Resolution</label>
+              <select id="resolution" name="resolution">
+                <option value="1080p">1080p</option>
+                <option value="720p">720p</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="toggles">
+            <label class="toggle"><input type="checkbox" id="film_grain" /> <span>Film Grain</span></label>
+            <label class="toggle"><input type="checkbox" id="ken_burns" checked /> <span>Ken Burns Effect</span></label>
+          </div>
+
+          <button id="generate-btn" type="submit">Generate Video</button>
+        </form>
+
+        <section id="progress-section" class="hidden">
+          <div class="spinner"></div>
+          <div>
+            <p id="progress-message">Preparing generation...</p>
+            <div class="progress-track"><div id="progress-bar"></div></div>
+          </div>
+        </section>
+
+        <section id="result-section" class="hidden">
+          <h2>Your cinematic render is ready</h2>
+          <video id="result-video" controls></video>
+          <a id="download-link" class="download-btn" download>Download Video</a>
+        </section>
+
+        <p id="error-message" class="error hidden"></p>
+      </section>
+    </main>
+
+    <script src="/static/js/app.js"></script>
+  </body>
+</html>
