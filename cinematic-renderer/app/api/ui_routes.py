@@ -14,7 +14,10 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from PIL import Image, ImageDraw, ImageFont
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+try:
+    from fastapi.templating import Jinja2Templates
+except ImportError:  # pragma: no cover - surfaced through runtime HTTP error in home_page
+    Jinja2Templates = None
 
 from app.config import get_settings
 from app.models.render_contract import (
@@ -32,7 +35,8 @@ from app.models.render_contract import (
 from app.pipeline.render_pipeline import RenderPipeline
 
 router = APIRouter(tags=["ui"])
-templates = Jinja2Templates(directory=Path(__file__).resolve().parents[1] / "templates")
+_TEMPLATE_DIRECTORY = Path(__file__).resolve().parents[1] / "templates"
+_templates: Jinja2Templates | None = None
 
 _MAX_RENDER_SEED = 2_147_483_647
 
@@ -50,6 +54,7 @@ class GenerateVideoPayload(BaseModel):
 
 @router.get("/", response_class=HTMLResponse)
 def home_page(request: Request):
+    templates = _get_templates()
     return templates.TemplateResponse("index.html", {"request": request})
 
 
@@ -97,7 +102,7 @@ def _run_generation(request_id: str, payload: GenerateVideoPayload) -> None:
         width, height = (1920, 1080) if payload.resolution == "1080p" else (1280, 720)
         camera_type = "kenburns" if payload.ken_burns else "static"
 
-        seed = int(request_id[:8], 16) % (_MAX_RENDER_SEED + 1)
+        seed = _seed_from_request_id(request_id)
 
         render_request = RenderRequest(
             request_id=request_id,
@@ -160,6 +165,28 @@ def _generate_scenes(topic: str, style: str) -> list[str]:
         f"Golden light and incense reveal timeless {style.lower()} emotion",
         "A serene closing prayer leaves a cinematic spiritual calm",
     ]
+
+
+def _get_templates() -> Jinja2Templates:
+    global _templates
+
+    if _templates is not None:
+        return _templates
+
+    if Jinja2Templates is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Template rendering dependency missing. Install runtime dependency 'jinja2'.",
+        )
+
+    _templates = Jinja2Templates(directory=_TEMPLATE_DIRECTORY)
+    return _templates
+
+
+def _seed_from_request_id(request_id: str) -> int:
+    # RenderRequest caps seeds at signed 32-bit integer max.
+    # Masking with 0x7FFFFFFF deterministically keeps the value in-range.
+    return int(request_id[:8], 16) & _MAX_RENDER_SEED
 
 
 def _call_ollama(prompt: str) -> str | None:
