@@ -78,7 +78,7 @@ class RenderRequest(BaseModel):
         if not isinstance(data, dict):
             return data
 
-        if "video" in data and "audio" in data:
+        if "video" in data or "audio" in data:
             return data
 
         upgraded = dict(data)
